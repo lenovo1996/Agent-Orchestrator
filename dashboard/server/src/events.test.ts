@@ -98,7 +98,6 @@ describe('setupSocketEvents', () => {
     tmpDir = createTmpDir();
     config = {
       taskFlowsDir: tmpDir,
-      parallelStatusPath: path.join(tmpDir, 'parallel-status.json'),
     };
   });
 
@@ -107,7 +106,7 @@ describe('setupSocketEvents', () => {
   });
 
   describe('state:init on connection', () => {
-    it('should send state:init with flows and parallelStatus when client connects', () => {
+    it('should send state:init with flows when client connects', () => {
       // Setup a valid flow
       const flowDir = path.join(tmpDir, 'flow_001');
       fs.mkdirSync(flowDir);
@@ -116,16 +115,6 @@ describe('setupSocketEvents', () => {
         JSON.stringify(makeWorkflow({ flowId: 'flow_001' })),
       );
 
-      // Setup parallel-status.json
-      const parallelStatus = {
-        maxConcurrency: 3,
-        running: [],
-        queue: [],
-        completed: [],
-        lastUpdated: '2025-01-01T00:00:00.000Z',
-      };
-      fs.writeFileSync(config.parallelStatusPath, JSON.stringify(parallelStatus));
-
       const { io, simulateConnect } = createMockIo();
       setupSocketEvents(io as any, config);
 
@@ -133,7 +122,6 @@ describe('setupSocketEvents', () => {
 
       expect(socket.emit).toHaveBeenCalledWith('state:init', {
         flows: { flow_001: expect.objectContaining({ flowId: 'flow_001' }) },
-        parallelStatus: expect.objectContaining({ maxConcurrency: 3 }),
       });
     });
 
@@ -145,21 +133,7 @@ describe('setupSocketEvents', () => {
 
       expect(socket.emit).toHaveBeenCalledWith('state:init', {
         flows: {},
-        parallelStatus: expect.objectContaining({ running: [], queue: [], completed: [] }),
       });
-    });
-
-    it('should send default parallelStatus when file does not exist', () => {
-      const { io, simulateConnect } = createMockIo();
-      setupSocketEvents(io as any, config);
-
-      const socket = simulateConnect();
-
-      const call = socket.emit.mock.calls.find(
-        (c: unknown[]) => c[0] === 'state:init',
-      );
-      expect(call).toBeDefined();
-      expect(call![1].parallelStatus.maxConcurrency).toBe(0);
     });
   });
 
@@ -184,7 +158,6 @@ describe('setupSocketEvents', () => {
 
       expect(socket.emit).toHaveBeenCalledWith('state:init', {
         flows: { flow_002: expect.objectContaining({ flowId: 'flow_002', jiraKey: 'RESYNC-1' }) },
-        parallelStatus: expect.any(Object),
       });
     });
   });
@@ -267,23 +240,6 @@ describe('setupSocketEvents', () => {
         content: '# Result',
         metadata,
       });
-    });
-
-    it('should broadcast parallel:updated when watcher emits parallel-updated', () => {
-      const watcher = new EventEmitter();
-      const { io } = createMockIo();
-      setupSocketEvents(io as any, config, watcher);
-
-      const status = {
-        maxConcurrency: 5,
-        running: [],
-        queue: [],
-        completed: [],
-        lastUpdated: '2025-06-01T00:00:00.000Z',
-      };
-      watcher.emit('parallel-updated', status);
-
-      expect(io.emit).toHaveBeenCalledWith('parallel:updated', status);
     });
 
     it('should work without watcher (watcher is optional)', () => {

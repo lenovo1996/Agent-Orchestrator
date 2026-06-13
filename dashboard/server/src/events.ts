@@ -6,30 +6,10 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   StateInitPayload,
-  ParallelStatus,
 } from '@devteam-dashboard/shared';
 
 export interface EventsConfig {
   taskFlowsDir: string;
-  parallelStatusPath: string;
-}
-
-/**
- * Read parallel-status.json safely. Returns a default empty status on any error.
- */
-function readParallelStatus(filePath: string): ParallelStatus {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw) as ParallelStatus;
-  } catch {
-    return {
-      maxConcurrency: 0,
-      running: [],
-      queue: [],
-      completed: [],
-      lastUpdated: new Date().toISOString(),
-    };
-  }
 }
 
 /**
@@ -37,8 +17,7 @@ function readParallelStatus(filePath: string): ParallelStatus {
  */
 function buildStatePayload(config: EventsConfig): StateInitPayload {
   const flows = listAllFlows(config.taskFlowsDir);
-  const parallelStatus = readParallelStatus(config.parallelStatusPath);
-  return { flows, parallelStatus };
+  return { flows };
 }
 
 /**
@@ -98,10 +77,6 @@ export function setupSocketEvents(
 
     watcher.on('output-updated', (flowId: string, step, content: string, metadata) => {
       io.emit('output:updated', { flowId, step, content, metadata });
-    });
-
-    watcher.on('parallel-updated', (status) => {
-      io.emit('parallel:updated', status);
     });
   }
 }

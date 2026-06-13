@@ -1,5 +1,4 @@
 import type { WorkflowState, FlowStatus } from '@devteam-dashboard/shared';
-import { Badge } from '@/components/ui/badge';
 import { StepIndicator } from './StepIndicator';
 import { formatElapsedTime } from '@/lib/format';
 import { STEP_DISPLAY_NAMES } from '@/lib/constants';

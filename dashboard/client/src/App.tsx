@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
-import { ParallelOverview } from './components/parallel/ParallelOverview';
 import { FlowList } from './components/flow/FlowList';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { FlowActions } from './components/agent/FlowActions';

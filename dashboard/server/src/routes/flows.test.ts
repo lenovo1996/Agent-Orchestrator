@@ -19,7 +19,6 @@ function createMockConfig(taskFlowsDir: string): DashboardConfig {
     corsOrigin: '*',
     taskFlowsDir,
     scriptDir: path.join(taskFlowsDir, '..', 'scripts'),
-    parallelStatusPath: path.join(taskFlowsDir, '..', 'parallel-status.json'),
     clientDistPath: '/tmp/client-dist',
     isProduction: false,
   };

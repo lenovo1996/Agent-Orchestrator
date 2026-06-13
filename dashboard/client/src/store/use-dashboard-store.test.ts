@@ -22,7 +22,6 @@ describe('useDashboardStore selection', () => {
     useDashboardStore.setState({
       connected: false,
       flows: {},
-      parallelStatus: null,
       selectedFlowId: null,
       selectedStep: null,
       logBuffers: {},
