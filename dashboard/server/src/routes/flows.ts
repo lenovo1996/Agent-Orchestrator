@@ -211,12 +211,30 @@ export function flowsRouter(config: DashboardConfig): Router {
    * Start a new workflow with optional jira key and custom prompt.
    * Body: { jiraKey?: string, customPrompt?: string, workflowId?: string }
    */
-  router.post('/flows/start', (req, res) => {
+  router.post('/flows/start', async (req, res) => {
     const { jiraKey = '', customPrompt = '', workflowId = '' } = req.body as { jiraKey?: string; customPrompt?: string, workflowId?: string };
 
     if (!jiraKey && !customPrompt) {
       res.status(400).json({ error: 'Either jiraKey or customPrompt is required' });
       return;
+    }
+
+    let customSteps: string[] | null = null;
+    if (workflowId) {
+      try {
+        const { db } = await import('../db.js');
+        const row: any = await new Promise((resolve, reject) => {
+          db.get('SELECT steps FROM workflows WHERE id = ?', [workflowId], (err, row) => {
+            if (err) reject(err);
+            else resolve(row);
+          });
+        });
+        if (row && row.steps) {
+          customSteps = JSON.parse(row.steps);
+        }
+      } catch (e) {
+        console.error('Failed to load custom workflow steps:', e);
+      }
     }
 
     try {
@@ -226,8 +244,8 @@ export function flowsRouter(config: DashboardConfig): Router {
       // Start workflow via orchestrator
       const args = ['start'];
 
-      if (workflowId) {
-        args.push('--workflow', workflowId);
+      if (customSteps && customSteps.length > 0) {
+        args.push('--steps', customSteps.join(','));
       }
 
       if (jiraKey && customPrompt) {

@@ -64,7 +64,7 @@ function sanitizeFlowSuffix(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
+function startWorkflow(jiraKey = '', customPrompt = '', stepsArg = '') {
   const timestamp = formatTimestampYmdHis();
   const suffix = sanitizeFlowSuffix(jiraKey);
   const flowId = suffix ? `flow_${timestamp}_${suffix}` : `flow_${timestamp}`;
@@ -88,40 +88,18 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
     flowId,
     jiraKey,
     customPrompt,
-    workflowId,
     status: 'running',
     currentStep: 'clarifier',
     startedAt: new Date().toISOString(),
     steps: {}
   };
 
-  // If workflowId is provided, fetch steps from sqlite
   let customSteps = null;
-  if (workflowId) {
-    try {
-      const dbPath = path.resolve(REPO_ROOT, 'workflows.db');
-      if (fs.existsSync(dbPath)) {
-        const { execSync } = require('child_process');
-        const dashboardPath = path.resolve(REPO_ROOT, 'dashboard/node_modules');
-        const script = `
-          const sqlite3 = require('${path.join(dashboardPath, 'sqlite3')}');
-          const db = new sqlite3.Database('${dbPath.replace(/\\/g, '\\\\')}');
-          db.get('SELECT steps FROM workflows WHERE id = ?', ['${workflowId}'], (err, row) => {
-            if (row) console.log(row.steps);
-            db.close();
-          });
-        `;
-        const res = execSync(`node -e "${script.replace(/"/g, '\\"')}"`, { encoding: 'utf8' }).trim();
-        if (res) {
-          customSteps = JSON.parse(res);
-        }
-      }
-    } catch (e) {
-      console.error(`⚠️ Failed to load custom workflow steps for ${workflowId}:`, e.message);
-    }
+  if (stepsArg) {
+    customSteps = stepsArg.split(',').map(s => s.trim()).filter(Boolean);
   }
 
-  if (customSteps) {
+  if (customSteps && customSteps.length > 0) {
     workflow.stepOrder = customSteps;
   }
 
@@ -495,13 +473,13 @@ try {
   switch (command) {
     case 'start': {
       // Supports:
-      //   orchestrator.js start [--workflow <id>] <jira-key> [custom-prompt]
-      //   orchestrator.js start [--workflow <id>] "" <custom-prompt>
-      //   orchestrator.js start [--workflow <id>] --prompt <custom-prompt>
-      let workflowId = '';
+      //   orchestrator.js start [--steps <steps>] <jira-key> [custom-prompt]
+      //   orchestrator.js start [--steps <steps>] "" <custom-prompt>
+      //   orchestrator.js start [--steps <steps>] --prompt <custom-prompt>
+      let stepsArg = '';
       let i = 0;
-      if (args[0] === '--workflow') {
-        workflowId = args[1];
+      if (args[0] === '--steps') {
+        stepsArg = args[1];
         i = 2;
       }
 
@@ -512,11 +490,11 @@ try {
         customPrompt = args[i+1] || '';
       }
       if (!jiraKey && !customPrompt) {
-        console.error('Usage: orchestrator.js start [--workflow <id>] [jira-key] [custom-prompt]');
-        console.error('   or: orchestrator.js start [--workflow <id>] --prompt <custom-prompt>');
+        console.error('Usage: orchestrator.js start [--steps <steps>] [jira-key] [custom-prompt]');
+        console.error('   or: orchestrator.js start [--steps <steps>] --prompt <custom-prompt>');
         process.exit(1);
       }
-      startWorkflow(jiraKey, customPrompt, workflowId);
+      startWorkflow(jiraKey, customPrompt, stepsArg);
       break;
     }
 
