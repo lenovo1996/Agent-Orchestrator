@@ -9,11 +9,21 @@ const { parseStepTokens, formatTokens } = require('../utils/token-tracker');
 
 const SCRIPT_DIR = path.resolve(__dirname);
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
-const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
+const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
 
-const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
+
+function _getSteps(flowId) {
+  let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+  try {
+    const workflow = loadWorkflow(flowId);
+    stepsToUse = getSteps(workflow);
+  } catch (e) {}
+  return stepsToUse;
+}
+
 const MAX_RETRIES = 1; // Auto-retry once on failure
 const MAX_NEEDS_FIX = 5; // Max NEEDS_FIX iterations before blocking workflow
 
@@ -116,8 +126,9 @@ function getWorkflowState(flowId) {
   // Check which outputs exist and parse their status
   const outputs = {};
   const statuses = {};
+  const stepsToUse = _getSteps(flowId);
 
-  STEPS.forEach(step => {
+  stepsToUse.forEach(step => {
     const member = TEAM_CONFIG.members[step];
     const outputFile = path.join(workDir, member.outputs[0]);
     outputs[step] = fs.existsSync(outputFile);
@@ -200,11 +211,12 @@ function spawnStep(flowId, step, isRetry = false) {
   // --- Sequential guard: ensure no previous step is still running ---
   // Only block if a previous step has a live PID AND its status is not yet 'done'
   // (output file may be written before wrapper fully exits)
-  const stepIdx = STEPS.indexOf(step);
+  const stepsToUse = _getSteps(flowId);
+  const stepIdx = stepsToUse.indexOf(step);
   const state2 = getWorkflowState(flowId);
   if (state2) {
     for (let i = 0; i < stepIdx; i++) {
-      const prevStep = STEPS[i];
+      const prevStep = stepsToUse[i];
       // If the step is already marked done (output confirmed), allow spawn even if PID lingers
       if (state2.statuses[prevStep] === 'DONE' || state2.workflow.steps[prevStep] === 'done') {
         continue;
@@ -278,9 +290,10 @@ function watchWorkflow(flowId, interval = 5000) {
     }
 
     const { workflow, outputs, statuses, workDir } = state;
+    const stepsToUse = _getSteps(flowId);
 
     // Check each step for status changes
-    STEPS.forEach((step, idx) => {
+    stepsToUse.forEach((step, idx) => {
       const currentStatus = statuses[step];
       const lastStatus = lastStatuses[step];
 
@@ -351,7 +364,7 @@ function watchWorkflow(flowId, interval = 5000) {
           }
 
           // Spawn next step if exists
-          const nextStep = STEPS[idx + 1];
+          const nextStep = stepsToUse[idx + 1];
           if (nextStep && workflow.steps[nextStep] === 'waiting') {
             if (outputs[nextStep]) {
               const nextStatus = statuses[nextStep];
@@ -424,9 +437,12 @@ function watchWorkflow(flowId, interval = 5000) {
 
           // Reset downstream steps
           const resetSteps = {};
-          const implIndex = STEPS.indexOf('implementer');
-          for (let i = implIndex; i < STEPS.length; i++) {
-            resetSteps[`steps.${STEPS[i]}`] = 'waiting';
+          const stepsToUse = _getSteps(flowId);
+          const implIndex = stepsToUse.indexOf('implementer');
+          if (implIndex >= 0) {
+            for (let i = implIndex; i < stepsToUse.length; i++) {
+              resetSteps[`steps.${stepsToUse[i]}`] = 'waiting';
+            }
           }
           updateWorkflowState(flowId, resetSteps);
 
@@ -580,10 +596,13 @@ function handleNeedsFix(flowId, step) {
   }
 
   // Reset downstream steps
+  const stepsToUse = _getSteps(flowId);
   const resetSteps = {};
-  const implIndex = STEPS.indexOf('implementer');
-  for (let i = implIndex; i < STEPS.length; i++) {
-    resetSteps[`steps.${STEPS[i]}`] = 'waiting';
+  const implIndex = stepsToUse.indexOf('implementer');
+  if (implIndex >= 0) {
+    for (let i = implIndex; i < stepsToUse.length; i++) {
+      resetSteps[`steps.${stepsToUse[i]}`] = 'waiting';
+    }
   }
   updateWorkflowState(flowId, resetSteps);
 
@@ -672,8 +691,9 @@ function watchParallel(interval = 5000) {
 
       const { statuses } = state;
       const prevFlowStatuses = lastStatuses[flowId] || {};
+      const stepsToUse = _getSteps(flowId);
 
-      STEPS.forEach((step) => {
+      stepsToUse.forEach((step) => {
         const currentStatus = statuses[step];
         const lastStatus = prevFlowStatuses[step];
 
@@ -726,7 +746,8 @@ function watchParallel(interval = 5000) {
       lastStatuses[flowId] = { ...statuses };
 
       // Determine if flow completed
-      const lastStep = STEPS[STEPS.length - 1];
+      const stepsToUseLocal = _getSteps(flowId);
+      const lastStep = stepsToUseLocal[stepsToUseLocal.length - 1];
       const lastStepStatus = statuses[lastStep];
       if (lastStepStatus === 'DONE' && !flowResults[flowId]) {
         flowResults[flowId] = { status: 'pass', elapsed: Date.now() - startTime };

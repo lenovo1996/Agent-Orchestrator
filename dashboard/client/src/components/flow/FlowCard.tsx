@@ -62,7 +62,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
 
       {/* Step indicators + Progress */}
       <div className="space-y-2 mb-2.5">
-        <StepIndicator steps={flow.steps} />
+        <StepIndicator steps={flow.steps} stepOrder={flow.stepOrder} />
       </div>
 
       {/* Footer: elapsed time + needsFix */}

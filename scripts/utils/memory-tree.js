@@ -28,10 +28,19 @@ const path = require('path');
 const SCRIPT_DIR = path.resolve(__dirname);
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
-const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, '../team.json'), 'utf8'));
+const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
-const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
 const { parseStepTokens, getFlowTokens, formatTokens, formatFlowSummary } = require('../utils/token-tracker');
+const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
+
+function _getSteps(flowId) {
+  let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+  try {
+    const workflow = loadWorkflow(flowId);
+    stepsToUse = getSteps(workflow);
+  } catch (e) {}
+  return stepsToUse;
+}
 
 // --- Core Functions ---
 
@@ -181,13 +190,14 @@ function loadOrCreateMeta(taskDir, taskId) {
 /**
  * Determine flow status from tree nodes
  */
-function getFlowStatus(tree) {
+function getFlowStatus(tree, flowId) {
   const nodes = tree.nodes || {};
   const statuses = Object.values(nodes).map(n => n.status);
   if (statuses.includes('FAILED')) return 'failed';
   if (statuses.includes('BLOCKED')) return 'blocked';
   // Check if all nodes are DONE (handles both old 7-step and new 5-step flows)
-  if (statuses.length >= STEPS.length && statuses.every(s => s === 'DONE')) return 'completed';
+  const stepsToUse = flowId ? _getSteps(flowId) : ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+  if (statuses.length >= stepsToUse.length && statuses.every(s => s === 'DONE')) return 'completed';
   return 'in_progress';
 }
 
@@ -414,7 +424,8 @@ function generateActiveContext(flowId, targetStep) {
   }
 
   const tree = JSON.parse(fs.readFileSync(treePath, 'utf8'));
-  const stepIndex = STEPS.indexOf(targetStep);
+  const stepsToUse = _getSteps(flowId);
+  const stepIndex = stepsToUse.indexOf(targetStep);
 
   if (stepIndex < 0) {
     console.error(`❌ Unknown step: ${targetStep}`);
@@ -473,7 +484,7 @@ function generateActiveContext(flowId, targetStep) {
   // Collect prior steps info from CURRENT flow
   const priorNodes = [];
   for (let i = 0; i < stepIndex; i++) {
-    const s = STEPS[i];
+    const s = stepsToUse[i];
     if (tree.nodes[s] && tree.nodes[s].status === 'DONE') {
       priorNodes.push(tree.nodes[s]);
     }
@@ -543,7 +554,7 @@ function generateActiveContext(flowId, targetStep) {
 
   // Pipeline progress
   md += `## Pipeline Progress\n\n`;
-  STEPS.forEach((s, i) => {
+  stepsToUse.forEach((s, i) => {
     const node = tree.nodes[s];
     if (i < stepIndex) {
       const status = node ? (node.status === 'DONE' ? '✓' : '✗') : '—';
@@ -580,6 +591,8 @@ function showStatus(flowId) {
   }
 
   const tree = JSON.parse(fs.readFileSync(treePath, 'utf8'));
+  const stepsToUse = _getSteps(flowId);
+
   console.log(`📊 Memory Tree: ${tree.task_id} (${tree.flow_id})`);
   console.log(`   Updated: ${tree.updated_at}`);
   if (tree.tokens_total) {
@@ -587,7 +600,7 @@ function showStatus(flowId) {
   }
   console.log('');
 
-  STEPS.forEach(s => {
+  stepsToUse.forEach(s => {
     const node = tree.nodes[s];
     if (node) {
       const icon = node.status === 'DONE' ? '✅' : node.status === 'FAILED' ? '❌' : '⚠️';

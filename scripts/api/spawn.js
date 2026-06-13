@@ -33,8 +33,8 @@ async function main() {
   }
 
   const SKILL_DIR = path.resolve(__dirname, '..');
-  const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
   const repoRoot = path.resolve(SKILL_DIR, '..');
+  const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(repoRoot, 'team.json'), 'utf8'));
   const outputRoot = path.resolve(repoRoot, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
   const workDir = path.join(outputRoot, flowId);
 
@@ -64,12 +64,13 @@ async function main() {
   }
 
   // Build previous outputs list
-  const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
-  const stepIndex = STEPS.indexOf(step);
+  const { getSteps } = require('../orchestrator/workflow-manager');
+  const stepsToUse = getSteps(workflow);
+  const stepIndex = stepsToUse.indexOf(step);
   const prevOutputs = [];
 
   for (let i = 0; i < stepIndex; i++) {
-    const prevStep = STEPS[i];
+    const prevStep = stepsToUse[i];
     const prevMember = TEAM_CONFIG.members[prevStep];
     const prevFile = path.join(workDir, prevMember.outputs[0]);
     if (fs.existsSync(prevFile)) {
@@ -207,10 +208,10 @@ async function main() {
   console.log('');
 
   const nextStepIndex = stepIndex + 1;
-  if (nextStepIndex < STEPS.length) {
+  if (nextStepIndex < stepsToUse.length) {
     console.log('Next steps will auto-spawn when current step completes.');
     console.log('Or manually spawn next step:');
-    console.log(`  node ${__filename} ${flowId} ${STEPS[nextStepIndex]}`);
+    console.log(`  node ${__filename} ${flowId} ${stepsToUse[nextStepIndex]}`);
   } else {
     console.log('This is the final step.');
   }

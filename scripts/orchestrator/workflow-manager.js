@@ -6,7 +6,11 @@ const SKILL_DIR = path.dirname(SCRIPT_DIR);
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
-const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+const DEFAULT_STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+
+function getSteps(workflow) {
+  return workflow?.stepOrder || DEFAULT_STEPS;
+}
 
 function loadWorkflow(flowId) {
   const workDir = path.join(OUTPUT_ROOT, flowId);
@@ -32,12 +36,13 @@ function getWorkflowState(flowId) {
   }
 
   const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
+  const steps = getSteps(workflow);
 
   // Check which outputs exist and parse their status
   const outputs = {};
   const statuses = {};
 
-  STEPS.forEach(step => {
+  steps.forEach(step => {
     const member = TEAM_CONFIG.members[step];
     const outputFile = path.join(workDir, member.outputs[0]);
     outputs[step] = fs.existsSync(outputFile);
@@ -106,7 +111,8 @@ function updateWorkflowState(flowId, updates) {
 
 module.exports = {
   OUTPUT_ROOT,
-  STEPS,
+  STEPS: DEFAULT_STEPS,
+  getSteps,
   TEAM_CONFIG,
   loadWorkflow,
   saveWorkflow,

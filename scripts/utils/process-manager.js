@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { OUTPUT_ROOT, STEPS } = require('./workflow-manager');
+const { OUTPUT_ROOT, loadWorkflow, getSteps } = require('./workflow-manager');
 
 // --- PID file-based spawn guard ---
 
@@ -84,8 +84,14 @@ function killWorkflowProcesses(flowId) {
   const workDir = path.join(OUTPUT_ROOT, flowId);
   let killedCount = 0;
 
+  let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+  try {
+    const workflow = loadWorkflow(flowId);
+    stepsToUse = getSteps(workflow);
+  } catch (e) {}
+
   // 1. Kill all agent PIDs (.pid.<step> files)
-  STEPS.forEach(step => {
+  stepsToUse.forEach(step => {
     const pidFile = path.join(workDir, `.pid.${step}`);
     if (fs.existsSync(pidFile)) {
       try {

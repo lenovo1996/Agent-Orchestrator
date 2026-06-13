@@ -14,12 +14,11 @@ const fs = require('fs');
 const path = require('path');
 
 const SCRIPT_DIR = path.resolve(__dirname, '..');
-const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
-const REPO_ROOT = path.resolve(SKILL_DIR, '..');
-const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
 
-const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+const { getSteps } = require('./workflow-manager');
 
 /**
  * Staleness threshold for markStaleAfterRetry (3 years in ms).
@@ -37,9 +36,10 @@ const STALE_THRESHOLD_MS = 3 * 365 * 24 * 60 * 60 * 1000;
  * @param {string} step - The current step name
  */
 function resetDownstream(workflow, step) {
-  const idx = STEPS.indexOf(step);
-  for (let i = idx + 1; i < STEPS.length; i++) {
-    workflow.steps[STEPS[i]] = 'waiting';
+  const stepsToUse = getSteps(workflow);
+  const idx = stepsToUse.indexOf(step);
+  for (let i = idx + 1; i < stepsToUse.length; i++) {
+    workflow.steps[stepsToUse[i]] = 'waiting';
   }
 }
 
@@ -79,11 +79,6 @@ function markStaleAfterRetry(workflow, step) {
  * @returns {{ workDir: string, member: object, outputFile: string }}
  */
 function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } = {}) {
-  // Validate step
-  if (!STEPS.includes(step)) {
-    throw new Error(`Invalid step: "${step}" is not in STEPS. Valid steps: ${STEPS.join(', ')}`);
-  }
-
   // Resolve paths
   const workDir = path.join(OUTPUT_ROOT, flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
@@ -94,6 +89,12 @@ function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } =
   }
 
   const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
+  const stepsToUse = getSteps(workflow);
+
+  // Validate step
+  if (!stepsToUse.includes(step)) {
+    throw new Error(`Invalid step: "${step}". Valid steps: ${stepsToUse.join(', ')}`);
+  }
 
   // Mutate state
   workflow.steps[step] = 'running';
@@ -132,9 +133,9 @@ function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } =
   }
 
   // Backup and clear downstream step outputs so watcher can re-spawn them
-  const idx = STEPS.indexOf(step);
-  for (let i = idx + 1; i < STEPS.length; i++) {
-    const downstreamMember = TEAM_CONFIG.members[STEPS[i]];
+  const idx = stepsToUse.indexOf(step);
+  for (let i = idx + 1; i < stepsToUse.length; i++) {
+    const downstreamMember = TEAM_CONFIG.members[stepsToUse[i]];
     const downstreamOutput = path.join(workDir, downstreamMember.outputs[0]);
     if (fs.existsSync(downstreamOutput)) {
       const backupPath = downstreamOutput + '.bak-' + Date.now();
@@ -154,6 +155,5 @@ function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } =
 module.exports = {
   prepareRetry,
   resetDownstream,
-  markStaleAfterRetry,
-  STEPS
+  markStaleAfterRetry
 };

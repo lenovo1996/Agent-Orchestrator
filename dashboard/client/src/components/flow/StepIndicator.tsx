@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 
 interface StepIndicatorProps {
   steps: Record<AgentStep, StepStatus>;
+  stepOrder?: string[];
 }
 
 const DOT_COLORS: Record<StepStatus, string> = {
@@ -18,16 +19,17 @@ const DOT_COLORS: Record<StepStatus, string> = {
   unknown: 'bg-gray-500',
 };
 
-export function StepIndicator({ steps }: StepIndicatorProps) {
+export function StepIndicator({ steps, stepOrder }: StepIndicatorProps) {
+  const activeSteps = stepOrder || AGENT_STEPS;
   return (
     <div className="flex items-center gap-1">
-      {AGENT_STEPS.map((step, idx) => (
+      {activeSteps.map((step, idx) => (
         <div key={step} className="flex items-center">
           <div
             className={cn('h-2 w-2 rounded-full transition-colors', DOT_COLORS[steps[step]] || 'bg-gray-600')}
-            title={`${STEP_DISPLAY_NAMES[step]}: ${steps[step]}`}
+            title={`${STEP_DISPLAY_NAMES[step] || step}: ${steps[step]}`}
           />
-          {idx < AGENT_STEPS.length - 1 && (
+          {idx < activeSteps.length - 1 && (
             <div className={cn(
               'h-px w-2 mx-0.5',
               steps[step] === 'done' ? 'bg-emerald-500/50' : 'bg-border'

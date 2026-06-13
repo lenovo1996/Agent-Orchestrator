@@ -154,16 +154,16 @@ export function AgentPanel() {
             </tr>
           </thead>
           <tbody className="text-xs">
-            {AGENT_STEPS.map((step) => {
+            {(flow.stepOrder || AGENT_STEPS).map((step) => {
               const status = flow.steps[step];
               const tokens = perStep[step] ?? 0;
               const retryCount = flow.retries?.[step] ?? 0;
               const needsFixCount = flow.needsFixCount?.[step] ?? 0;
               const isSelected = selectedStep === step;
-              const outputFile = OUTPUT_FILE_MAP[step];
+              const outputFile = OUTPUT_FILE_MAP[step] || `${step}.md`;
               const config = STATUS_CONFIG[status];
 
-              let info = `${STEP_INFO[step]}: ${flow.jiraKey}`;
+              let info = `${STEP_INFO[step] || step}: ${flow.jiraKey}`;
               if (retryCount > 0) info += ` (retry: ${retryCount})`;
               if (needsFixCount > 0) info += ` [fix: ${needsFixCount}]`;
 

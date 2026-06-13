@@ -7,6 +7,6 @@
     "test": "node --test test/**/*.test.js"
   },
   "devDependencies": {
-    "fast-check": "^3.22.0"
+    "fast-check": "^3.23.2"
   }
 }

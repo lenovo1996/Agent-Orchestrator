@@ -5,13 +5,13 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const { prepareRetry } = require('../orchestrator/retry-flow');
-const { ParallelScheduler } = require('../orchestrator/parallel-scheduler');
-const { detectRepos } = require('../orchestrator/repo-detector');
+const { ParallelScheduler } = require('../worktree/parallel-scheduler');
+const { detectRepos } = require('../worktree/repo-detector');
 const { initTree } = require('../utils/memory-tree');
 
 const SKILL_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
-const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
+const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
 
 // Worktree parallel scheduling configuration
@@ -27,7 +27,7 @@ if (WORKTREE_CONFIG.enabled) {
 }
 
 // Step order
-const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+const { STEPS: DEFAULT_STEPS, getSteps } = require('./workflow-manager');
 
 function loadWorkflow(flowId) {
   const workDir = path.join(OUTPUT_ROOT, flowId);
@@ -64,7 +64,7 @@ function sanitizeFlowSuffix(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-function startWorkflow(jiraKey = '', customPrompt = '') {
+function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
   const timestamp = formatTimestampYmdHis();
   const suffix = sanitizeFlowSuffix(jiraKey);
   const flowId = suffix ? `flow_${timestamp}_${suffix}` : `flow_${timestamp}`;
@@ -88,14 +88,48 @@ function startWorkflow(jiraKey = '', customPrompt = '') {
     flowId,
     jiraKey,
     customPrompt,
+    workflowId,
     status: 'running',
     currentStep: 'clarifier',
     startedAt: new Date().toISOString(),
     steps: {}
   };
 
-  STEPS.forEach(step => {
-    workflow.steps[step] = step === 'clarifier' ? 'pending' : 'waiting';
+  // If workflowId is provided, fetch steps from sqlite
+  let customSteps = null;
+  if (workflowId) {
+    try {
+      const dbPath = path.resolve(REPO_ROOT, 'workflows.db');
+      if (fs.existsSync(dbPath)) {
+        const { execSync } = require('child_process');
+        const dashboardPath = path.resolve(REPO_ROOT, 'dashboard/node_modules');
+        const script = `
+          const sqlite3 = require('${path.join(dashboardPath, 'sqlite3')}');
+          const db = new sqlite3.Database('${dbPath.replace(/\\/g, '\\\\')}');
+          db.get('SELECT steps FROM workflows WHERE id = ?', ['${workflowId}'], (err, row) => {
+            if (row) console.log(row.steps);
+            db.close();
+          });
+        `;
+        const res = execSync(`node -e "${script.replace(/"/g, '\\"')}"`, { encoding: 'utf8' }).trim();
+        if (res) {
+          customSteps = JSON.parse(res);
+        }
+      }
+    } catch (e) {
+      console.error(`⚠️ Failed to load custom workflow steps for ${workflowId}:`, e.message);
+    }
+  }
+
+  if (customSteps) {
+    workflow.stepOrder = customSteps;
+  }
+
+  const stepsToUse = workflow.stepOrder || DEFAULT_STEPS;
+  workflow.currentStep = stepsToUse[0];
+
+  stepsToUse.forEach((step, idx) => {
+    workflow.steps[step] = idx === 0 ? 'pending' : 'waiting';
   });
 
   saveWorkflow(flowId, workflow);
@@ -103,25 +137,28 @@ function startWorkflow(jiraKey = '', customPrompt = '') {
   console.log(`✅ Workflow started: ${flowId}`);
   console.log(`📁 Work dir: ${workDir}`);
 
-  // Auto-spawn clarifier via canonical path
-  const spawnScript = path.join(__dirname, 'api/spawn.js');
-  const child = spawn(process.execPath, [spawnScript, flowId, 'clarifier'], {
+  // Auto-spawn first step via canonical path
+  const spawnScript = path.join(__dirname, '../api/spawn.js');
+  const firstStep = workflow.currentStep;
+  const child = spawn(process.execPath, [spawnScript, flowId, firstStep], {
     stdio: 'inherit'
   });
   child.on('exit', (code) => {
     if (code !== 0) {
-      console.error(`❌ Failed to spawn clarifier (exit code: ${code})`);
+      console.error(`❌ Failed to spawn ${firstStep} (exit code: ${code})`);
     }
   });
 
-  workflow.steps.clarifier = 'running';
+  workflow.steps[firstStep] = 'running';
   saveWorkflow(flowId, workflow);
 
   return flowId;
 }
 
 function retryStep(flowId, step, clearOutput = false) {
-  if (!STEPS.includes(step)) {
+  const workflow = loadWorkflow(flowId);
+  const stepsToUse = getSteps(workflow);
+  if (!stepsToUse.includes(step)) {
     throw new Error(`Invalid step: ${step}`);
   }
 
@@ -135,7 +172,7 @@ function retryStep(flowId, step, clearOutput = false) {
   }
 
   // Spawn via canonical path — actually starts agent process
-  const spawnScript = path.join(__dirname, 'api/spawn.js');
+  const spawnScript = path.join(__dirname, '../api/spawn.js');
   const child = spawn(process.execPath, [spawnScript, flowId, step], {
     stdio: 'inherit'
   });
@@ -151,14 +188,15 @@ function retryStep(flowId, step, clearOutput = false) {
 
 function resumeWorkflow(flowId, step) {
   const workflow = loadWorkflow(flowId);
+  const stepsToUse = getSteps(workflow);
 
-  if (!STEPS.includes(step)) {
-    throw new Error(`Invalid step: ${step}. Valid steps: ${STEPS.join(', ')}`);
+  if (!stepsToUse.includes(step)) {
+    throw new Error(`Invalid step: ${step}. Valid steps: ${stepsToUse.join(', ')}`);
   }
 
   // Guard: check if workflow was created with old step structure
   const workflowStepKeys = Object.keys(workflow.steps);
-  const hasOldSteps = workflowStepKeys.some(s => !STEPS.includes(s));
+  const hasOldSteps = workflowStepKeys.some(s => !stepsToUse.includes(s));
   if (hasOldSteps) {
     throw new Error(`Flow ${flowId} uses old step structure (${workflowStepKeys.join(', ')}). Cannot resume — start a new flow instead.`);
   }
@@ -167,7 +205,7 @@ function resumeWorkflow(flowId, step) {
   console.log(`📍 Step: ${step}`);
 
   // Spawn via canonical path
-  const spawnScript = path.join(__dirname, 'api/spawn.js');
+  const spawnScript = path.join(__dirname, '../api/spawn.js');
   const child = spawn(process.execPath, [spawnScript, flowId, step], {
     stdio: 'inherit'
   });
@@ -189,10 +227,11 @@ function stopWorkflow(flowId) {
   console.log(`🛑 Stopping workflow: ${flowId}`);
 
   let killedCount = 0;
+  const stepsToUse = getSteps(workflow);
 
   // 1. Kill all agent PIDs (.pid.<step> files)
   // Use negative PID to kill entire process group (wrapper + kiro-cli/codex children)
-  STEPS.forEach(step => {
+  stepsToUse.forEach(step => {
     const pidFile = path.join(workDir, `.pid.${step}`);
     if (fs.existsSync(pidFile)) {
       try {
@@ -291,7 +330,7 @@ function stopWorkflow(flowId) {
   // 5. Update workflow status
   workflow.status = 'stopped';
   workflow.stoppedAt = new Date().toISOString();
-  STEPS.forEach(step => {
+  stepsToUse.forEach(step => {
     if (workflow.steps[step] === 'running' || workflow.steps[step] === 'pending') {
       workflow.steps[step] = 'cancelled';
     }
@@ -342,7 +381,7 @@ function statusWorkflow(flowId) {
 function scheduleImplementer(flowId, repo) {
   if (!WORKTREE_CONFIG.enabled) {
     console.log(`⚠️  Worktree mode disabled, falling back to direct spawn`);
-    const spawnScript = path.join(__dirname, 'api/spawn.js');
+    const spawnScript = path.join(__dirname, '../api/spawn.js');
     const child = spawn(process.execPath, [spawnScript, flowId, 'implementer'], {
       stdio: 'inherit'
     });
@@ -366,7 +405,7 @@ function scheduleImplementer(flowId, repo) {
     console.log(`   Repo: ${repo}`);
 
     // Spawn the agent process
-    const spawnScript = path.join(__dirname, 'api/spawn.js');
+    const spawnScript = path.join(__dirname, '../api/spawn.js');
     const child = spawn(process.execPath, [spawnScript, flowId, 'implementer'], {
       stdio: 'inherit'
     });
@@ -456,21 +495,28 @@ try {
   switch (command) {
     case 'start': {
       // Supports:
-      //   orchestrator.js start <jira-key> [custom-prompt]
-      //   orchestrator.js start "" <custom-prompt>
-      //   orchestrator.js start --prompt <custom-prompt>
-      let jiraKey = args[0] || '';
-      let customPrompt = args[1] || '';
-      if (args[0] === '--prompt') {
+      //   orchestrator.js start [--workflow <id>] <jira-key> [custom-prompt]
+      //   orchestrator.js start [--workflow <id>] "" <custom-prompt>
+      //   orchestrator.js start [--workflow <id>] --prompt <custom-prompt>
+      let workflowId = '';
+      let i = 0;
+      if (args[0] === '--workflow') {
+        workflowId = args[1];
+        i = 2;
+      }
+
+      let jiraKey = args[i] || '';
+      let customPrompt = args[i+1] || '';
+      if (args[i] === '--prompt') {
         jiraKey = '';
-        customPrompt = args[1] || '';
+        customPrompt = args[i+1] || '';
       }
       if (!jiraKey && !customPrompt) {
-        console.error('Usage: orchestrator.js start [jira-key] [custom-prompt]');
-        console.error('   or: orchestrator.js start --prompt <custom-prompt>');
+        console.error('Usage: orchestrator.js start [--workflow <id>] [jira-key] [custom-prompt]');
+        console.error('   or: orchestrator.js start [--workflow <id>] --prompt <custom-prompt>');
         process.exit(1);
       }
-      startWorkflow(jiraKey, customPrompt);
+      startWorkflow(jiraKey, customPrompt, workflowId);
       break;
     }
 
