@@ -81,15 +81,15 @@ function createMockDashboardRoot(): { rootDir: string; taskFlowsDir: string } {
   const libDir = path.join(scriptsDir, 'lib');
   fs.mkdirSync(taskFlowsDir, { recursive: true });
   fs.mkdirSync(scriptsDir, { recursive: true });
-  fs.mkdirSync(libDir, { recursive: true });
+  fs.mkdirSync(libDir, { recursive: true }); fs.mkdirSync(path.join(scriptsDir, 'orchestrator'), { recursive: true }); fs.mkdirSync(path.join(scriptsDir, 'api'), { recursive: true }); fs.mkdirSync(path.join(scriptsDir, 'watcher'), { recursive: true });
 
   fs.writeFileSync(
-    path.join(scriptsDir, 'orchestrator.js'),
+    path.join(scriptsDir, 'orchestrator/index.js'),
     `
 const fs = require('node:fs');
 const path = require('node:path');
 
-const rootDir = path.resolve(__dirname, '../..');
+const rootDir = path.resolve(__dirname, '../../..');
 const flowId = 'flow_test_shellless_start';
 const argsPath = path.join(rootDir, 'orchestrator-args.json');
 fs.writeFileSync(argsPath, JSON.stringify(process.argv.slice(2)));
@@ -102,23 +102,23 @@ console.log('Workflow started: ' + flowId);
   );
 
   fs.writeFileSync(
-    path.join(scriptsDir, 'spawn-via-gateway.js'),
+    path.join(scriptsDir, 'api/spawn.js'),
     `
 const fs = require('node:fs');
 const path = require('node:path');
 
-const rootDir = path.resolve(__dirname, '../..');
+const rootDir = path.resolve(__dirname, '../../..');
 fs.appendFileSync(path.join(rootDir, 'spawn-starts.log'), process.argv.slice(2).join(':') + '\\n');
 `
   );
 
   fs.writeFileSync(
-    path.join(scriptsDir, 'watcher.js'),
+    path.join(scriptsDir, 'watcher/index.js'),
     `
 const fs = require('node:fs');
 const path = require('node:path');
 
-const rootDir = path.resolve(__dirname, '../..');
+const rootDir = path.resolve(__dirname, '../../..');
 const flowId = process.argv[2];
 const mode = process.argv[3] || 'new';
 fs.appendFileSync(path.join(rootDir, 'watcher-starts.log'), mode + ':' + flowId + ':' + process.pid + '\\n');
@@ -129,7 +129,7 @@ if (mode === 'existing') {
   );
 
   fs.writeFileSync(
-    path.join(libDir, 'retry-flow.js'),
+    path.join(scriptsDir, 'orchestrator/retry-flow.js'),
     `
 exports.prepareRetry = function prepareRetry(flowId, step) {
   const fs = require('node:fs');
@@ -383,7 +383,7 @@ describe('flowsRouter', () => {
       fs.mkdirSync(path.join(taskFlowsDir, flowId, 'logs'), { recursive: true });
 
       const app = makeApp(createMockConfig(taskFlowsDir));
-      const watcherScript = path.join(rootDir, '.dev-team', 'scripts', 'watcher.js');
+      const watcherScript = path.join(rootDir, '.dev-team', 'scripts', 'watcher/index.js');
       const existingWatcher = spawn(process.execPath, [watcherScript, flowId, 'existing'], {
         stdio: 'ignore',
       });
