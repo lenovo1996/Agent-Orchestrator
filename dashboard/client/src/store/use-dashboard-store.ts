@@ -42,8 +42,9 @@ export const MAX_LOG_LINES = 1000;
 function getLatestAgentStep(flow: WorkflowState | undefined): AgentStep | null {
   if (!flow) return null;
 
-  for (let i = AGENT_STEPS.length - 1; i >= 0; i--) {
-    const step = AGENT_STEPS[i];
+  const stepsToUse = flow.stepOrder || AGENT_STEPS;
+  for (let i = stepsToUse.length - 1; i >= 0; i--) {
+    const step = stepsToUse[i];
     const status = flow.steps[step];
     if (status && status !== 'waiting') {
       return step;

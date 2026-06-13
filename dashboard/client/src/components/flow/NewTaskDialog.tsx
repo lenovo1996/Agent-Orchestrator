@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import type { CustomWorkflow } from '@devteam-dashboard/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -12,8 +13,19 @@ interface NewTaskDialogProps {
 export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) {
   const [jiraKey, setJiraKey] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
+  const [workflowId, setWorkflowId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
+
+  useEffect(() => {
+    if (open) {
+      fetch(`${API_BASE}/api/workflows`)
+        .then(res => res.json())
+        .then(data => setWorkflows(data))
+        .catch(() => console.error('Failed to load workflows'));
+    }
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +42,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
       const res = await fetch(`${API_BASE}/api/flows/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jiraKey, customPrompt }),
+        body: JSON.stringify({ jiraKey, customPrompt, workflowId }),
       });
 
       const data = await res.json();
@@ -80,6 +92,32 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Workflow Selection */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">
+              Workflow <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <select
+              value={workflowId}
+              onChange={(e) => setWorkflowId(e.target.value)}
+              className={cn(
+                'w-full px-3 py-2 rounded-lg text-sm',
+                'bg-muted/50 border border-border',
+                'text-foreground',
+                'focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500',
+                'transition-colors'
+              )}
+            >
+              <option value="">Default (5 steps)</option>
+              {workflows.map(wf => (
+                <option key={wf.id} value={wf.id}>{wf.name} ({wf.steps.join(' → ')})</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Select a custom workflow or use the default
+            </p>
+          </div>
+
           {/* Jira Key */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">

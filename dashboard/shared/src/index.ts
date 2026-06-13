@@ -1,8 +1,15 @@
 // === Core Domain Types ===
 
-export type AgentStep = 'clarifier' | 'architect' | 'planner' | 'implementer' | 'verifier';
+export type AgentStep = string;
 
 export type StepStatus = 'waiting' | 'pending' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled' | 'retrying' | 'unknown';
+
+export interface CustomWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  steps: string[];
+}
 
 export type FlowStatus = 'running' | 'stopped' | 'failed' | 'blocked' | 'completed';
 
@@ -10,6 +17,8 @@ export interface WorkflowState {
   flowId: string;
   jiraKey: string;
   customPrompt?: string;
+  workflowId?: string;
+  stepOrder?: string[];
   status: FlowStatus;
   currentStep: AgentStep;
   startedAt: string;          // ISO 8601

@@ -357,7 +357,7 @@ describe('flowsRouter', () => {
         const args = JSON.parse(
           fs.readFileSync(path.join(rootDir, 'orchestrator-args.json'), 'utf8')
         );
-        expect(args).toEqual(['start', '', prompt]);
+        expect(args).toEqual(['start', '--prompt', prompt]);
       } finally {
         process.env.PATH = originalPath;
         fs.rmSync(rootDir, { recursive: true, force: true });

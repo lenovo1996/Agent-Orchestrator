@@ -18,6 +18,7 @@ import { FlowActions } from './components/agent/FlowActions';
 import { LogViewer } from './components/log/LogViewer';
 import { OutputPreview } from './components/output/OutputPreview';
 import { NewTaskDialog } from './components/flow/NewTaskDialog';
+import { WorkflowsPage } from './components/workflows/WorkflowsPage';
 import { useSocketEvents } from './hooks/use-socket-events';
 import { useDashboardStore } from './store/use-dashboard-store';
 import { cn } from './lib/utils';
@@ -166,6 +167,7 @@ export default function App() {
 
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const selectFlow = useDashboardStore((s) => s.selectFlow);
+  const [currentView, setCurrentView] = useState<'flows' | 'workflows'>('flows');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -337,10 +339,26 @@ export default function App() {
           `}
         >
           <Sidebar onFlowSelect={() => setSidebarOpen(false)}>
+            {/* Nav */}
+            <div className="flex bg-muted/50 p-1 rounded-md mb-2">
+              <button
+                onClick={() => setCurrentView('flows')}
+                className={cn('flex-1 text-xs py-1.5 font-medium rounded', currentView === 'flows' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                Tasks
+              </button>
+              <button
+                onClick={() => setCurrentView('workflows')}
+                className={cn('flex-1 text-xs py-1.5 font-medium rounded', currentView === 'workflows' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                Workflows
+              </button>
+            </div>
+
             {/* Start New Task Button */}
             <button
               onClick={() => setNewTaskDialogOpen(true)}
-              className="flex items-center justify-center gap-2 w-full px-2 py-2 rounded-md text-sm font-semibold bg-blue-500 text-white border border-blue-600 hover:bg-blue-600 transition-all shadow-lg hover:shadow-xl"
+              className="flex items-center justify-center gap-2 w-full px-2 py-2 rounded-md text-sm font-semibold bg-blue-500 text-white border border-blue-600 hover:bg-blue-600 transition-all shadow-lg hover:shadow-xl mb-4"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -354,7 +372,9 @@ export default function App() {
 
         {/* Content area */}
         <main className="flex flex-1 flex-col overflow-hidden min-w-0">
-          {selectedFlowId ? (
+          {currentView === 'workflows' ? (
+            <WorkflowsPage />
+          ) : selectedFlowId ? (
             expandedContent ? (
               <div className="min-h-0 flex-1 overflow-hidden">
                 {expandedContent}

@@ -122,13 +122,13 @@ export function FlowActions() {
           {/* Retry dropdown — opens UPWARD */}
           {retryOpen && (
             <div className="absolute bottom-full left-0 mb-1 z-50 w-52 rounded-xl border border-border bg-card shadow-xl p-2 space-y-0.5">
-              {AGENT_STEPS.map((step) => (
+              {(flow.stepOrder || AGENT_STEPS).map((step) => (
                 <button
                   key={step}
                   onClick={() => handleRetry(step, true)}
                   className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs hover:bg-accent/50 transition-colors"
                 >
-                  <span className="text-foreground font-medium">{STEP_DISPLAY_NAMES[step]}</span>
+                  <span className="text-foreground font-medium">{STEP_DISPLAY_NAMES[step] || step}</span>
                   <span className={cn(
                     'text-[10px] px-1.5 py-0.5 rounded-full',
                     flow.steps[step] === 'done' && 'bg-emerald-500/10 text-emerald-400',

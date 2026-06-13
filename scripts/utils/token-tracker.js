@@ -21,11 +21,9 @@ const fs = require('fs');
 const path = require('path');
 
 const SCRIPT_DIR = path.resolve(__dirname, '..');
-const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
-const REPO_ROOT = path.resolve(SKILL_DIR, '..');
-const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
-const STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
 
 function stripAnsi(str) {
   return String(str || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
@@ -199,13 +197,20 @@ function getFlowTokens(flowId) {
   const steps = {};
   let flowTotal = 0;
 
-  for (const step of STEPS) {
+  const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
+  let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+  try {
+    const workflow = loadWorkflow(flowId);
+    stepsToUse = getSteps(workflow);
+  } catch (e) {}
+
+  for (const step of stepsToUse) {
     const result = parseStepTokens(flowId, step);
     steps[step] = result;
     flowTotal += result.total;
   }
 
-  return { steps, flowTotal };
+  return { steps, flowTotal, stepsToUse };
 }
 
 /**
@@ -219,13 +224,13 @@ function formatTokens(num) {
  * Generate a summary string for a flow's token usage.
  */
 function formatFlowSummary(flowId) {
-  const { steps, flowTotal } = getFlowTokens(flowId);
+  const { steps, flowTotal, stepsToUse } = getFlowTokens(flowId);
   const lines = [];
 
   lines.push(`📊 Token Usage: ${flowId}`);
   lines.push(`${'─'.repeat(50)}`);
 
-  for (const step of STEPS) {
+  for (const step of stepsToUse) {
     const data = steps[step];
     if (data.total > 0) {
       const retries = data.entries.length > 1 ? ` (${data.entries.length} sessions)` : '';

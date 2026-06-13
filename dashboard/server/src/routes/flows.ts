@@ -5,16 +5,9 @@ import { execFileSync, execSync, spawn } from 'node:child_process';
 import type { DashboardConfig } from '../config.js';
 import type { FlowSummary, AgentStep } from '@devteam-dashboard/shared';
 import { readWorkflowJson, readOutputContent } from '../flow-reader.js';
+import { getOutputFilename } from '../utils.js';
 
 const STEPS: AgentStep[] = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
-
-const OUTPUT_FILE_MAP: Record<string, string> = {
-  clarifier: 'clarify.md',
-  architect: 'architecture.md',
-  planner: 'plan.md',
-  implementer: 'implementation.md',
-  verifier: 'verification.md',
-};
 
 export function flowsRouter(config: DashboardConfig): Router {
   const router = Router();
@@ -70,7 +63,7 @@ export function flowsRouter(config: DashboardConfig): Router {
    */
   router.get('/flows/:flowId/output/:step', (req, res) => {
     const { flowId, step } = req.params;
-    const filename = OUTPUT_FILE_MAP[step];
+    const filename = getOutputFilename(step, config.scriptDir);
 
     if (!filename) {
       res.status(400).json({ error: 'Invalid step' });
@@ -106,11 +99,14 @@ export function flowsRouter(config: DashboardConfig): Router {
       return;
     }
 
+    const workflow = readWorkflowJson(flowDir);
+    const stepsToUse = workflow?.stepOrder || STEPS;
+
     const tokens: Record<string, number> = {};
     const outputTimes: Record<string, string | null> = {};
     let total = 0;
 
-    for (const step of STEPS) {
+    for (const step of stepsToUse) {
       // Parse tokens from log
       const logPath = path.join(flowDir, 'logs', `${step}.log`);
       if (!fs.existsSync(logPath)) {
@@ -127,7 +123,7 @@ export function flowsRouter(config: DashboardConfig): Router {
       }
 
       // Get output file mtime (completion time for each step)
-      const outputFilename = OUTPUT_FILE_MAP[step];
+      const outputFilename = getOutputFilename(step, config.scriptDir);
       if (outputFilename) {
         const outputPath = path.join(flowDir, 'output', outputFilename);
         try {
@@ -151,11 +147,6 @@ export function flowsRouter(config: DashboardConfig): Router {
   router.post('/flows/:flowId/retry', (req, res) => {
     const { flowId } = req.params;
     const { step, clearOutput = true } = req.body as { step: string; clearOutput?: boolean };
-
-    if (!STEPS.includes(step as AgentStep)) {
-      res.status(400).json({ error: `Invalid step: ${step}` });
-      return;
-    }
 
     try {
       const scriptDir = config.scriptDir;
@@ -218,10 +209,10 @@ export function flowsRouter(config: DashboardConfig): Router {
   /**
    * POST /api/flows/start
    * Start a new workflow with optional jira key and custom prompt.
-   * Body: { jiraKey?: string, customPrompt?: string }
+   * Body: { jiraKey?: string, customPrompt?: string, workflowId?: string }
    */
   router.post('/flows/start', (req, res) => {
-    const { jiraKey = '', customPrompt = '' } = req.body as { jiraKey?: string; customPrompt?: string };
+    const { jiraKey = '', customPrompt = '', workflowId = '' } = req.body as { jiraKey?: string; customPrompt?: string, workflowId?: string };
 
     if (!jiraKey && !customPrompt) {
       res.status(400).json({ error: 'Either jiraKey or customPrompt is required' });
@@ -233,13 +224,21 @@ export function flowsRouter(config: DashboardConfig): Router {
       const orchestratorScript = path.join(scriptDir, 'orchestrator/index.js');
 
       // Start workflow via orchestrator
-      const args = jiraKey && customPrompt
-        ? [jiraKey, customPrompt]
-        : jiraKey
-        ? [jiraKey]
-        : ['', customPrompt];
+      const args = ['start'];
 
-      const output = execFileSync(process.execPath, [orchestratorScript, 'start', ...args], {
+      if (workflowId) {
+        args.push('--workflow', workflowId);
+      }
+
+      if (jiraKey && customPrompt) {
+        args.push(jiraKey, customPrompt);
+      } else if (jiraKey) {
+        args.push(jiraKey);
+      } else {
+        args.push('--prompt', customPrompt);
+      }
+
+      const output = execFileSync(process.execPath, [orchestratorScript, ...args], {
         cwd: scriptDir,
         encoding: 'utf8',
         timeout: 15000,
@@ -348,7 +347,8 @@ function listFlows(taskFlowsDir: string): FlowSummary[] {
     const workflow = readWorkflowJson(flowDir);
     if (!workflow) continue;
 
-    const completedSteps = STEPS.filter(s => workflow.steps[s] === 'done').length;
+    const stepsToUse = workflow.stepOrder || STEPS;
+    const completedSteps = stepsToUse.filter(s => workflow.steps[s] === 'done').length;
 
     summaries.push({
       flowId: workflow.flowId,
@@ -357,7 +357,7 @@ function listFlows(taskFlowsDir: string): FlowSummary[] {
       currentStep: workflow.currentStep,
       startedAt: workflow.startedAt,
       completedSteps,
-      totalSteps: STEPS.length,
+      totalSteps: stepsToUse.length,
     });
   }
 
