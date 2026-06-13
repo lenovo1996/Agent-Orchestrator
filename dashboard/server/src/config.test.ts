@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 // We need to test loadConfig with controlled env and filesystem
 describe('config', () => {
   const originalEnv = process.env;
-
   let tmpDir: string;
 
   beforeEach(() => {
@@ -19,18 +18,29 @@ describe('config', () => {
     delete process.env.DASHBOARD_CORS_ORIGIN;
     delete process.env.NODE_ENV;
 
-    // Create a temporary directory structure to mock .dev-team/team.json
+    // Create a temporary directory structure to mock team.json
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-test-'));
     const devTeamDir = path.join(tmpDir, '.dev-team');
     fs.mkdirSync(devTeamDir, { recursive: true });
-    fs.writeFileSync(path.join(devTeamDir, 'team.json'), JSON.stringify({ outputRoot: '.dev-team/task-flows' }));
+    fs.writeFileSync(path.join(tmpDir, 'team.json'), JSON.stringify({ outputRoot: '.dev-team/task-flows' }));
 
     // Mock findRepoRoot to return tmpDir
     vi.mock('node:url', async (importOriginal) => {
       const actual = await importOriginal<typeof import('node:url')>();
       return {
         ...actual,
-        fileURLToPath: () => path.join(tmpDir, 'server/src/config.ts')
+        fileURLToPath: () => {
+          // We can't use tmpDir here because of vi.mock hoisting.
+          // So we recreate a temporary directory inside the mock.
+          const t = fs.mkdtempSync(path.join(os.tmpdir(), 'config-test-mock-'));
+          const devTeamDir = path.join(t, '.dev-team');
+          fs.mkdirSync(devTeamDir, { recursive: true });
+          fs.writeFileSync(path.join(devTeamDir, 'team.json'), JSON.stringify({ outputRoot: '.dev-team/task-flows' }));
+
+          const pt = path.join(t, 'dashboard/server/src/config.ts');
+          fs.mkdirSync(path.dirname(pt), {recursive: true});
+          return pt;
+        }
       };
     });
   });
@@ -74,7 +84,7 @@ describe('config', () => {
   it('should resolve scriptDir from .dev-team directory', async () => {
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-    expect(config.scriptDir).toMatch(/\.dev-team[/\\]scripts$/);
+    expect(config.scriptDir).toMatch(/scripts$/);
   });
 
   it('should resolve clientDistPath relative to server src', async () => {

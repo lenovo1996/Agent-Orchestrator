@@ -159,7 +159,7 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     try {
       const scriptDir = config.scriptDir;
-      const retryLib = path.join(scriptDir, 'lib', 'retry-flow.js');
+      const retryLib = path.join(scriptDir, 'orchestrator', 'retry-flow.js');
 
       const retryExpression = `require(${JSON.stringify(retryLib)}).prepareRetry(${JSON.stringify(flowId)}, ${JSON.stringify(step)}, { clearOutput: ${clearOutput}, source: 'manual' })`;
       execFileSync(process.execPath, ['-e', retryExpression], {
@@ -168,7 +168,7 @@ export function flowsRouter(config: DashboardConfig): Router {
         timeout: 10000,
       });
 
-      const spawnScript = path.join(scriptDir, 'spawn-via-gateway.js');
+      const spawnScript = path.join(scriptDir, 'api/spawn.js');
       const child = spawn(process.execPath, [spawnScript, flowId, step], {
         detached: true,
         stdio: 'ignore',
@@ -200,7 +200,7 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     try {
       const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, 'orchestrator.js');
+      const orchestratorScript = path.join(scriptDir, 'orchestrator/index.js');
 
       execFileSync(process.execPath, [orchestratorScript, 'stop', flowId], {
         cwd: scriptDir,
@@ -230,7 +230,7 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     try {
       const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, 'orchestrator.js');
+      const orchestratorScript = path.join(scriptDir, 'orchestrator/index.js');
 
       // Start workflow via orchestrator
       const args = jiraKey && customPrompt
@@ -392,7 +392,7 @@ function extractTokensFromLog(content: string): number[] {
 }
 
 function startWatcher(config: DashboardConfig, scriptDir: string, flowId: string): void {
-  const watcherScript = path.join(scriptDir, 'watcher.js');
+  const watcherScript = path.join(scriptDir, 'watcher/index.js');
   const flowDir = path.join(config.taskFlowsDir, flowId);
   const logDir = path.join(flowDir, 'logs');
   const logFile = path.join(logDir, 'watcher.log');
@@ -417,7 +417,7 @@ function stopWatcherProcesses(flowId: string): number {
   const pgrepCommand = resolvePgrepCommand();
 
   try {
-    output = execFileSync(pgrepCommand, ['-f', `watcher.js ${flowId}`], {
+    output = execFileSync(pgrepCommand, ['-f', `watcher/index.js ${flowId}`], {
       encoding: 'utf8',
       timeout: 5000,
     });
