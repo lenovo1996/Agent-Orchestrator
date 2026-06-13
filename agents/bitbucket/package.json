@@ -1,0 +1,12 @@
+{
+  "name": "mcp-bitbucket-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server adapter for Bitbucket Cloud PR review",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "dotenv": "^16.4.5"
+  }
+}

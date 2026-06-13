@@ -1,0 +1,103 @@
+// === Core Domain Types ===
+
+export type AgentStep = 'clarifier' | 'architect' | 'planner' | 'implementer' | 'verifier';
+
+export type StepStatus = 'waiting' | 'pending' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled' | 'retrying' | 'unknown';
+
+export type FlowStatus = 'running' | 'stopped' | 'failed' | 'blocked' | 'completed';
+
+export interface WorkflowState {
+  flowId: string;
+  jiraKey: string;
+  customPrompt?: string;
+  status: FlowStatus;
+  currentStep: AgentStep;
+  startedAt: string;          // ISO 8601
+  stoppedAt?: string;
+  steps: Record<AgentStep, StepStatus>;
+  retries?: Record<AgentStep, number>;
+  needsFixCount?: Record<AgentStep, number>;
+  blockedStep?: AgentStep;
+  blockedReason?: string;
+}
+
+export interface FlowSummary {
+  flowId: string;
+  jiraKey: string;
+  status: FlowStatus;
+  currentStep: AgentStep;
+  startedAt: string;
+  completedSteps: number;
+  totalSteps: number;
+}
+
+export interface ParallelStatus {
+  maxConcurrency: number;
+  running: ParallelTask[];
+  queue: ParallelTask[];
+  completed: ParallelTask[];
+  lastUpdated: string;
+}
+
+export interface ParallelTask {
+  flowId: string;
+  step: string;
+  repo: string;
+  status: string;
+  queuedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+// === Socket.IO Event Payloads ===
+
+export interface FlowUpdatedPayload {
+  flowId: string;
+  workflow: WorkflowState;
+}
+
+export interface LogAppendPayload {
+  flowId: string;
+  step: AgentStep;
+  lines: string[];
+}
+
+export interface OutputCreatedPayload {
+  flowId: string;
+  step: AgentStep;
+  filePath: string;
+}
+
+export interface OutputUpdatedPayload {
+  flowId: string;
+  step: AgentStep;
+  content: string;
+  metadata: FileMetadata;
+}
+
+export interface FileMetadata {
+  size: number;
+  lastModified: string;
+}
+
+export interface StateInitPayload {
+  flows: Record<string, WorkflowState>;
+  parallelStatus: ParallelStatus;
+}
+
+// === Socket.IO Event Map ===
+
+export interface ServerToClientEvents {
+  'state:init': (payload: StateInitPayload) => void;
+  'flow:updated': (payload: FlowUpdatedPayload) => void;
+  'log:append': (payload: LogAppendPayload) => void;
+  'output:created': (payload: OutputCreatedPayload) => void;
+  'output:updated': (payload: OutputUpdatedPayload) => void;
+  'parallel:updated': (payload: ParallelStatus) => void;
+}
+
+export interface ClientToServerEvents {
+  'state:resync': () => void;
+  'log:subscribe': (payload: { flowId: string; step: AgentStep }) => void;
+  'log:unsubscribe': (payload: { flowId: string; step: AgentStep }) => void;
+}

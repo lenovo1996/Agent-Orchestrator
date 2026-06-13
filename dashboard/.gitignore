@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cloudflare Tunnel
+# Keep config template, ignore actual tunnel configs with real IDs
+cloudflare-tunnel-config.yml.local
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json

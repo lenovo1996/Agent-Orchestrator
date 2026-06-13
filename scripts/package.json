@@ -1,0 +1,12 @@
+{
+  "name": "dev-team-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dev-team orchestrator scripts for parallel worktree task management",
+  "scripts": {
+    "test": "node --test test/**/*.test.js"
+  },
+  "devDependencies": {
+    "fast-check": "^3.22.0"
+  }
+}
