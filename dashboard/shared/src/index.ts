@@ -31,24 +31,6 @@ export interface FlowSummary {
   totalSteps: number;
 }
 
-export interface ParallelStatus {
-  maxConcurrency: number;
-  running: ParallelTask[];
-  queue: ParallelTask[];
-  completed: ParallelTask[];
-  lastUpdated: string;
-}
-
-export interface ParallelTask {
-  flowId: string;
-  step: string;
-  repo: string;
-  status: string;
-  queuedAt: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
 // === Socket.IO Event Payloads ===
 
 export interface FlowUpdatedPayload {
@@ -82,7 +64,6 @@ export interface FileMetadata {
 
 export interface StateInitPayload {
   flows: Record<string, WorkflowState>;
-  parallelStatus: ParallelStatus;
 }
 
 // === Socket.IO Event Map ===
@@ -93,7 +74,6 @@ export interface ServerToClientEvents {
   'log:append': (payload: LogAppendPayload) => void;
   'output:created': (payload: OutputCreatedPayload) => void;
   'output:updated': (payload: OutputUpdatedPayload) => void;
-  'parallel:updated': (payload: ParallelStatus) => void;
 }
 
 export interface ClientToServerEvents {

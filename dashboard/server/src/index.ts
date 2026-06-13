@@ -30,7 +30,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 });
 
 // 5. Create filesystem watcher
-const watcher = createWatcher(config.taskFlowsDir, config.parallelStatusPath);
+const watcher = createWatcher(config.taskFlowsDir);
 
 // 6. Setup Socket.IO event handlers, wiring watcher events
 setupSocketEvents(io, config, watcher);

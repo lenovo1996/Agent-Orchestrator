@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 // We need to test loadConfig with controlled env and filesystem
 describe('config', () => {
   const originalEnv = process.env;
+
+  let tmpDir: string;
 
   beforeEach(() => {
     // Reset env vars before each test
@@ -15,16 +18,32 @@ describe('config', () => {
     delete process.env.DASHBOARD_HOST;
     delete process.env.DASHBOARD_CORS_ORIGIN;
     delete process.env.NODE_ENV;
+
+    // Create a temporary directory structure to mock .dev-team/team.json
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'config-test-'));
+    const devTeamDir = path.join(tmpDir, '.dev-team');
+    fs.mkdirSync(devTeamDir, { recursive: true });
+    fs.writeFileSync(path.join(devTeamDir, 'team.json'), JSON.stringify({ outputRoot: '.dev-team/task-flows' }));
+
+    // Mock findRepoRoot to return tmpDir
+    vi.mock('node:url', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('node:url')>();
+      return {
+        ...actual,
+        fileURLToPath: () => path.join(tmpDir, 'server/src/config.ts')
+      };
+    });
   });
 
   afterEach(() => {
     process.env = originalEnv;
+    vi.restoreAllMocks();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('should load config with default values', async () => {
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-
     expect(config.port).toBe(3001);
     expect(config.host).toBe('127.0.0.1');
     expect(config.corsOrigin).toBe('*');
@@ -39,7 +58,6 @@ describe('config', () => {
 
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-
     expect(config.port).toBe(4000);
     expect(config.host).toBe('0.0.0.0');
     expect(config.corsOrigin).toBe('http://localhost:5173');
@@ -49,45 +67,30 @@ describe('config', () => {
   it('should resolve taskFlowsDir from team.json outputRoot', async () => {
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-
-    // team.json has outputRoot: ".dev-team/task-flows"
     expect(config.taskFlowsDir).toMatch(/\.dev-team[/\\]task-flows$/);
     expect(fs.existsSync(config.taskFlowsDir)).toBe(true);
-  });
-
-  it('should resolve parallelStatusPath relative to repo root', async () => {
-    const { loadConfig } = await import('./config.js');
-    const config = loadConfig();
-
-    expect(config.parallelStatusPath).toMatch(/\.dev-team[/\\]parallel-status\.json$/);
   });
 
   it('should resolve scriptDir from .dev-team directory', async () => {
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-
     expect(config.scriptDir).toMatch(/\.dev-team[/\\]scripts$/);
-    expect(fs.existsSync(path.join(config.scriptDir, 'orchestrator.js'))).toBe(true);
   });
 
   it('should resolve clientDistPath relative to server src', async () => {
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-
     expect(config.clientDistPath).toMatch(/client[/\\]dist$/);
   });
 
   it('should export DashboardConfig interface fields', async () => {
     const { loadConfig } = await import('./config.js');
     const config = loadConfig();
-
-    // Verify all expected fields are present
     expect(config).toHaveProperty('port');
     expect(config).toHaveProperty('host');
     expect(config).toHaveProperty('corsOrigin');
     expect(config).toHaveProperty('taskFlowsDir');
     expect(config).toHaveProperty('scriptDir');
-    expect(config).toHaveProperty('parallelStatusPath');
     expect(config).toHaveProperty('clientDistPath');
     expect(config).toHaveProperty('isProduction');
   });

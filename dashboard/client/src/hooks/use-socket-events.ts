@@ -8,7 +8,6 @@ export function useSocketEvents() {
     initState,
     updateFlow,
     appendLogLines,
-    setParallelStatus,
   } = useDashboardStore();
 
   useEffect(() => {
@@ -35,10 +34,6 @@ export function useSocketEvents() {
       // Output updated notification - UI will re-fetch content on demand
     });
 
-    socket.on('parallel:updated', (status) => {
-      setParallelStatus(status);
-    });
-
     // Request resync on reconnect
     socket.io.on('reconnect', () => {
       socket.emit('state:resync');
@@ -52,7 +47,6 @@ export function useSocketEvents() {
       socket.off('log:append');
       socket.off('output:created');
       socket.off('output:updated');
-      socket.off('parallel:updated');
       socket.io.off('reconnect');
     };
   }, []);

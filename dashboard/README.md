@@ -97,7 +97,7 @@ dashboard/
 
 ### Communication
 - **REST API**: HTTP endpoints cho actions (start, stop, retry)
-- **WebSocket**: Real-time updates cho flow status, logs, parallel status
+- **WebSocket**: Real-time updates cho flow status và logs
 - **File watching**: Server watch workflow.json files và emit events
 
 ## API Endpoints
@@ -115,18 +115,14 @@ dashboard/
 ### Git
 - `GET /api/git/status` - Git status của các jinjer_* repos
 
-### Parallel Scheduler
-- `GET /api/parallel/status` - Parallel scheduler status
-
 ## WebSocket Events
 
 ### Client → Server
 - `request_state` - Request initial state
 
 ### Server → Client
-- `state_init` - Initial state (flows + parallel status)
+- `state_init` - Initial state (flows)
 - `flow_update` - Workflow state updated
-- `parallel_update` - Parallel status updated
 - `log_lines` - New log lines for a step
 
 ## Configuration

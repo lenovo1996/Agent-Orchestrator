@@ -4,14 +4,13 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { readWorkflowJson, readOutputContent } from './flow-reader.js';
 import { readNewLogLines } from './log-tailer.js';
-import type { WorkflowState, AgentStep, ParallelStatus, FileMetadata } from '@devteam-dashboard/shared';
+import type { WorkflowState, AgentStep, FileMetadata } from '@devteam-dashboard/shared';
 
 export interface WatcherEvents {
   'workflow-changed': (flowId: string, workflow: WorkflowState) => void;
   'log-appended': (flowId: string, step: AgentStep, lines: string[]) => void;
   'output-created': (flowId: string, step: AgentStep, filePath: string) => void;
   'output-updated': (flowId: string, step: AgentStep, content: string, metadata: FileMetadata) => void;
-  'parallel-updated': (status: ParallelStatus) => void;
 }
 
 /**
@@ -29,40 +28,26 @@ function mapOutputFileToStep(filename: string): AgentStep | null {
 }
 
 /**
- * Create a filesystem watcher that monitors the task-flows directory and
- * parallel-status.json for changes, emitting typed events.
+ * Create a filesystem watcher that monitors the task-flows directory
+ * for changes, emitting typed events.
  *
  * Events emitted:
  * - `workflow-changed` — when a flow's workflow.json is modified
  * - `log-appended` — when new lines are appended to a step log file
  * - `output-created` — when a new output .md file appears
  * - `output-updated` — when an existing output .md file is modified
- * - `parallel-updated` — when parallel-status.json changes
  */
-export function createWatcher(taskFlowsDir: string, parallelStatusPath: string): EventEmitter {
+export function createWatcher(taskFlowsDir: string): EventEmitter {
   const emitter = new EventEmitter();
   const logOffsets = new Map<string, number>();
 
-  const watcher = chokidar.watch([taskFlowsDir, parallelStatusPath], {
+  const watcher = chokidar.watch([taskFlowsDir], {
     persistent: true,
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
   });
 
   watcher.on('change', (filePath: string) => {
-    // Handle parallel-status.json (may be outside taskFlowsDir)
-    if (path.resolve(filePath) === path.resolve(parallelStatusPath)) {
-      try {
-        const raw = fs.readFileSync(filePath, 'utf8');
-        const status: ParallelStatus = JSON.parse(raw);
-        emitter.emit('parallel-updated', status);
-      } catch {
-        // Invalid JSON or read error — skip emit, log warning
-        console.warn('[watcher] Failed to parse parallel-status.json');
-      }
-      return;
-    }
-
     const relative = path.relative(taskFlowsDir, filePath);
     const parts = relative.split(path.sep);
     if (parts.length < 2) return;

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type {
   WorkflowState,
-  ParallelStatus,
   AgentStep,
   StateInitPayload,
 } from '@devteam-dashboard/shared';
@@ -21,10 +20,6 @@ export interface DashboardState {
   flows: Record<string, WorkflowState>;
   setFlows: (flows: Record<string, WorkflowState>) => void;
   updateFlow: (flowId: string, workflow: WorkflowState) => void;
-
-  // Parallel
-  parallelStatus: ParallelStatus | null;
-  setParallelStatus: (status: ParallelStatus) => void;
 
   // Selection
   selectedFlowId: string | null;
@@ -72,9 +67,6 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         selectedStep: shouldSelectStep ? getLatestAgentStep(workflow) : state.selectedStep,
       };
     }),
-
-  parallelStatus: null,
-  setParallelStatus: (status) => set({ parallelStatus: status }),
 
   selectedFlowId: null,
   selectedStep: null,
@@ -126,7 +118,6 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   initState: (payload) =>
     set((state) => ({
       flows: payload.flows,
-      parallelStatus: payload.parallelStatus,
       selectedStep:
         state.selectedFlowId && !state.selectedStep
           ? getLatestAgentStep(payload.flows[state.selectedFlowId])

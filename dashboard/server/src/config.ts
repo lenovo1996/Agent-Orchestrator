@@ -8,7 +8,6 @@ export interface DashboardConfig {
   corsOrigin: string;
   taskFlowsDir: string;
   scriptDir: string;
-  parallelStatusPath: string;
   clientDistPath: string;
   isProduction: boolean;
 }
@@ -76,7 +75,6 @@ export function loadConfig(): DashboardConfig {
     corsOrigin: process.env.DASHBOARD_CORS_ORIGIN || '*',
     taskFlowsDir: outputRoot,
     scriptDir: path.join(devTeamDir, 'scripts'),
-    parallelStatusPath: path.join(devTeamDir, 'parallel-status.json'),
     clientDistPath: path.resolve(__dirname, '../../client/dist'),
     isProduction: process.env.NODE_ENV === 'production',
   };
