@@ -14,7 +14,7 @@ export interface DashboardConfig {
 
 /**
  * Find the repository root by walking up from the dashboard server directory
- * looking for the `.dev-team/team.json` file.
+ * looking for the `team.json` file.
  */
 function findRepoRoot(): string {
   const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +25,7 @@ function findRepoRoot(): string {
   const root = path.parse(current).root;
 
   while (current !== root) {
-    const candidate = path.join(current, '.dev-team', 'team.json');
+    const candidate = path.join(current, 'team.json');
     if (fs.existsSync(candidate)) {
       return current;
     }
@@ -33,21 +33,20 @@ function findRepoRoot(): string {
   }
 
   throw new Error(
-    '[config] Cannot find repository root: no .dev-team/team.json found in parent directories'
+    '[config] Cannot find repository root: no team.json found in parent directories'
   );
 }
 
 /**
  * Load dashboard configuration from team.json and environment variables.
  *
- * - Reads `.dev-team/team.json` to determine outputRoot path for task-flows directory.
+ * - Reads `team.json` to determine outputRoot path for task-flows directory.
  * - Loads env vars: DASHBOARD_PORT, DASHBOARD_HOST, DASHBOARD_CORS_ORIGIN.
  * - Creates task-flows directory if it doesn't exist, logs a warning.
  */
 export function loadConfig(): DashboardConfig {
   const repoRoot = findRepoRoot();
-  const devTeamDir = path.join(repoRoot, '.dev-team');
-  const teamConfigPath = path.join(devTeamDir, 'team.json');
+  const teamConfigPath = path.join(repoRoot, 'team.json');
 
   let teamConfig: { outputRoot?: string };
   try {
@@ -58,7 +57,7 @@ export function loadConfig(): DashboardConfig {
     );
   }
 
-  const outputRoot = path.resolve(repoRoot, teamConfig.outputRoot || '.dev-team/task-flows');
+  const outputRoot = path.resolve(repoRoot, teamConfig.outputRoot || 'task-flows');
 
   // Ensure task-flows directory exists (Requirement 1.4)
   if (!fs.existsSync(outputRoot)) {
@@ -74,7 +73,7 @@ export function loadConfig(): DashboardConfig {
     host: process.env.DASHBOARD_HOST || '127.0.0.1',
     corsOrigin: process.env.DASHBOARD_CORS_ORIGIN || '*',
     taskFlowsDir: outputRoot,
-    scriptDir: path.join(devTeamDir, 'scripts'),
+    scriptDir: path.join(repoRoot, 'scripts'),
     clientDistPath: path.resolve(__dirname, '../../client/dist'),
     isProduction: process.env.NODE_ENV === 'production',
   };

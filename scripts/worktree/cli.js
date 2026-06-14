@@ -254,7 +254,7 @@ function main(argv) {
   const worktreeConfig = config.worktree || {};
 
   const manager = new WorktreeManager({
-    baseDir: worktreeConfig.baseDir || '../.dev-team-worktrees',
+    baseDir: worktreeConfig.baseDir || './.dev-team-worktrees',
     repos: worktreeConfig.repos || {}
   });
 

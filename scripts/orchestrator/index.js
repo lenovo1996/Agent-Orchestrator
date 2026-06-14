@@ -12,7 +12,7 @@ const { initTree } = require('../utils/memory-tree');
 const SKILL_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
-const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
+const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
 // Worktree parallel scheduling configuration
 const WORKTREE_CONFIG = TEAM_CONFIG.worktree || { enabled: false };
@@ -76,14 +76,6 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
   fs.mkdirSync(path.join(workDir, 'logs'), { recursive: true });
   fs.mkdirSync(path.join(workDir, 'scripts'), { recursive: true });
 
-  // Initialize memory tree for this flow
-  try {
-    initTree(flowId);
-    console.log(`🧠 Memory tree initialized`);
-  } catch (e) {
-    console.error(`⚠️  Memory tree init failed: ${e.message}`);
-  }
-
   const workflow = {
     flowId,
     jiraKey,
@@ -133,6 +125,14 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
   });
 
   saveWorkflow(flowId, workflow);
+
+  // Initialize memory tree for this flow
+  try {
+    initTree(flowId);
+    console.log(`🧠 Memory tree initialized`);
+  } catch (e) {
+    console.error(`⚠️  Memory tree init failed: ${e.message}`);
+  }
 
   console.log(`✅ Workflow started: ${flowId}`);
   console.log(`📁 Work dir: ${workDir}`);

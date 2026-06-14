@@ -9,7 +9,7 @@
  * Since the wrapper is a bash script, we simulate its parameter expansion logic
  * in JavaScript and verify the properties hold for arbitrary inputs using fast-check.
  *
- * Run: node --test .dev-team/scripts/test/wrapper.test.js
+ * Run: node --test scripts/test/wrapper.test.js
  */
 
 'use strict';

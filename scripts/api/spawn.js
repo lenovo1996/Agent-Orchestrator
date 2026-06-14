@@ -35,7 +35,7 @@ async function main() {
   const SKILL_DIR = path.resolve(__dirname, '..');
   const repoRoot = path.resolve(SKILL_DIR, '..');
   const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(repoRoot, 'team.json'), 'utf8'));
-  const outputRoot = path.resolve(repoRoot, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
+  const outputRoot = path.resolve(repoRoot, TEAM_CONFIG.outputRoot || 'task-flows');
   const workDir = path.join(outputRoot, flowId);
 
   if (!fs.existsSync(workDir)) {

@@ -131,7 +131,7 @@ export function AgentsPage() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto h-full overflow-y-auto">
+    <div className="p-6 mx-auto h-full overflow-y-auto">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
