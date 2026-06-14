@@ -19,6 +19,7 @@ import { LogViewer } from './components/log/LogViewer';
 import { OutputPreview } from './components/output/OutputPreview';
 import { NewTaskDialog } from './components/flow/NewTaskDialog';
 import { WorkflowsPage } from './components/workflows/WorkflowsPage';
+import { AgentsPage } from './components/agents/AgentsPage';
 import { useSocketEvents } from './hooks/use-socket-events';
 import { useDashboardStore } from './store/use-dashboard-store';
 import { cn } from './lib/utils';
@@ -167,7 +168,7 @@ export default function App() {
 
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const selectFlow = useDashboardStore((s) => s.selectFlow);
-  const [currentView, setCurrentView] = useState<'flows' | 'workflows'>('flows');
+  const [currentView, setCurrentView] = useState<'flows' | 'workflows' | 'agents'>('flows');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
@@ -353,6 +354,12 @@ export default function App() {
               >
                 Workflows
               </button>
+              <button
+                onClick={() => setCurrentView('agents')}
+                className={cn('flex-1 text-xs py-1.5 font-medium rounded', currentView === 'agents' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                Agents
+              </button>
             </div>
 
             {/* Start New Task Button */}
@@ -374,6 +381,8 @@ export default function App() {
         <main className="flex flex-1 flex-col overflow-hidden min-w-0">
           {currentView === 'workflows' ? (
             <WorkflowsPage />
+          ) : currentView === 'agents' ? (
+            <AgentsPage />
           ) : selectedFlowId ? (
             expandedContent ? (
               <div className="min-h-0 flex-1 overflow-hidden">

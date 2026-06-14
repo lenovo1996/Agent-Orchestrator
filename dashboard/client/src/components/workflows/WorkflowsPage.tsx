@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { CustomWorkflow } from '@devteam-dashboard/shared';
+import type { CustomWorkflow, AgentConfig } from '@devteam-dashboard/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -7,6 +7,7 @@ export function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentConfig[]>([]);
 
   // form state
   const [isEditing, setIsEditing] = useState(false);
@@ -16,6 +17,14 @@ export function WorkflowsPage() {
   const [steps, setSteps] = useState('');
 
   const fetchWorkflows = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/agents`);
+      if (res.ok) {
+        const data = await res.json();
+        setAgents(data);
+      }
+    } catch {}
+
     try {
       setLoading(true);
       const res = await fetch(`${API_BASE}/api/workflows`);
@@ -148,6 +157,9 @@ export function WorkflowsPage() {
               placeholder="clarifier, planner, implementer, verifier"
               className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
             />
+            {agents.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">Available agents: {agents.map(a => a.id).join(', ')}</p>
+            )}
           </div>
 
           <div className="flex gap-2 justify-end">
