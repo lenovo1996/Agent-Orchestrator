@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentConfig } from '@devteam-dashboard/shared';
+import { Plus, Edit2, Trash2, Bot, Target, Wrench, FileOutput, Server, BrainCircuit, TerminalSquare } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -129,14 +131,21 @@ export function AgentsPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto h-full overflow-y-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-foreground">Agents Settings</h1>
+    <div className="p-6 max-w-6xl mx-auto h-full overflow-y-auto">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <Bot className="w-6 h-6 text-primary" />
+            Agents Settings
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Configure and manage AI agents for your workflows.</p>
+        </div>
         {!isEditing && (
           <button
             onClick={startNew}
-            className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-semibold hover:bg-blue-600 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm hover:shadow"
           >
+            <Plus className="w-4 h-4" />
             Create Agent
           </button>
         )}
@@ -145,12 +154,18 @@ export function AgentsPage() {
       {error && <div className="mb-4 p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded">{error}</div>}
 
       {isEditing ? (
-        <form onSubmit={handleSave} className="bg-card border border-border rounded-lg p-5 space-y-4 mb-6">
-          <h2 className="text-lg font-semibold">{isNew ? 'New Agent' : 'Edit Agent'}</h2>
+        <form onSubmit={handleSave} className="bg-card/60 border border-border/50 rounded-xl p-6 space-y-6 mb-8 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-center gap-2 border-b border-border/50 pb-4">
+            <Bot className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold">{isNew ? 'Create New Agent' : 'Edit Agent Configuration'}</h2>
+          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">ID (used in workflow steps)</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+                <TerminalSquare className="w-4 h-4 text-muted-foreground" />
+                ID <span className="text-muted-foreground font-normal">(used in workflow steps)</span>
+              </label>
               <input
                 required
                 disabled={!isNew}
@@ -158,102 +173,120 @@ export function AgentsPage() {
                 value={currentId}
                 onChange={e => setCurrentId(e.target.value)}
                 placeholder="e.g. researcher"
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm disabled:opacity-50"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Role</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+                <Target className="w-4 h-4 text-muted-foreground" />
+                Role
+              </label>
               <input
                 required
                 type="text"
                 value={role}
                 onChange={e => setRole(e.target.value)}
                 placeholder="e.g. Research Specialist"
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Objective</label>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+              <BrainCircuit className="w-4 h-4 text-muted-foreground" />
+              Objective
+            </label>
             <input
               required
               type="text"
               value={objective}
               onChange={e => setObjective(e.target.value)}
-              className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              placeholder="What is this agent's main goal?"
             />
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Model (optional)</label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground/80">Model <span className="text-muted-foreground font-normal">(optional)</span></label>
               <input
                 type="text"
                 value={model}
                 onChange={e => setModel(e.target.value)}
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                placeholder="e.g. gpt-4"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Thinking (optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground/80">Thinking <span className="text-muted-foreground font-normal">(optional)</span></label>
               <input
                 type="text"
                 value={thinking}
                 onChange={e => setThinking(e.target.value)}
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Runtime (optional)</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+                <Server className="w-4 h-4 text-muted-foreground" />
+                Runtime <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
               <input
                 type="text"
                 value={runtime}
                 onChange={e => setRuntime(e.target.value)}
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Tools (comma separated)</label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+                <Wrench className="w-4 h-4 text-muted-foreground" />
+                Tools <span className="text-muted-foreground font-normal">(comma separated)</span>
+              </label>
               <input
                 type="text"
                 value={tools}
                 onChange={e => setTools(e.target.value)}
                 placeholder="read, write, exec"
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Outputs (comma separated)</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+                <FileOutput className="w-4 h-4 text-muted-foreground" />
+                Outputs <span className="text-muted-foreground font-normal">(comma separated)</span>
+              </label>
               <input
                 type="text"
                 value={outputs}
                 onChange={e => setOutputs(e.target.value)}
                 placeholder="output/research.md"
-                className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm"
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Instructions Prompt</label>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground/80">Instructions Prompt</label>
             <textarea
               required
               rows={8}
               value={instructions}
               onChange={e => setInstructions(e.target.value)}
-              className="w-full px-3 py-2 bg-muted/50 border border-border rounded-md text-sm font-mono"
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+              placeholder="System instructions for the agent..."
             />
           </div>
 
-          <div className="flex gap-2 justify-end pt-2 border-t border-border">
-            <button type="button" onClick={resetForm} className="px-4 py-2 text-sm text-muted-foreground hover:bg-accent rounded-md transition-colors">
+          <div className="flex gap-3 justify-end pt-4 border-t border-border/50">
+            <button type="button" onClick={resetForm} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg transition-colors">
               Cancel
             </button>
-            <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-semibold hover:bg-blue-600 transition-colors">
+            <button type="submit" className="px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm">
               Save Agent
             </button>
           </div>
@@ -261,34 +294,91 @@ export function AgentsPage() {
       ) : null}
 
       {loading && !isEditing ? (
-        <p className="text-muted-foreground">Loading agents...</p>
+        <div className="flex justify-center items-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {agents.map(agent => (
-            <div key={agent.id} className="bg-card border border-border rounded-lg p-4 flex justify-between items-start gap-4">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h3 className="font-semibold text-lg">{agent.id}</h3>
-                  <span className="text-xs px-2 py-0.5 bg-blue-500/10 text-blue-500 rounded-full">{agent.role}</span>
+            <div
+              key={agent.id}
+              className={cn(
+                "group relative bg-card/60 border border-border/50 rounded-xl p-5 transition-all duration-200",
+                "hover:border-border hover:bg-card hover:shadow-md hover:glow-sm flex flex-col h-full"
+              )}
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 shrink-0">
+                    <Bot className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground text-lg leading-tight">{agent.id}</h3>
+                    <span className="text-xs font-medium px-2 py-0.5 bg-blue-500/10 text-blue-500 border border-blue-500/20 rounded-full inline-block mt-1">
+                      {agent.role}
+                    </span>
+                  </div>
                 </div>
-                <p className="text-sm text-muted-foreground mb-2">{agent.objective}</p>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {agent.model && <span className="text-muted-foreground bg-muted px-2 py-1 rounded">Model: {agent.model}</span>}
-                  {agent.tools.length > 0 && <span className="text-muted-foreground bg-muted px-2 py-1 rounded">Tools: {agent.tools.join(', ')}</span>}
-                  {agent.outputs.length > 0 && <span className="text-muted-foreground bg-muted px-2 py-1 rounded">Outputs: {agent.outputs.join(', ')}</span>}
+
+                <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => startEdit(agent)}
+                    className="p-1.5 text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-colors"
+                    title="Edit agent"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(agent.id)}
+                    className="p-1.5 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
+                    title="Delete agent"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div className="flex gap-2 shrink-0">
-                <button onClick={() => startEdit(agent)} className="text-sm px-3 py-1 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded transition-colors">Edit</button>
-                <button onClick={() => handleDelete(agent.id)} className="text-sm px-3 py-1 bg-red-500/10 text-red-400 hover:bg-red-500/20 rounded transition-colors">Delete</button>
+
+              <p className="text-sm text-muted-foreground mb-4 flex-1 line-clamp-2" title={agent.objective}>
+                {agent.objective}
+              </p>
+
+              <div className="flex flex-wrap gap-2 text-[11px] mt-auto pt-4 border-t border-border/40">
+                {agent.model && (
+                  <span className="flex items-center gap-1 text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border/50">
+                    <BrainCircuit className="w-3 h-3" />
+                    {agent.model}
+                  </span>
+                )}
+                {agent.tools.length > 0 && (
+                  <span className="flex items-center gap-1 text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border/50" title={agent.tools.join(', ')}>
+                    <Wrench className="w-3 h-3" />
+                    {agent.tools.length} tool{agent.tools.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {agent.outputs.length > 0 && (
+                  <span className="flex items-center gap-1 text-muted-foreground bg-muted/50 px-2 py-1 rounded-md border border-border/50" title={agent.outputs.join(', ')}>
+                    <FileOutput className="w-3 h-3" />
+                    {agent.outputs.length} output{agent.outputs.length !== 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
             </div>
           ))}
-          {agents.length === 0 && !isEditing && (
-            <p className="text-center text-muted-foreground py-8 border border-dashed border-border rounded-lg">
-              No agents found. Create one to get started!
-            </p>
-          )}
+        </div>
+      )}
+
+      {!loading && agents.length === 0 && !isEditing && (
+        <div className="text-center py-16 border-2 border-dashed border-border/60 rounded-xl bg-card/30">
+          <Bot className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
+          <h3 className="text-lg font-medium text-foreground mb-1">No Agents Found</h3>
+          <p className="text-muted-foreground mb-4">Create your first agent to get started.</p>
+          <button
+            onClick={startNew}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm"
+          >
+            <Plus className="w-4 h-4" />
+            Create Agent
+          </button>
         </div>
       )}
     </div>
