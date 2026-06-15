@@ -1,15 +1,19 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 import { socket } from '@/lib/socket';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { LogLine } from './LogLine';
+import { LogBlockView } from './LogBlockView';
+import { parseLogs } from '@/lib/log-parser';
+import { Eye, FileCode2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 // In dev mode, Vite proxy handles /api routing so we use empty string (relative path).
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 /**
  * Realtime log viewer component with auto-scroll, socket subscription,
- * and a 1000-line buffer cap.
+ * and support for Pretty/Raw toggle modes.
  *
  * Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6
  */
@@ -20,6 +24,7 @@ export function LogViewer() {
   const setLogBuffer = useDashboardStore((s) => s.setLogBuffer);
   const toggleAutoScroll = useDashboardStore((s) => s.toggleAutoScroll);
 
+  const [mode, setMode] = useState<'pretty' | 'raw'>('pretty');
   const containerRef = useRef<HTMLDivElement>(null);
 
   const bufferKey = selectedFlowId && selectedStep
@@ -29,6 +34,12 @@ export function LogViewer() {
   const buffer = bufferKey ? logBuffers[bufferKey] : null;
   const lines = buffer?.lines ?? [];
   const autoScroll = buffer?.autoScroll ?? true;
+
+  // Optimize parsing performance by memoizing parsed output
+  const parsedBlocks = useMemo(() => {
+    if (mode === 'raw' || lines.length === 0) return [];
+    return parseLogs(lines);
+  }, [lines, mode]);
 
   useAutoScroll(containerRef, { autoScroll, deps: [lines.length] });
 
@@ -65,46 +76,82 @@ export function LogViewer() {
   // Placeholder when no step is selected
   if (!selectedFlowId || !selectedStep) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-        Select a step to view logs
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground bg-muted/20">
+        <div className="flex flex-col items-center gap-2">
+          <FileCode2 className="w-8 h-8 text-muted-foreground/30" />
+          <span>Select a step to view logs</span>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header with auto-scroll toggle */}
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
-        <span className="text-xs text-muted-foreground font-medium">
-          Logs — {selectedStep}
-        </span>
+    <div className="flex flex-col h-full overflow-hidden bg-background">
+      {/* Header with auto-scroll toggle and view mode toggle */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10">
+        <div className="flex items-center gap-4">
+          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+            Logs — {selectedStep}
+          </span>
+          <div className="flex bg-muted/50 rounded p-0.5 border border-border/50">
+            <button
+              onClick={() => setMode('pretty')}
+              className={cn(
+                "px-2 py-0.5 text-[10px] font-medium rounded transition-colors flex items-center gap-1",
+                mode === 'pretty' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Eye className="w-3 h-3" /> PRETTY
+            </button>
+            <button
+              onClick={() => setMode('raw')}
+              className={cn(
+                "px-2 py-0.5 text-[10px] font-medium rounded transition-colors flex items-center gap-1",
+                mode === 'raw' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <FileCode2 className="w-3 h-3" /> RAW
+            </button>
+          </div>
+        </div>
         <button
           type="button"
           onClick={toggleAutoScroll}
           className={
-            'text-xs px-2 py-0.5 rounded border transition-colors ' +
+            'text-[10px] uppercase font-medium px-2 py-1 rounded transition-colors ' +
             (autoScroll
-              ? 'bg-primary/20 border-primary/50 text-primary'
-              : 'bg-muted border-border text-muted-foreground hover:text-foreground')
+              ? 'bg-primary/10 text-primary'
+              : 'bg-muted/50 text-muted-foreground hover:text-foreground')
           }
         >
-          Auto-scroll {autoScroll ? 'ON' : 'OFF'}
+          Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
         </button>
       </div>
 
       {/* Log content area */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-y-auto bg-muted/30 font-mono text-foreground"
+        className={cn(
+          "flex-1 overflow-y-auto",
+          mode === 'raw' ? "bg-muted/10 font-mono text-foreground" : "bg-background"
+        )}
       >
         {lines.length === 0 ? (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
             No log output yet
           </div>
+        ) : mode === 'pretty' ? (
+          <div className="flex flex-col">
+            {parsedBlocks.map((block, idx) => (
+              <LogBlockView key={idx} block={block} />
+            ))}
+          </div>
         ) : (
-          lines.map((line, idx) => (
-            <LogLine key={idx} line={line} index={idx} />
-          ))
+          <div className="py-2">
+            {lines.map((line, idx) => (
+              <LogLine key={idx} line={line} index={idx} />
+            ))}
+          </div>
         )}
       </div>
     </div>
