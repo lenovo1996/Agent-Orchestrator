@@ -132,9 +132,6 @@ async function main() {
   task += `Follow the prompt instructions exactly.`;
   task = task.replace(/{{REPO_ROOT}}/g, repoRoot);
 
-  if (step !== 'implementer') {
-    task += ` Do not modify source code.`;
-  }
 
   // Write prompt to file and run agent through Codex CLI for realtime streaming logs
   const promptsDir = path.join(workDir, 'prompts');
