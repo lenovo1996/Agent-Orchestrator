@@ -1,4 +1,4 @@
-import type { AgentStep, StepStatus } from '@devteam-dashboard/shared';
+import type { AgentConfig, AgentStep, StepStatus } from '@devteam-dashboard/shared';
 
 /**
  * Ordered array of all 5 agent steps in pipeline execution order.
@@ -11,16 +11,26 @@ export const AGENT_STEPS: AgentStep[] = [
   'verifier',
 ];
 
-/**
- * Human-readable display names for each agent step.
- */
-export const STEP_DISPLAY_NAMES: Record<AgentStep, string> = {
-  clarifier: 'Clarifier',
-  architect: 'Architect',
-  planner: 'Planner',
-  implementer: 'Implementer',
-  verifier: 'Verifier',
-};
+export function formatStepId(step: AgentStep): string {
+  return step
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+export function getStepDisplayName(step: AgentStep, agents: Record<string, AgentConfig> = {}): string {
+  return agents[step]?.role || formatStepId(step);
+}
+
+export function getAgentOutputFilename(step: AgentStep, agents: Record<string, AgentConfig> = {}): string {
+  const output = agents[step]?.outputs?.[0];
+  if (output) {
+    return output.split('/').pop() || output;
+  }
+
+  return `${step}.md`;
+}
 
 /**
  * Tailwind CSS color classes for each step status, optimized for dark theme.
@@ -36,15 +46,4 @@ export const STATUS_COLORS: Record<StepStatus, string> = {
   cancelled: 'bg-gray-600',
   retrying: 'bg-yellow-500 animate-pulse',
   unknown: 'bg-gray-400',
-};
-
-/**
- * Mapping from AgentStep to its output filename in the output/ directory.
- */
-export const OUTPUT_FILE_MAP: Record<AgentStep, string> = {
-  clarifier: 'clarify.md',
-  architect: 'architecture.md',
-  planner: 'plan.md',
-  implementer: 'implementation.md',
-  verifier: 'verification.md',
 };

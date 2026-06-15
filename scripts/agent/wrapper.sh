@@ -27,8 +27,9 @@ WORKTREE_PATH="${5:-}"
 # Derive paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REAL_REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 RUNTIME="${AGENT_RUNTIME:-codex}"
-RUNTIME_SCRIPT="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
+RUNTIME_SCRIPT="$SCRIPT_DIR/../runtimes/${RUNTIME}.sh"
 
 # Validate worktree path if provided
 if [ -n "$WORKTREE_PATH" ]; then
@@ -45,7 +46,7 @@ fi
 # Validate runtime script exists
 if [ ! -f "$RUNTIME_SCRIPT" ]; then
   echo "❌ Unknown runtime: $RUNTIME (no script at $RUNTIME_SCRIPT)" >&2
-  echo "   Available runtimes: $(ls "$SCRIPT_DIR/runtimes/" | sed 's/\.sh$//' | tr '\n' ' ')" >&2
+  echo "   Available runtimes: $(ls "$SCRIPT_DIR/../runtimes/" | sed 's/\.sh$//' | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -57,14 +58,14 @@ CURRENT_LINK="$LOG_DIR/current.log"
 ln -sfn "${STEP}.log" "$CURRENT_LINK"
 
 # Resolve output file path from team.json
-SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SKILL_DIR="$REPO_ROOT"
 OUTPUT_FILE="$WORK_DIR/$(node -e "
   const t = require('$SKILL_DIR/team.json');
   process.stdout.write(t.members['$STEP'].outputs[0]);
 ")"
 
 # Working directory for the agent
-CWD="${WORKTREE_PATH:-$REPO_ROOT}"
+CWD="${WORKTREE_PATH:-$REAL_REPO_ROOT}"
 
 # Write log header
 {
@@ -72,16 +73,16 @@ CWD="${WORKTREE_PATH:-$REPO_ROOT}"
   echo "Flow: $FLOW_ID"
   echo "Agent: $STEP"
   echo "Started: $(date)"
-  echo "Work dir: $WORK_DIR"
+  echo "Work dir: $REAL_REPO_ROOT"
   echo "Prompt: $PROMPT_FILE"
-  echo "Repo: $REPO_ROOT"
+  echo "Repo: $REAL_REPO_ROOT"
   echo "Worktree: ${WORKTREE_PATH:-none}"
   echo "Runtime: $RUNTIME"
   echo "Model: ${AGENT_MODEL:-default}"
   echo "Reasoning: ${AGENT_REASONING:-default}"
   echo "================================"
   echo ""
-} | tee "$LOG_FILE"
+} | tee -a "$LOG_FILE"
 
 # Crash sentinel: write ## Status FAILED if runtime exits non-zero and no output
 write_crash_sentinel() {

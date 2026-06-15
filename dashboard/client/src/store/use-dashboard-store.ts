@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import type {
+  AgentConfig,
   WorkflowState,
   AgentStep,
   StateInitPayload,
 } from '@devteam-dashboard/shared';
 import { AGENT_STEPS } from '@/lib/constants';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export interface LogBuffer {
   lines: string[];
@@ -20,6 +23,12 @@ export interface DashboardState {
   flows: Record<string, WorkflowState>;
   setFlows: (flows: Record<string, WorkflowState>) => void;
   updateFlow: (flowId: string, workflow: WorkflowState) => void;
+  fetchFlow: (flowId: string) => Promise<WorkflowState | null>;
+
+  // Agents
+  agents: Record<string, AgentConfig>;
+  setAgents: (agents: AgentConfig[]) => void;
+  fetchAgents: () => Promise<void>;
 
   // Selection
   selectedFlowId: string | null;
@@ -68,6 +77,37 @@ export const useDashboardStore = create<DashboardState>((set) => ({
         selectedStep: shouldSelectStep ? getLatestAgentStep(workflow) : state.selectedStep,
       };
     }),
+  fetchFlow: async (flowId) => {
+    const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}`);
+    if (!res.ok) return null;
+
+    const data = (await res.json()) as { workflow?: WorkflowState };
+    if (!data.workflow) return null;
+
+    set((state) => {
+      const shouldSelectStep = state.selectedFlowId === flowId && !state.selectedStep;
+      return {
+        flows: { ...state.flows, [flowId]: data.workflow! },
+        selectedStep: shouldSelectStep ? getLatestAgentStep(data.workflow) : state.selectedStep,
+      };
+    });
+
+    return data.workflow;
+  },
+
+  agents: {},
+  setAgents: (agents) =>
+    set({
+      agents: Object.fromEntries(agents.map((agent) => [agent.id, agent])),
+    }),
+  fetchAgents: async () => {
+    const res = await fetch(`${API_BASE}/api/agents`);
+    if (!res.ok) return;
+    const agents = (await res.json()) as AgentConfig[];
+    set({
+      agents: Object.fromEntries(agents.map((agent) => [agent.id, agent])),
+    });
+  },
 
   selectedFlowId: null,
   selectedStep: null,

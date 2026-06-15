@@ -1,8 +1,9 @@
 import type { WorkflowState, FlowStatus } from '@devteam-dashboard/shared';
 import { StepIndicator } from './StepIndicator';
 import { formatElapsedTime } from '@/lib/format';
-import { STEP_DISPLAY_NAMES } from '@/lib/constants';
+import { getStepDisplayName } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { useDashboardStore } from '@/store/use-dashboard-store';
 
 interface FlowCardProps {
   flow: WorkflowState;
@@ -19,6 +20,7 @@ const FLOW_STATUS_CONFIG: Record<FlowStatus, { bg: string; text: string; dot: st
 };
 
 export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
+  const agents = useDashboardStore((s) => s.agents);
   const totalNeedsFix = flow.needsFixCount
     ? Object.values(flow.needsFixCount).reduce((sum, n) => sum + n, 0)
     : 0;
@@ -53,7 +55,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
       {/* Current step */}
       <div className="flex items-center justify-between mb-2.5">
         <span className="text-xs text-muted-foreground">
-          {STEP_DISPLAY_NAMES[flow.currentStep]}
+          {getStepDisplayName(flow.currentStep, agents)}
         </span>
         <span className="text-[10px] font-mono text-muted-foreground/70" title={flow.flowId}>
           {flow.flowId.replace('flow_', '').slice(0, 14)}

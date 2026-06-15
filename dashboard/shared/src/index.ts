@@ -11,6 +11,18 @@ export interface CustomWorkflow {
   steps: string[];
 }
 
+export interface AgentConfig {
+  id: string;
+  role: string;
+  objective: string;
+  model?: string;
+  thinking?: string;
+  tools: string[];
+  outputs: string[];
+  runtime?: string;
+  instructions: string;
+}
+
 export type FlowStatus = 'running' | 'stopped' | 'failed' | 'blocked' | 'completed';
 
 export interface WorkflowState {

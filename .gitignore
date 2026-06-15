@@ -1,1 +1,9 @@
 node_modules
+dist
+.env
+task-flows
+workflows.db
+team.json
+prompts
+parallel-status.json
+.tasks

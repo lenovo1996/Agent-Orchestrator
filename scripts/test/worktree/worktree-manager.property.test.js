@@ -216,7 +216,7 @@ describe('Feature: parallel-worktree-tasks, Property 7: Configuration determines
       fc.stringMatching(/^[a-zA-Z0-9_-]{1,10}$/).map(s => `/tmp/${s}`),
       fc.stringMatching(/^[a-zA-Z0-9_-]{1,8}$/).map(s => `/home/user/${s}`),
       fc.stringMatching(/^[a-zA-Z0-9_-]{1,8}$/).map(s => `/var/worktrees/${s}`),
-      fc.constant('../.dev-team-worktrees'),
+      fc.constant('./.dev-team-worktrees'),
       fc.stringMatching(/^[a-zA-Z0-9_-]{1,6}$/).map(s => `/opt/${s}/trees`)
     );
 
