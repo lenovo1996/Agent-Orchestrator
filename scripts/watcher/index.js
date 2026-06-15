@@ -3,6 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { updateTree } = require('../utils/memory-tree');
 const { parseStepTokens, formatTokens } = require('../utils/token-tracker');
@@ -90,6 +91,23 @@ function isStepAlreadyRunning(flowId, step) {
   }
 }
 
+function stopStepProcess(flowId, step, reason) {
+  const filePath = pidFilePath(flowId, step);
+  if (!fs.existsSync(filePath)) return;
+
+  try {
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (isProcessAlive(data.pid)) {
+      console.log(`💀 Stopping ${step} process (PID ${data.pid}) — ${reason}`);
+      try { process.kill(data.pid, 'SIGTERM'); } catch (_) {}
+    }
+    fs.unlinkSync(filePath);
+    console.log(`🧹 Removed .pid.${step}`);
+  } catch (e) {
+    try { fs.unlinkSync(filePath); } catch (_) {}
+  }
+}
+
 /**
  * Silent version — checks if a step has a live PID without logging warnings.
  * Used by sequential guard to avoid noisy output on every watcher tick.
@@ -170,6 +188,35 @@ function parseOutputStatus(filePath) {
   }
 }
 
+function getOutputSignature(filePath) {
+  try {
+    const content = fs.readFileSync(filePath);
+    return crypto.createHash('sha256').update(content).digest('hex');
+  } catch (_) {
+    return null;
+  }
+}
+
+function shouldHandleNeedsFix(workflow, step, outputFile) {
+  const signature = getOutputSignature(outputFile);
+  if (!signature) return { handle: true, signature: null };
+
+  const handledSignature = workflow.needsFixHandled && workflow.needsFixHandled[step];
+  if (handledSignature === signature) {
+    return { handle: false, signature };
+  }
+
+  return { handle: true, signature };
+}
+
+function cleanupHandledNeedsFixOutput(flowId, step, outputFile) {
+  stopStepProcess(flowId, step, 'duplicate NEEDS_FIX output');
+  if (fs.existsSync(outputFile)) {
+    fs.unlinkSync(outputFile);
+    console.log(`🗑️  Cleared duplicate NEEDS_FIX output: ${TEAM_CONFIG.members[step].outputs[0]}`);
+  }
+}
+
 function updateWorkflowState(flowId, updates) {
   const workDir = path.join(OUTPUT_ROOT, flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
@@ -187,6 +234,14 @@ function updateWorkflowState(flowId, updates) {
       const step = key.slice('needsFixCount.'.length);
       if (!workflow.needsFixCount) workflow.needsFixCount = {};
       workflow.needsFixCount[step] = value;
+    } else if (key.startsWith('needsFixHandled.')) {
+      const step = key.slice('needsFixHandled.'.length);
+      if (!workflow.needsFixHandled) workflow.needsFixHandled = {};
+      if (value === null || value === undefined) {
+        delete workflow.needsFixHandled[step];
+      } else {
+        workflow.needsFixHandled[step] = value;
+      }
     } else {
       workflow[key] = value;
     }
@@ -251,7 +306,8 @@ function spawnStep(flowId, step, isRetry = false) {
       console.log(`✅ ${step} spawned successfully`);
       updateWorkflowState(flowId, {
         currentStep: step,
-        [`steps.${step}`]: 'running'
+        [`steps.${step}`]: 'running',
+        [`needsFixHandled.${step}`]: null
       });
     } else {
       console.error(`❌ ${step} spawn failed with code ${code}`);
@@ -338,18 +394,7 @@ function watchWorkflow(flowId, interval = 5000) {
 
           // Clean up PID file — output DONE confirms step finished
           // Kill the process first if still alive (codex may linger after writing output)
-          const donePidFile = pidFilePath(flowId, step);
-          if (fs.existsSync(donePidFile)) {
-            try {
-              const pidData = JSON.parse(fs.readFileSync(donePidFile, 'utf8'));
-              if (isProcessAlive(pidData.pid)) {
-                console.log(`💀 Stopping ${step} process (PID ${pidData.pid}) — output already DONE`);
-                try { process.kill(pidData.pid, 'SIGTERM'); } catch (_) {}
-              }
-            } catch (_) {}
-            fs.unlinkSync(donePidFile);
-            console.log(`🧹 Removed .pid.${step} (output confirmed DONE)`);
-          }
+          stopStepProcess(flowId, step, 'output already DONE');
 
           // Clean up stale feedback files when implementer completes successfully
           if (step === 'implementer') {
@@ -396,6 +441,15 @@ function watchWorkflow(flowId, interval = 5000) {
             console.log(`⏸️  ${nextStep} not spawned (steps.${nextStep}=${workflow.steps[nextStep]}, expected 'waiting')`);
           }
         } else if (currentStatus === 'NEEDS_FIX') {
+          const currentOutput = path.join(workDir, TEAM_CONFIG.members[step].outputs[0]);
+          const needsFix = shouldHandleNeedsFix(workflow, step, currentOutput);
+
+          if (!needsFix.handle) {
+            console.log(`↩️  ${step} NEEDS_FIX already handled for this output, skipping duplicate`);
+            cleanupHandledNeedsFixOutput(flowId, step, currentOutput);
+            return;
+          }
+
           // Check NEEDS_FIX iteration limit
           const count = (workflow.needsFixCount && workflow.needsFixCount[step]) || 0;
 
@@ -414,15 +468,16 @@ function watchWorkflow(flowId, interval = 5000) {
 
           // Increment NEEDS_FIX counter
           updateWorkflowState(flowId, {
-            [`needsFixCount.${step}`]: count + 1
+            [`needsFixCount.${step}`]: count + 1,
+            [`needsFixHandled.${step}`]: needsFix.signature
           });
 
           // Verifier found issues, send back to Implementer
           console.log(`🔁 ${step} found issues, sending back to Implementer...`);
+          stopStepProcess(flowId, step, 'output already NEEDS_FIX');
 
           // Save current verifier findings as feedback
           const feedbackFile = path.join(workDir, 'output', `feedback-from-${step}.md`);
-          const currentOutput = path.join(workDir, TEAM_CONFIG.members[step].outputs[0]);
           if (fs.existsSync(currentOutput)) {
             fs.copyFileSync(currentOutput, feedbackFile);
             console.log(`📝 Saved feedback: feedback-from-${step}.md`);
@@ -558,6 +613,14 @@ function handleNeedsFix(flowId, step) {
   }
 
   const { workflow, workDir } = state;
+  const currentOutput = path.join(workDir, TEAM_CONFIG.members[step].outputs[0]);
+  const needsFix = shouldHandleNeedsFix(workflow, step, currentOutput);
+
+  if (!needsFix.handle) {
+    console.log(`[${flowId}] ↩️  ${step} NEEDS_FIX already handled for this output, skipping duplicate`);
+    cleanupHandledNeedsFixOutput(flowId, step, currentOutput);
+    return;
+  }
 
   // Check NEEDS_FIX iteration limit
   const count = (workflow.needsFixCount && workflow.needsFixCount[step]) || 0;
@@ -575,14 +638,15 @@ function handleNeedsFix(flowId, step) {
 
   // Increment NEEDS_FIX counter
   updateWorkflowState(flowId, {
-    [`needsFixCount.${step}`]: count + 1
+    [`needsFixCount.${step}`]: count + 1,
+    [`needsFixHandled.${step}`]: needsFix.signature
   });
 
   console.log(`[${flowId}] 🔁 ${step} found issues, sending back to Implementer...`);
+  stopStepProcess(flowId, step, 'output already NEEDS_FIX');
 
   // Save current verifier findings as feedback
   const feedbackFile = path.join(workDir, 'output', `feedback-from-${step}.md`);
-  const currentOutput = path.join(workDir, TEAM_CONFIG.members[step].outputs[0]);
   if (fs.existsSync(currentOutput)) {
     fs.copyFileSync(currentOutput, feedbackFile);
     console.log(`[${flowId}] 📝 Saved feedback: feedback-from-${step}.md`);

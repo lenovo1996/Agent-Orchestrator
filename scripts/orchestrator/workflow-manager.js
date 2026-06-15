@@ -100,6 +100,14 @@ function updateWorkflowState(flowId, updates) {
       const step = key.slice('needsFixCount.'.length);
       if (!workflow.needsFixCount) workflow.needsFixCount = {};
       workflow.needsFixCount[step] = value;
+    } else if (key.startsWith('needsFixHandled.')) {
+      const step = key.slice('needsFixHandled.'.length);
+      if (!workflow.needsFixHandled) workflow.needsFixHandled = {};
+      if (value === null || value === undefined) {
+        delete workflow.needsFixHandled[step];
+      } else {
+        workflow.needsFixHandled[step] = value;
+      }
     } else {
       workflow[key] = value;
     }

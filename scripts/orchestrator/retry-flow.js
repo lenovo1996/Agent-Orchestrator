@@ -108,6 +108,9 @@ function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } =
   if (source === 'manual') {
     workflow.needsFixCount = workflow.needsFixCount || {};
     workflow.needsFixCount[step] = 0;
+    if (workflow.needsFixHandled) {
+      delete workflow.needsFixHandled[step];
+    }
   }
 
   // Clear blocked state
