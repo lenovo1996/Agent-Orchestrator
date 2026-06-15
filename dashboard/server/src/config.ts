@@ -45,7 +45,8 @@ function findRepoRoot(): string {
  * - Creates task-flows directory if it doesn't exist, logs a warning.
  */
 export function loadConfig(): DashboardConfig {
-  const repoRoot = findRepoRoot();
+  const repoRoot = path.join(findRepoRoot(), '..');
+
   const teamConfigPath = path.join(repoRoot, 'team.json');
 
   let teamConfig: { outputRoot?: string };
