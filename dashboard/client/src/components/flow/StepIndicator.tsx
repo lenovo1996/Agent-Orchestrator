@@ -1,6 +1,7 @@
 import type { AgentStep, StepStatus } from '@devteam-dashboard/shared';
-import { AGENT_STEPS, STEP_DISPLAY_NAMES } from '@/lib/constants';
+import { AGENT_STEPS, getStepDisplayName } from '@/lib/constants';
 import { cn } from '@/lib/utils';
+import { useDashboardStore } from '@/store/use-dashboard-store';
 
 interface StepIndicatorProps {
   steps: Record<AgentStep, StepStatus>;
@@ -20,6 +21,7 @@ const DOT_COLORS: Record<StepStatus, string> = {
 };
 
 export function StepIndicator({ steps, stepOrder }: StepIndicatorProps) {
+  const agents = useDashboardStore((s) => s.agents);
   const activeSteps = stepOrder || AGENT_STEPS;
   return (
     <div className="flex items-center gap-1">
@@ -27,7 +29,7 @@ export function StepIndicator({ steps, stepOrder }: StepIndicatorProps) {
         <div key={step} className="flex items-center">
           <div
             className={cn('h-2 w-2 rounded-full transition-colors', DOT_COLORS[steps[step]] || 'bg-gray-600')}
-            title={`${STEP_DISPLAY_NAMES[step] || step}: ${steps[step]}`}
+            title={`${getStepDisplayName(step, agents)}: ${steps[step]}`}
           />
           {idx < activeSteps.length - 1 && (
             <div className={cn(

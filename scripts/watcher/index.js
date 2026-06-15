@@ -11,7 +11,7 @@ const SCRIPT_DIR = path.resolve(__dirname);
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
-const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
+const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
 const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
 
@@ -241,7 +241,7 @@ function spawnStep(flowId, step, isRetry = false) {
   const retryLabel = isRetry ? ' (retry)' : '';
   console.log(`\n🚀 ${isRetry ? 'Retrying' : 'Spawning'}: ${step}${retryLabel}`);
 
-  const spawnScript = path.join(SCRIPT_DIR, 'api/spawn.js');
+  const spawnScript = path.join(SKILL_DIR, 'api/spawn.js');
   const child = spawn(process.execPath, [spawnScript, flowId, step], {
     stdio: 'inherit'
   });

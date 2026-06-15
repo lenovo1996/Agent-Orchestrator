@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 import { socket } from '@/lib/socket';
-import { STEP_DISPLAY_NAMES } from '@/lib/constants';
+import { getStepDisplayName } from '@/lib/constants';
 import { FileText, Clock, HardDrive, RefreshCw } from 'lucide-react';
 import type { AgentStep, FileMetadata, OutputUpdatedPayload } from '@devteam-dashboard/shared';
 
@@ -31,6 +31,7 @@ export function OutputPreview() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const selectedStep = useDashboardStore((s) => s.selectedStep);
   const flows = useDashboardStore((s) => s.flows);
+  const agents = useDashboardStore((s) => s.agents);
 
   const [output, setOutput] = useState<OutputData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -109,7 +110,7 @@ export function OutputPreview() {
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
         <FileText className="w-12 h-12 mb-3 opacity-40" />
         <p className="text-sm">
-          {STEP_DISPLAY_NAMES[selectedStep as AgentStep]} has not completed yet
+          {getStepDisplayName(selectedStep as AgentStep, agents)} has not completed yet
         </p>
         <p className="text-xs mt-1 opacity-60">
           Output will be available once the step finishes

@@ -58,7 +58,7 @@ class WorktreeManager {
    * @param {Object} [config.repos] - Repository path mapping
    */
   constructor(config = {}) {
-    this.baseDir = config.baseDir || '../.dev-team-worktrees';
+    this.baseDir = config.baseDir || './.dev-team-worktrees';
     this.repos = config.repos || {};
     this._registry = new Map();
   }

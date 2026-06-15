@@ -168,6 +168,8 @@ export default function App() {
 
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const selectFlow = useDashboardStore((s) => s.selectFlow);
+  const fetchFlow = useDashboardStore((s) => s.fetchFlow);
+  const fetchAgents = useDashboardStore((s) => s.fetchAgents);
   const [currentView, setCurrentView] = useState<'flows' | 'workflows' | 'agents'>('flows');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
@@ -180,6 +182,12 @@ export default function App() {
     logs: false,
     output: false,
   });
+
+  useEffect(() => {
+    fetchAgents().catch((err) => {
+      console.error('[App] Failed to fetch agents:', err);
+    });
+  }, [fetchAgents]);
 
   useEffect(() => {
     if (selectedFlowId) {
@@ -443,7 +451,9 @@ export default function App() {
       <NewTaskDialog
         open={newTaskDialogOpen}
         onClose={() => setNewTaskDialogOpen(false)}
-        onSuccess={(flowId) => {
+        onSuccess={async (flowId) => {
+          selectFlow(flowId);
+          await fetchFlow(flowId);
           selectFlow(flowId);
           setSidebarOpen(false);
         }}

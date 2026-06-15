@@ -16,7 +16,7 @@ const path = require('path');
 const SCRIPT_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
-const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
+const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
 const { getSteps } = require('./workflow-manager');
 

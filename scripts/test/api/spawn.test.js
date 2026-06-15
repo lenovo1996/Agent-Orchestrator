@@ -13,7 +13,7 @@
  *
  * Validates: Requirements 3.3, 7.1
  *
- * Run: node --test .dev-team/scripts/test/spawn-gateway.test.js
+ * Run: node --test scripts/test/spawn-gateway.test.js
  */
 
 'use strict';
@@ -57,9 +57,9 @@ describe('Feature: parallel-worktree-tasks, Unit tests: spawn gateway → worktr
     });
 
     test('handles relative worktree path', () => {
-      const argv = ['node', 'spawn-via-gateway.js', 'flow_1', 'clarifier', '--worktree-path', '../.dev-team-worktrees/flow_1'];
+      const argv = ['node', 'spawn-via-gateway.js', 'flow_1', 'clarifier', '--worktree-path', './.dev-team-worktrees/flow_1'];
       const result = parseWorktreePath(argv);
-      assert.strictEqual(result, '../.dev-team-worktrees/flow_1');
+      assert.strictEqual(result, './.dev-team-worktrees/flow_1');
     });
   });
 

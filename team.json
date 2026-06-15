@@ -1,21 +1,21 @@
 {
   "repoRoot": ".",
   "defaultBranchPrefix": "feature",
-  "outputRoot": ".dev-team/task-flows",
+  "outputRoot": "task-flows",
   "members": {
     "clarifier": {
       "role": "Spec Clarifier",
       "objective": "Read Jira ticket, linked issues, comments, Confluence specs, and produce clear requirements + open questions.",
       "model": "gpt-5.5",
       "thinking": "xhigh",
-      "outputs": [
-        "output/clarify.md"
-      ],
       "tools": [
         "read",
         "exec",
         "memory_search",
         "memory_get"
+      ],
+      "outputs": [
+        "output/clarify.md"
       ]
     },
     "architect": {
@@ -23,12 +23,12 @@
       "objective": "Inspect PHP8 repos, identify impacted modules, design safe implementation approach.",
       "model": "gpt-5.5",
       "thinking": "high",
-      "outputs": [
-        "output/architecture.md"
-      ],
       "tools": [
         "read",
         "exec"
+      ],
+      "outputs": [
+        "output/architecture.md"
       ]
     },
     "planner": {
@@ -36,42 +36,86 @@
       "objective": "Break requirements and architecture into small, safe, independently verifiable tasks. Produce an ordered implementation plan with files, tests, risks, and rollback strategy.",
       "model": "gpt-5.5",
       "thinking": "high",
-      "outputs": [
-        "output/plan.md"
-      ],
       "tools": [
         "read",
         "exec"
+      ],
+      "outputs": [
+        "output/plan.md"
       ]
     },
     "implementer": {
       "role": "Code Implementer",
       "objective": "Implement plan in code, keep commits small, run relevant tests, report changed files and commands.",
-      "runtime": "codex",
       "model": "gpt-5.5",
       "thinking": "high",
-      "outputs": [
-        "output/implementation.md"
-      ],
       "tools": [
         "read",
         "write",
         "edit",
         "exec"
-      ]
+      ],
+      "outputs": [
+        "output/implementation.md"
+      ],
+      "runtime": "codex"
     },
     "verifier": {
       "role": "Code Verifier",
       "objective": "Review diff for correctness, security, regressions, style. Create and execute QA test cases. Summarize verification and prepare Jira/Slack handoff.",
       "model": "gpt-5.5",
       "thinking": "xhigh",
-      "outputs": [
-        "output/verification.md"
-      ],
       "tools": [
         "read",
         "exec"
+      ],
+      "outputs": [
+        "output/verification.md"
       ]
+    },
+    "researcher": {
+      "role": "Researcher Specialist",
+      "objective": "Research and validate information required for successful project execution.  Collect relevant technical knowledge, industry best practices, framework documentation, architectural patterns, implementation references, constraints, risks, and alternatives.  Provide evidence-based findings that help other agents make high-quality decisions.  Focus on accuracy, completeness, and source credibility. Never design solutions, write implementation code, or make final architectural decisions unless explicitly requested.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [],
+      "outputs": [
+        "output/research.md"
+      ],
+      "runtime": "codex"
+    },
+    "analyzer": {
+      "role": "Analyzer",
+      "objective": "Understand the existing codebase and identify refactoring opportunities.  Analyze architecture, dependencies, code quality issues, technical debt, maintainability concerns, and potential risks.  Produce an objective assessment of the current state without proposing implementation changes.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [],
+      "outputs": [
+        "output/analyzer.md"
+      ],
+      "runtime": "codex"
+    },
+    "refactor-planner": {
+      "role": "Refactor Planner",
+      "objective": "Create a safe, incremental refactoring plan that improves code quality while preserving existing behavior.  Break large refactoring efforts into small, reviewable steps.",
+      "model": "gpt-5.5",
+      "thinking": "medium",
+      "tools": [],
+      "outputs": [
+        "output/refactor-plan.md"
+      ],
+      "runtime": "codex"
+    },
+    "refactor-implementer": {
+      "role": "Refactor Implementer",
+      "objective": "Apply refactoring changes according to the approved plan while preserving behavior and minimizing code churn.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [],
+      "outputs": [
+        "output/implementation.md"
+      ],
+      "runtime": "codex"
     }
   },
   "worktree": {
