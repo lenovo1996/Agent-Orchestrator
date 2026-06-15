@@ -241,7 +241,7 @@ function spawnStep(flowId, step, isRetry = false) {
   const retryLabel = isRetry ? ' (retry)' : '';
   console.log(`\n🚀 ${isRetry ? 'Retrying' : 'Spawning'}: ${step}${retryLabel}`);
 
-  const spawnScript = path.join(SCRIPT_DIR, 'api/spawn.js');
+  const spawnScript = path.join(SKILL_DIR, 'api/spawn.js');
   const child = spawn(process.execPath, [spawnScript, flowId, step], {
     stdio: 'inherit'
   });

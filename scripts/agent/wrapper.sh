@@ -28,7 +28,7 @@ WORKTREE_PATH="${5:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RUNTIME="${AGENT_RUNTIME:-codex}"
-RUNTIME_SCRIPT="$SCRIPT_DIR/runtimes/${RUNTIME}.sh"
+RUNTIME_SCRIPT="$SCRIPT_DIR/../runtimes/${RUNTIME}.sh"
 
 # Validate worktree path if provided
 if [ -n "$WORKTREE_PATH" ]; then
@@ -45,7 +45,7 @@ fi
 # Validate runtime script exists
 if [ ! -f "$RUNTIME_SCRIPT" ]; then
   echo "❌ Unknown runtime: $RUNTIME (no script at $RUNTIME_SCRIPT)" >&2
-  echo "   Available runtimes: $(ls "$SCRIPT_DIR/runtimes/" | sed 's/\.sh$//' | tr '\n' ' ')" >&2
+  echo "   Available runtimes: $(ls "$SCRIPT_DIR/../runtimes/" | sed 's/\.sh$//' | tr '\n' ' ')" >&2
   exit 1
 fi
 
@@ -57,7 +57,7 @@ CURRENT_LINK="$LOG_DIR/current.log"
 ln -sfn "${STEP}.log" "$CURRENT_LINK"
 
 # Resolve output file path from team.json
-SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SKILL_DIR="$REPO_ROOT"
 OUTPUT_FILE="$WORK_DIR/$(node -e "
   const t = require('$SKILL_DIR/team.json');
   process.stdout.write(t.members['$STEP'].outputs[0]);

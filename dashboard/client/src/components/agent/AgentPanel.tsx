@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useDashboardStore } from '@/store/use-dashboard-store';
-import { AGENT_STEPS, STEP_DISPLAY_NAMES, OUTPUT_FILE_MAP } from '@/lib/constants';
+import { AGENT_STEPS, getAgentOutputFilename, getStepDisplayName } from '@/lib/constants';
 import { formatTokens, calculateProgress } from '@/lib/format';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
@@ -19,15 +19,6 @@ const STATUS_CONFIG: Record<StepStatus, { icon: string; color: string; bg: strin
   cancelled: { icon: '—', color: 'text-gray-500', bg: 'bg-gray-500/10' },
   retrying: { icon: '↻', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   unknown: { icon: '?', color: 'text-gray-500', bg: 'bg-gray-500/10' },
-};
-
-/** Step → info description */
-const STEP_INFO: Record<AgentStep, string> = {
-  clarifier: 'Spec Clarification',
-  architect: 'Architecture',
-  planner: 'Implementation Plan',
-  implementer: 'Implementation',
-  verifier: 'Verification',
 };
 
 /**
@@ -83,6 +74,7 @@ function formatTime(iso: string | undefined): string {
 export function AgentPanel() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const flows = useDashboardStore((s) => s.flows);
+  const agents = useDashboardStore((s) => s.agents);
   const selectedStep = useDashboardStore((s) => s.selectedStep);
   const selectStep = useDashboardStore((s) => s.selectStep);
 
@@ -155,15 +147,15 @@ export function AgentPanel() {
           </thead>
           <tbody className="text-xs">
             {(flow.stepOrder || AGENT_STEPS).map((step) => {
-              const status = flow.steps[step];
+              const status = flow.steps[step] || 'unknown';
               const tokens = perStep[step] ?? 0;
               const retryCount = flow.retries?.[step] ?? 0;
               const needsFixCount = flow.needsFixCount?.[step] ?? 0;
               const isSelected = selectedStep === step;
-              const outputFile = OUTPUT_FILE_MAP[step] || `${step}.md`;
+              const outputFile = getAgentOutputFilename(step, agents);
               const config = STATUS_CONFIG[status];
 
-              let info = `${STEP_INFO[step] || step}: ${flow.jiraKey}`;
+              let info = `${agents[step]?.objective || getStepDisplayName(step, agents)}: ${flow.jiraKey}`;
               if (retryCount > 0) info += ` (retry: ${retryCount})`;
               if (needsFixCount > 0) info += ` [fix: ${needsFixCount}]`;
 
@@ -187,7 +179,7 @@ export function AgentPanel() {
                         {config.icon}
                       </span>
                       <span className="font-medium text-foreground">
-                        {STEP_DISPLAY_NAMES[step]}
+                        {getStepDisplayName(step, agents)}
                       </span>
                     </div>
                   </td>

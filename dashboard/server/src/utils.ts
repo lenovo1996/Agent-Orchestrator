@@ -1,19 +1,16 @@
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 
-let teamConfigCache: any = null;
-
 export function getTeamConfig(scriptDir: string) {
-  if (teamConfigCache) return teamConfigCache;
-  const teamJsonPath = path.resolve(scriptDir, '../../team.json');
+  const teamJsonPath = path.resolve(scriptDir, '../team.json');
   if (existsSync(teamJsonPath)) {
     try {
-      teamConfigCache = JSON.parse(readFileSync(teamJsonPath, 'utf8'));
+      return JSON.parse(readFileSync(teamJsonPath, 'utf8'));
     } catch (e) {
       console.error('Failed to parse team.json:', e);
     }
   }
-  return teamConfigCache || { members: {} };
+  return { members: {} };
 }
 
 export function getOutputFilename(step: string, scriptDir: string): string | null {

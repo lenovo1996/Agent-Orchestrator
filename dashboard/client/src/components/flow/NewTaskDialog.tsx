@@ -7,7 +7,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 interface NewTaskDialogProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: (flowId: string) => void;
+  onSuccess: (flowId: string) => void | Promise<void>;
 }
 
 export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) {
@@ -48,9 +48,10 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
       const data = await res.json();
 
       if (res.ok) {
-        onSuccess(data.flowId);
+        await onSuccess(data.flowId);
         setJiraKey('');
         setCustomPrompt('');
+        setWorkflowId('');
         onClose();
       } else {
         setError(data.error || 'Failed to start workflow');

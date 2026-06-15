@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import type { AgentConfig } from '@devteam-dashboard/shared';
 import { Plus, Edit2, Trash2, Bot, Target, Wrench, FileOutput, Server, BrainCircuit, TerminalSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useDashboardStore } from '@/store/use-dashboard-store';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export function AgentsPage() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
+  const setStoreAgents = useDashboardStore((s) => s.setAgents);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +32,7 @@ export function AgentsPage() {
       if (res.ok) {
         const data = await res.json();
         setAgents(data);
+        setStoreAgents(data);
       } else {
         setError('Failed to fetch agents');
       }

@@ -2,10 +2,9 @@ const fs = require('fs');
 const path = require('path');
 
 const SCRIPT_DIR = path.resolve(__dirname, '..');
-const SKILL_DIR = path.dirname(SCRIPT_DIR);
-const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(SKILL_DIR, 'team.json'), 'utf8'));
-const REPO_ROOT = path.resolve(SKILL_DIR, '..');
-const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || '.dev-team/task-flows');
+const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
+const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
+const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 const DEFAULT_STEPS = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
 
 function getSteps(workflow) {

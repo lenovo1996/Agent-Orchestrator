@@ -32,8 +32,8 @@ async function main() {
     process.exit(1);
   }
 
-  const SKILL_DIR = path.resolve(__dirname, '..');
-  const repoRoot = path.resolve(SKILL_DIR, '..');
+  const scriptsDir = path.resolve(__dirname, '..');
+  const repoRoot = path.resolve(scriptsDir, '..');
   const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(repoRoot, 'team.json'), 'utf8'));
   const outputRoot = path.resolve(repoRoot, TEAM_CONFIG.outputRoot || 'task-flows');
   const workDir = path.join(outputRoot, flowId);
@@ -87,7 +87,7 @@ async function main() {
 
   // Build task prompt
   let task = `You are the **${member.role}** on a dev team.\n\n`;
-  task += `## Instructions\n\nRead your full instructions from:\n${SKILL_DIR}/prompts/${step}.md\n\n`;
+  task += `## Instructions\n\nRead your full instructions from:\n${repoRoot}/prompts/${step}.md\n\n`;
   task += `## Context\n\n`;
   task += `- Jira ticket: ${jiraKey}\n`;
   task += `- Repo root: ${repoRoot}\n`;

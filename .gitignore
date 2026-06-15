@@ -2,5 +2,7 @@ node_modules
 dist
 .env
 task-flows
-*.db
+workflows.db
 team.json
+prompts
+parallel-status.json

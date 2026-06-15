@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useDashboardStore } from '@/store/use-dashboard-store';
-import { AGENT_STEPS, STEP_DISPLAY_NAMES } from '@/lib/constants';
+import { AGENT_STEPS, getStepDisplayName } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import type { AgentStep } from '@devteam-dashboard/shared';
 
@@ -20,6 +20,7 @@ interface GitStatus {
 export function FlowActions() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const flows = useDashboardStore((s) => s.flows);
+  const agents = useDashboardStore((s) => s.agents);
   const flow = selectedFlowId ? flows[selectedFlowId] : null;
 
   const [retryOpen, setRetryOpen] = useState(false);
@@ -128,7 +129,7 @@ export function FlowActions() {
                   onClick={() => handleRetry(step, true)}
                   className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs hover:bg-accent/50 transition-colors"
                 >
-                  <span className="text-foreground font-medium">{STEP_DISPLAY_NAMES[step] || step}</span>
+                  <span className="text-foreground font-medium">{getStepDisplayName(step, agents)}</span>
                   <span className={cn(
                     'text-[10px] px-1.5 py-0.5 rounded-full',
                     flow.steps[step] === 'done' && 'bg-emerald-500/10 text-emerald-400',
