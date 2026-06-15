@@ -1,6 +1,7 @@
 node_modules
 dist
 .env
+task-flows
 workflows.db
 team.json
 prompts
