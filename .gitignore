@@ -6,3 +6,4 @@ workflows.db
 team.json
 prompts
 parallel-status.json
+.tasks

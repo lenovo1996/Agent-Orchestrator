@@ -34,6 +34,7 @@ async function main() {
 
   const scriptsDir = path.resolve(__dirname, '..');
   const repoRoot = path.resolve(scriptsDir, '..');
+  const realRepoRoot = path.resolve(scriptsDir, '../..');
   const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(repoRoot, 'team.json'), 'utf8'));
   const outputRoot = path.resolve(repoRoot, TEAM_CONFIG.outputRoot || 'task-flows');
   const workDir = path.join(outputRoot, flowId);
@@ -90,7 +91,7 @@ async function main() {
   task += `## Instructions\n\nRead your full instructions from:\n${repoRoot}/prompts/${step}.md\n\n`;
   task += `## Context\n\n`;
   task += `- Jira ticket: ${jiraKey}\n`;
-  task += `- Repo root: ${repoRoot}\n`;
+  task += `- Repo root: ${realRepoRoot}\n`;
   task += `- Work dir: ${workDir}\n`;
 
   // Inject active-context reference
@@ -130,7 +131,7 @@ async function main() {
   task += `\n## Your Output\n\n`;
   task += `Write your output to: ${workDir}/output/${member.outputs[0].replace('output/', '')}\n\n`;
   task += `Follow the prompt instructions exactly.`;
-  task = task.replace(/{{REPO_ROOT}}/g, repoRoot);
+  task = task.replace(/{{REPO_ROOT}}/g, realRepoRoot);
 
 
   // Write prompt to file and run agent through Codex CLI for realtime streaming logs

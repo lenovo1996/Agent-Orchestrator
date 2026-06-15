@@ -27,6 +27,7 @@ WORKTREE_PATH="${5:-}"
 # Derive paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REAL_REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 RUNTIME="${AGENT_RUNTIME:-codex}"
 RUNTIME_SCRIPT="$SCRIPT_DIR/../runtimes/${RUNTIME}.sh"
 
@@ -64,7 +65,7 @@ OUTPUT_FILE="$WORK_DIR/$(node -e "
 ")"
 
 # Working directory for the agent
-CWD="${WORKTREE_PATH:-$REPO_ROOT}"
+CWD="${WORKTREE_PATH:-$REAL_REPO_ROOT}"
 
 # Write log header
 {
@@ -72,9 +73,9 @@ CWD="${WORKTREE_PATH:-$REPO_ROOT}"
   echo "Flow: $FLOW_ID"
   echo "Agent: $STEP"
   echo "Started: $(date)"
-  echo "Work dir: $WORK_DIR"
+  echo "Work dir: $REAL_REPO_ROOT"
   echo "Prompt: $PROMPT_FILE"
-  echo "Repo: $REPO_ROOT"
+  echo "Repo: $REAL_REPO_ROOT"
   echo "Worktree: ${WORKTREE_PATH:-none}"
   echo "Runtime: $RUNTIME"
   echo "Model: ${AGENT_MODEL:-default}"

@@ -118,12 +118,6 @@ export function AgentPanel() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Progress value={progress.percentage} className="h-2 w-32 md:w-40" />
-          <span className="text-[11px] text-muted-foreground font-medium">
-            {progress.completed}/{progress.total}
-          </span>
-        </div>
       </div>
 
       {flow.customPrompt && (
