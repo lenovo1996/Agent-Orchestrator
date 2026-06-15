@@ -27,7 +27,7 @@ const path = require('path');
 
 const SCRIPT_DIR = path.resolve(__dirname);
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
-const REPO_ROOT = path.resolve(SKILL_DIR, '../..');
+const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 const { parseStepTokens, getFlowTokens, formatTokens, formatFlowSummary } = require('../utils/token-tracker');

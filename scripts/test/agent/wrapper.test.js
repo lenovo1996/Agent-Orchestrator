@@ -16,6 +16,10 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
+const childProcess = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const fc = require('fast-check');
 
 // ============================================================================
@@ -48,6 +52,9 @@ function formatWorktreeLogHeader(worktreePath) {
   return `Worktree: ${worktreePath || 'none'}`;
 }
 
+const repoRoot = path.resolve(__dirname, '../../..');
+const wrapperScript = path.join(repoRoot, 'scripts/agent/wrapper.sh');
+
 // ============================================================================
 // Generators
 // ============================================================================
@@ -77,6 +84,51 @@ const repoRootArb = fc
 // ============================================================================
 // Property 13: Wrapper working directory selection
 // ============================================================================
+
+describe('agent-wrapper.sh log append behavior', () => {
+  test('preserves existing step log content when wrapper starts again', () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-wrapper-append-'));
+
+    try {
+      const logDir = path.join(workDir, 'logs');
+      fs.mkdirSync(logDir, { recursive: true });
+
+      const logFile = path.join(logDir, 'implementer.log');
+      fs.writeFileSync(logFile, 'previous run line\ntokens used\n123\n');
+
+      const promptFile = path.join(workDir, 'prompt.txt');
+      fs.writeFileSync(promptFile, 'test prompt\n');
+
+      childProcess.execFileSync('bash', [
+        wrapperScript,
+        'flow_append_test',
+        'implementer',
+        workDir,
+        promptFile
+      ], {
+        cwd: repoRoot,
+        env: {
+          ...process.env,
+          AGENT_RUNTIME: 'generic',
+          AGENT_COMMAND: 'printf "runtime run\\ntokens used\\n456\\n"'
+        }
+      });
+
+      const content = fs.readFileSync(logFile, 'utf8');
+
+      assert.match(content, /previous run line/);
+      assert.match(content, /tokens used\n123/);
+      assert.match(content, /runtime run/);
+      assert.match(content, /tokens used\n456/);
+      assert.ok(
+        content.indexOf('previous run line') < content.indexOf('=== Dev Team Agent Stream ==='),
+        'new wrapper header should be appended after existing log content'
+      );
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('Feature: parallel-worktree-tasks, Property 13: Wrapper working directory selection', () => {
 

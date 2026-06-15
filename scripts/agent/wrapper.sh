@@ -81,7 +81,7 @@ CWD="${WORKTREE_PATH:-$REPO_ROOT}"
   echo "Reasoning: ${AGENT_REASONING:-default}"
   echo "================================"
   echo ""
-} | tee "$LOG_FILE"
+} | tee -a "$LOG_FILE"
 
 # Crash sentinel: write ## Status FAILED if runtime exits non-zero and no output
 write_crash_sentinel() {
