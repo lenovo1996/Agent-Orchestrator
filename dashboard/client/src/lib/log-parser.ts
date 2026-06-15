@@ -1,6 +1,6 @@
 import ansiRegex from 'ansi-regex';
 
-export type LogBlockType = 'text' | 'command_group' | 'system';
+export type LogBlockType = 'text' | 'command_group' | 'git_diff' | 'system';
 
 export interface CommandLog {
   command: string;
@@ -10,10 +10,16 @@ export interface CommandLog {
   summary?: string;
 }
 
+export interface GitDiffLog {
+  files: string[];
+  output: string;
+}
+
 export interface LogBlock {
   type: LogBlockType;
   lines?: string[];
   commands?: CommandLog[];
+  diffs?: GitDiffLog[];
   header?: string; // e.g., 'codex' or 'user'
   isOpen?: boolean; // For UI state
 }
@@ -24,16 +30,51 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
   const blocks: LogBlock[] = [];
   let currentBlock: LogBlock | null = null;
   let currentCommand: CommandLog | null = null;
+  let currentDiff: GitDiffLog | null = null;
 
   for (let i = 0; i < rawLines.length; i++) {
     const rawLine = rawLines[i];
     const line = stripAnsi(rawLine);
+
+    // Git diff block
+    if (line.startsWith('diff --git ')) {
+      if (currentBlock && currentBlock.type !== 'git_diff') {
+        blocks.push(currentBlock);
+        currentBlock = { type: 'git_diff', diffs: [] };
+      } else if (!currentBlock) {
+        currentBlock = { type: 'git_diff', diffs: [] };
+      }
+
+      // Parse filenames like: a/path/to/file b/path/to/file
+      const match = line.match(/^diff --git a\/(.*?) b\/(.*?)$/);
+      const files = match ? [match[1], match[2]] : [];
+
+      currentDiff = { files, output: line };
+      currentBlock.diffs!.push(currentDiff);
+      currentCommand = null;
+      continue;
+    }
+
+    if (currentBlock?.type === 'git_diff' && currentDiff) {
+      // If we encounter a new header that breaks the diff, catch it
+      if (
+        rawLine.match(/\x1b\[35m\x1b\[3m(codex|user|exec)\x1b\[0m/) ||
+        line.match(/^(codex|user|exec)$/i)
+      ) {
+        // Break out of diff, let next handlers process it
+      } else {
+        currentDiff.output += '\n' + line;
+        continue;
+      }
+    }
 
     // Identify agent/user headers (e.g., codex, user)
     // Often logged like: [35m[3mcodex[0m[0m or [36muser[0m
     if (rawLine.match(/\x1b\[35m\x1b\[3m(codex|user)\x1b\[0m/) || line.match(/^(codex|user)$/i)) {
       if (currentBlock) blocks.push(currentBlock);
       currentBlock = { type: 'text', lines: [], header: line.trim().toLowerCase() };
+      currentCommand = null;
+      currentDiff = null;
       continue;
     }
 
@@ -67,6 +108,7 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
 
       currentCommand = { command, status, duration, output: '' };
       currentBlock.commands!.push(currentCommand);
+      currentDiff = null;
 
       // Skip the lines we just parsed
       if (status) i += 2;

@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { LogBlock } from '@/lib/log-parser';
-import { Terminal, Bot, User, Search, FileText, CheckCircle2, XCircle } from 'lucide-react';
+import { Terminal, Bot, User, Search, FileText, CheckCircle2, XCircle, FileDiff } from 'lucide-react';
 import { AccordionRoot, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 interface LogBlockViewProps {
@@ -27,6 +27,59 @@ export const LogBlockView = memo(function LogBlockView({ block }: LogBlockViewPr
         <div className="text-sm font-sans whitespace-pre-wrap text-foreground/90 leading-relaxed">
           {block.lines?.join('\n')}
         </div>
+      </div>
+    );
+  }
+
+  if (block.type === 'git_diff' && block.diffs) {
+    const diffCount = block.diffs.length;
+    const groupTitle = `Git Diff: ${diffCount} file${diffCount > 1 ? 's' : ''}`;
+
+    return (
+      <div className="px-4 py-3 border-b border-border/50 bg-blue-500/5">
+        <AccordionRoot type="multiple">
+           <AccordionItem value="diff-group" className="border-none bg-transparent">
+             <AccordionTrigger className="hover:bg-transparent px-0 py-1 flex justify-start gap-2 group">
+               <div className="flex items-center gap-2 text-muted-foreground group-hover:text-foreground transition-colors">
+                 <FileDiff className="w-4 h-4 text-blue-500" />
+                 <span className="text-sm font-medium">{groupTitle}</span>
+                 {diffCount > 1 && (
+                   <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                     {diffCount}
+                   </span>
+                 )}
+               </div>
+             </AccordionTrigger>
+             <AccordionContent className="border-none px-0 pt-2 pb-0">
+               <div className="flex flex-col gap-3">
+                 {block.diffs.map((diff, i) => (
+                   <div key={i} className="rounded-md border border-border bg-card overflow-hidden">
+                     <div className="flex items-center justify-between px-3 py-2 bg-muted/30 border-b border-border text-xs font-mono">
+                       <span className="truncate text-muted-foreground flex-1 font-semibold" title={diff.files.join(' -> ')}>
+                         {diff.files[0]} {diff.files[1] && diff.files[0] !== diff.files[1] ? `-> ${diff.files[1]}` : ''}
+                       </span>
+                     </div>
+                     {diff.output && (
+                       <div className="p-3 text-xs font-mono bg-background text-foreground/80 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
+                         {diff.output.split('\n').map((line, lineIdx) => {
+                           let colorClass = '';
+                           if (line.startsWith('+') && !line.startsWith('+++')) colorClass = 'text-green-500 bg-green-500/10';
+                           else if (line.startsWith('-') && !line.startsWith('---')) colorClass = 'text-red-500 bg-red-500/10';
+                           else if (line.startsWith('@@')) colorClass = 'text-blue-400';
+                           return (
+                             <div key={lineIdx} className={cn("px-1", colorClass)}>
+                               {line}
+                             </div>
+                           );
+                         })}
+                       </div>
+                     )}
+                   </div>
+                 ))}
+               </div>
+             </AccordionContent>
+           </AccordionItem>
+        </AccordionRoot>
       </div>
     );
   }

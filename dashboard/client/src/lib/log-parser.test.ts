@@ -37,4 +37,30 @@ describe('log-parser', () => {
     expect(blocks[1].commands![1].summary).toBe('Read a file');
     expect(blocks[1].commands![1].output).toBe('cat: file1.txt: No such file or directory');
   });
+
+  it('parses git diff logs', () => {
+    const rawLines = [
+      'diff --git a/test.md b/test.md',
+      'index abc..def',
+      '--- a/test.md',
+      '+++ b/test.md',
+      '@@ -1,2 +1,3 @@',
+      ' line 1',
+      '-line 2',
+      '+line 2 changed',
+      'diff --git a/second.md b/second.md',
+      '--- a/second.md',
+      '+++ b/second.md'
+    ];
+
+    const blocks = parseLogs(rawLines);
+    expect(blocks.length).toBe(1);
+    expect(blocks[0].type).toBe('git_diff');
+    expect(blocks[0].diffs!.length).toBe(2);
+
+    expect(blocks[0].diffs![0].files).toEqual(['test.md', 'test.md']);
+    expect(blocks[0].diffs![0].output).toContain('-line 2');
+
+    expect(blocks[0].diffs![1].files).toEqual(['second.md', 'second.md']);
+  });
 });
