@@ -8,11 +8,13 @@ export interface CommandLog {
   status?: 'success' | 'error';
   duration?: string;
   summary?: string;
+  hasVisibleContent?: boolean;
 }
 
 export interface GitDiffLog {
   files: string[];
   output: string;
+  hasVisibleContent?: boolean;
 }
 
 export interface LogBlock {
@@ -24,13 +26,19 @@ export interface LogBlock {
   isOpen?: boolean; // For UI state
 }
 
+export interface ParseLogsOptions {
+  visibleStartLine?: number;
+}
+
 const stripAnsi = (str: string) => str.replace(ansiRegex(), '');
 
-export function parseLogs(rawLines: string[]): LogBlock[] {
+export function parseLogs(rawLines: string[], options: ParseLogsOptions = {}): LogBlock[] {
   const blocks: LogBlock[] = [];
   let currentBlock: LogBlock | null = null;
   let currentCommand: CommandLog | null = null;
   let currentDiff: GitDiffLog | null = null;
+  const visibleStartLine = Math.max(0, options.visibleStartLine ?? 0);
+  const isVisibleLine = (lineIndex: number) => lineIndex >= visibleStartLine;
 
   for (let i = 0; i < rawLines.length; i++) {
     const rawLine = rawLines[i];
@@ -49,7 +57,11 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
       const match = line.match(/^diff --git a\/(.*?) b\/(.*?)$/);
       const files = match ? [match[1], match[2]] : [];
 
-      currentDiff = { files, output: line };
+      currentDiff = {
+        files,
+        output: isVisibleLine(i) ? line : '',
+        hasVisibleContent: isVisibleLine(i),
+      };
       currentBlock.diffs!.push(currentDiff);
       currentCommand = null;
       continue;
@@ -63,7 +75,10 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
       ) {
         // Break out of diff, let next handlers process it
       } else {
-        currentDiff.output += '\n' + line;
+        if (isVisibleLine(i)) {
+          currentDiff.output += (currentDiff.output ? '\n' : '') + line;
+          currentDiff.hasVisibleContent = true;
+        }
         continue;
       }
     }
@@ -106,7 +121,13 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
         duration = nextNextLine.match(/exited \d+ in (\d+ms)/)?.[1] || '';
       }
 
-      currentCommand = { command, status, duration, output: '' };
+      currentCommand = {
+        command,
+        status,
+        duration,
+        output: '',
+        hasVisibleContent: isVisibleLine(i) || isVisibleLine(i + 1) || isVisibleLine(i + 2),
+      };
       currentBlock.commands!.push(currentCommand);
       currentDiff = null;
 
@@ -121,7 +142,10 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
     if (currentBlock?.type === 'command_group' && currentCommand) {
       // If we encounter another agent/user or exec header, the loop will catch it on the next iteration
       // Check if it's an empty line that might just be padding between commands
-      currentCommand.output += (currentCommand.output ? '\n' : '') + line;
+      if (isVisibleLine(i)) {
+        currentCommand.output += (currentCommand.output ? '\n' : '') + line;
+        currentCommand.hasVisibleContent = true;
+      }
       continue;
     }
 
@@ -131,7 +155,9 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
     }
 
     if (currentBlock.type === 'text') {
-       currentBlock.lines!.push(line);
+      if (isVisibleLine(i)) {
+        currentBlock.lines!.push(line);
+      }
     }
   }
 
@@ -139,8 +165,10 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
     blocks.push(currentBlock);
   }
 
+  const visibleBlocks = visibleStartLine > 0 ? filterVisibleBlocks(blocks) : blocks;
+
   // Post-process command blocks to generate summaries
-  for (const block of blocks) {
+  for (const block of visibleBlocks) {
     if (block.type === 'command_group' && block.commands) {
       for (const cmd of block.commands) {
          cmd.summary = generateCommandSummary(cmd.command);
@@ -148,7 +176,40 @@ export function parseLogs(rawLines: string[]): LogBlock[] {
     }
   }
 
-  return blocks;
+  return visibleBlocks;
+}
+
+function filterVisibleBlocks(blocks: LogBlock[]): LogBlock[] {
+  const visibleBlocks: LogBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type === 'text') {
+      if (block.lines && block.lines.length > 0) {
+        visibleBlocks.push(block);
+      }
+      continue;
+    }
+
+    if (block.type === 'git_diff') {
+      const diffs = block.diffs?.filter((diff) => diff.hasVisibleContent) ?? [];
+      if (diffs.length > 0) {
+        visibleBlocks.push({ ...block, diffs });
+      }
+      continue;
+    }
+
+    if (block.type === 'command_group') {
+      const commands = block.commands?.filter((command) => command.hasVisibleContent) ?? [];
+      if (commands.length > 0) {
+        visibleBlocks.push({ ...block, commands });
+      }
+      continue;
+    }
+
+    visibleBlocks.push(block);
+  }
+
+  return visibleBlocks;
 }
 
 function generateCommandSummary(command: string): string {

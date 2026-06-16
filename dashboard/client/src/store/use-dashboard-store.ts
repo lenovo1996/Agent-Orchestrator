@@ -46,7 +46,7 @@ export interface DashboardState {
   initState: (payload: StateInitPayload) => void;
 }
 
-export const MAX_LOG_LINES = 1000;
+export const MAX_LOG_BUFFER_LINES = 2000;
 
 function getLatestAgentStep(flow: WorkflowState | undefined): AgentStep | null {
   if (!flow) return null;
@@ -123,7 +123,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     set((state) => {
       const key = `${flowId}:${step}`;
       const existing = state.logBuffers[key] || { lines: [], autoScroll: true };
-      const newLines = [...existing.lines, ...lines].slice(-MAX_LOG_LINES);
+      const newLines = [...existing.lines, ...lines].slice(-MAX_LOG_BUFFER_LINES);
       return {
         logBuffers: {
           ...state.logBuffers,
@@ -137,7 +137,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       return {
         logBuffers: {
           ...state.logBuffers,
-          [key]: { lines: lines.slice(-MAX_LOG_LINES), autoScroll: true },
+          [key]: { lines: lines.slice(-MAX_LOG_BUFFER_LINES), autoScroll: true },
         },
       };
     }),

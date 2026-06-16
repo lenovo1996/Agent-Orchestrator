@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 
 // In dev mode, Vite proxy handles /api routing so we use empty string (relative path).
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const MAX_VISIBLE_LOG_LINES = 1000;
 
 /**
  * Realtime log viewer component with auto-scroll, socket subscription,
@@ -33,15 +34,20 @@ export function LogViewer() {
 
   const buffer = bufferKey ? logBuffers[bufferKey] : null;
   const lines = buffer?.lines ?? [];
+  const visibleStartLine = Math.max(0, lines.length - MAX_VISIBLE_LOG_LINES);
+  const visibleLines = useMemo(
+    () => lines.slice(visibleStartLine),
+    [lines, visibleStartLine]
+  );
   const autoScroll = buffer?.autoScroll ?? true;
 
   // Optimize parsing performance by memoizing parsed output
   const parsedBlocks = useMemo(() => {
     if (mode === 'raw' || lines.length === 0) return [];
-    return parseLogs(lines);
-  }, [lines, mode]);
+    return parseLogs(lines, { visibleStartLine });
+  }, [lines, mode, visibleStartLine]);
 
-  useAutoScroll(containerRef, { autoScroll, deps: [lines.length] });
+  useAutoScroll(containerRef, { autoScroll, deps: [visibleLines.length, lines.length] });
 
   // Subscribe/unsubscribe to log events via socket + fetch initial log
   useEffect(() => {
@@ -136,7 +142,7 @@ export function LogViewer() {
           mode === 'raw' ? "bg-muted/10 font-mono text-foreground" : "bg-background"
         )}
       >
-        {lines.length === 0 ? (
+        {visibleLines.length === 0 ? (
           <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
             No log output yet
           </div>
@@ -148,8 +154,8 @@ export function LogViewer() {
           </div>
         ) : (
           <div className="py-2">
-            {lines.map((line, idx) => (
-              <LogLine key={idx} line={line} index={idx} />
+            {visibleLines.map((line, idx) => (
+              <LogLine key={visibleStartLine + idx} line={line} index={visibleStartLine + idx} />
             ))}
           </div>
         )}

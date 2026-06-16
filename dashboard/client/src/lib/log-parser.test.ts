@@ -63,4 +63,31 @@ describe('log-parser', () => {
 
     expect(blocks[0].diffs![1].files).toEqual(['second.md', 'second.md']);
   });
+
+  it('uses hidden context to keep truncated visible git diff lines in the diff block', () => {
+    const diffLines = [
+      'diff --git a/first.md b/first.md',
+      'index abc..def 100644',
+      '--- a/first.md',
+      '+++ b/first.md',
+      '@@ -1,400 +1,400 @@',
+      ...Array.from({ length: 395 }, (_, i) => `+diff line ${i + 1}`),
+    ];
+    const searchLines = [
+      '\x1b[35m\x1b[3mexec\x1b[0m\x1b[0m',
+      '\x1b[1m/usr/bin/zsh -lc "rg search-term" \x1b[0m in /home/user',
+      '\x1b[32m succeeded in 12ms:\x1b[0m',
+      ...Array.from({ length: 797 }, (_, i) => `search result ${i + 1}`),
+    ];
+    const rawLines = [...diffLines, ...searchLines];
+
+    const blocks = parseLogs(rawLines, { visibleStartLine: rawLines.length - 1000 });
+
+    expect(blocks[0].type).toBe('git_diff');
+    expect(blocks[0].diffs![0].files).toEqual(['first.md', 'first.md']);
+    expect(blocks[0].diffs![0].output).toContain('+diff line 196');
+    expect(blocks[0].diffs![0].output).not.toContain('+diff line 195');
+    expect(blocks[1].type).toBe('command_group');
+    expect(blocks[1].commands![0].summary).toBe('Searched code');
+  });
 });

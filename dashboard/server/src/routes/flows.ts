@@ -8,6 +8,7 @@ import { readWorkflowJson, readOutputContent } from '../flow-reader.js';
 import { getOutputFilename } from '../utils.js';
 
 const STEPS: AgentStep[] = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+const MAX_LOG_CONTEXT_LINES = 2000;
 
 export function flowsRouter(config: DashboardConfig): Router {
   const router = Router();
@@ -40,7 +41,7 @@ export function flowsRouter(config: DashboardConfig): Router {
 
   /**
    * GET /api/flows/:flowId/logs/:step
-   * Returns last 1000 lines of the step's log file.
+   * Returns recent log lines plus context for client-side block parsing.
    */
   router.get('/flows/:flowId/logs/:step', (req, res) => {
     const { flowId, step } = req.params;
@@ -53,8 +54,7 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     const content = fs.readFileSync(logPath, 'utf8');
     const lines = content.split('\n');
-    // Return last 1000 lines max
-    res.json({ lines: lines.slice(-1000) });
+    res.json({ lines: lines.slice(-MAX_LOG_CONTEXT_LINES) });
   });
 
   /**
