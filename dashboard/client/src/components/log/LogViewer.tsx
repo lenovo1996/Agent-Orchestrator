@@ -96,9 +96,6 @@ export function LogViewer() {
       {/* Header with auto-scroll toggle and view mode toggle */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10">
         <div className="flex items-center gap-4">
-          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-            Logs — {selectedStep}
-          </span>
           <div className="flex bg-muted/50 rounded p-0.5 border border-border/50">
             <button
               onClick={() => setMode('pretty')}
