@@ -1,13 +1,19 @@
-import { Router } from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
-import { execFileSync, execSync, spawn } from 'node:child_process';
-import type { DashboardConfig } from '../config.js';
-import type { FlowSummary, AgentStep } from '@devteam-dashboard/shared';
-import { readWorkflowJson, readOutputContent } from '../flow-reader.js';
-import { getOutputFilename } from '../utils.js';
+import { Router } from "express";
+import fs from "node:fs";
+import path from "node:path";
+import { execFileSync, execSync, spawn } from "node:child_process";
+import type { DashboardConfig } from "../config.js";
+import type { FlowSummary, AgentStep } from "@devteam-dashboard/shared";
+import { readWorkflowJson, readOutputContent } from "../flow-reader.js";
+import { getOutputFilename } from "../utils.js";
 
-const STEPS: AgentStep[] = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+const STEPS: AgentStep[] = [
+  "clarifier",
+  "architect",
+  "planner",
+  "implementer",
+  "verifier",
+];
 
 export function flowsRouter(config: DashboardConfig): Router {
   const router = Router();
@@ -16,7 +22,7 @@ export function flowsRouter(config: DashboardConfig): Router {
    * GET /api/flows
    * Returns list of FlowSummary for all valid flows in task-flows directory.
    */
-  router.get('/flows', (_req, res) => {
+  router.get("/flows", (_req, res) => {
     const flows = listFlows(config.taskFlowsDir);
     res.json({ flows });
   });
@@ -25,13 +31,13 @@ export function flowsRouter(config: DashboardConfig): Router {
    * GET /api/flows/:flowId
    * Returns full WorkflowState for a specific flow.
    */
-  router.get('/flows/:flowId', (req, res) => {
+  router.get("/flows/:flowId", (req, res) => {
     const { flowId } = req.params;
     const flowDir = path.join(config.taskFlowsDir, flowId);
     const workflow = readWorkflowJson(flowDir);
 
     if (!workflow) {
-      res.status(404).json({ error: 'Flow not found' });
+      res.status(404).json({ error: "Flow not found" });
       return;
     }
 
@@ -42,17 +48,22 @@ export function flowsRouter(config: DashboardConfig): Router {
    * GET /api/flows/:flowId/logs/:step
    * Returns last 1000 lines of the step's log file.
    */
-  router.get('/flows/:flowId/logs/:step', (req, res) => {
+  router.get("/flows/:flowId/logs/:step", (req, res) => {
     const { flowId, step } = req.params;
-    const logPath = path.join(config.taskFlowsDir, flowId, 'logs', `${step}.log`);
+    const logPath = path.join(
+      config.taskFlowsDir,
+      flowId,
+      "logs",
+      `${step}.log`,
+    );
 
     if (!fs.existsSync(logPath)) {
       res.json({ lines: [] });
       return;
     }
 
-    const content = fs.readFileSync(logPath, 'utf8');
-    const lines = content.split('\n');
+    const content = fs.readFileSync(logPath, "utf8");
+    const lines = content.split("\n");
     // Return last 1000 lines max
     res.json({ lines: lines.slice(-1000) });
   });
@@ -61,16 +72,16 @@ export function flowsRouter(config: DashboardConfig): Router {
    * GET /api/flows/:flowId/output/:step
    * Returns markdown content + metadata for a step's output file.
    */
-  router.get('/flows/:flowId/output/:step', (req, res) => {
+  router.get("/flows/:flowId/output/:step", (req, res) => {
     const { flowId, step } = req.params;
     const filename = getOutputFilename(step, config.scriptDir);
 
     if (!filename) {
-      res.status(400).json({ error: 'Invalid step' });
+      res.status(400).json({ error: "Invalid step" });
       return;
     }
 
-    const filePath = path.join(config.taskFlowsDir, flowId, 'output', filename);
+    const filePath = path.join(config.taskFlowsDir, flowId, "output", filename);
     const result = readOutputContent(filePath);
 
     if (!result) {
@@ -90,12 +101,12 @@ export function flowsRouter(config: DashboardConfig): Router {
    * Returns token counts per step parsed from full log files.
    * Scans entire log (not just last 1000 lines) for "tokens used" patterns.
    */
-  router.get('/flows/:flowId/tokens', (req, res) => {
+  router.get("/flows/:flowId/tokens", (req, res) => {
     const { flowId } = req.params;
     const flowDir = path.join(config.taskFlowsDir, flowId);
 
     if (!fs.existsSync(flowDir)) {
-      res.status(404).json({ error: 'Flow not found' });
+      res.status(404).json({ error: "Flow not found" });
       return;
     }
 
@@ -108,13 +119,16 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     for (const step of stepsToUse) {
       // Parse tokens from log
-      const logPath = path.join(flowDir, 'logs', `${step}.log`);
+      const logPath = path.join(flowDir, "logs", `${step}.log`);
       if (!fs.existsSync(logPath)) {
         tokens[step] = 0;
       } else {
         try {
-          const content = fs.readFileSync(logPath, 'utf8');
-          const stepTokens = extractTokensFromLog(content).reduce((sum, value) => sum + value, 0);
+          const content = fs.readFileSync(logPath, "utf8");
+          const stepTokens = extractTokensFromLog(content).reduce(
+            (sum, value) => sum + value,
+            0,
+          );
           tokens[step] = stepTokens;
           total += stepTokens;
         } catch {
@@ -125,7 +139,7 @@ export function flowsRouter(config: DashboardConfig): Router {
       // Get output file mtime (completion time for each step)
       const outputFilename = getOutputFilename(step, config.scriptDir);
       if (outputFilename) {
-        const outputPath = path.join(flowDir, 'output', outputFilename);
+        const outputPath = path.join(flowDir, "output", outputFilename);
         try {
           const stat = fs.statSync(outputPath);
           outputTimes[step] = stat.mtime.toISOString();
@@ -142,27 +156,31 @@ export function flowsRouter(config: DashboardConfig): Router {
 
   /**
    * POST /api/flows/:flowId/retry
-   * Retry a specific step. Body: { step, clearOutput?: boolean }
+   * Retry a specific step. Body: { step, clearOutput?: boolean, prompt?: string }
    */
-  router.post('/flows/:flowId/retry', (req, res) => {
+  router.post("/flows/:flowId/retry", (req, res) => {
     const { flowId } = req.params;
-    const { step, clearOutput = true } = req.body as { step: string; clearOutput?: boolean };
+    const {
+      step,
+      clearOutput = true,
+      prompt,
+    } = req.body as { step: string; clearOutput?: boolean; prompt?: string };
 
     try {
       const scriptDir = config.scriptDir;
-      const retryLib = path.join(scriptDir, 'orchestrator', 'retry-flow.js');
+      const retryLib = path.join(scriptDir, "orchestrator", "retry-flow.js");
 
-      const retryExpression = `require(${JSON.stringify(retryLib)}).prepareRetry(${JSON.stringify(flowId)}, ${JSON.stringify(step)}, { clearOutput: ${clearOutput}, source: 'manual' })`;
-      execFileSync(process.execPath, ['-e', retryExpression], {
+      const retryExpression = `require(${JSON.stringify(retryLib)}).prepareRetry(${JSON.stringify(flowId)}, ${JSON.stringify(step)}, { clearOutput: ${clearOutput}, source: 'manual', prompt: ${prompt !== undefined ? JSON.stringify(prompt) : "undefined"} })`;
+      execFileSync(process.execPath, ["-e", retryExpression], {
         cwd: scriptDir,
-        encoding: 'utf8',
+        encoding: "utf8",
         timeout: 10000,
       });
 
-      const spawnScript = path.join(scriptDir, 'api/spawn.js');
+      const spawnScript = path.join(scriptDir, "api/spawn.js");
       const child = spawn(process.execPath, [spawnScript, flowId, step], {
         detached: true,
-        stdio: 'ignore',
+        stdio: "ignore",
       });
       child.unref();
 
@@ -186,16 +204,16 @@ export function flowsRouter(config: DashboardConfig): Router {
    * POST /api/flows/:flowId/stop
    * Stop a workflow (kill agents, watcher, update status).
    */
-  router.post('/flows/:flowId/stop', (req, res) => {
+  router.post("/flows/:flowId/stop", (req, res) => {
     const { flowId } = req.params;
 
     try {
       const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, 'orchestrator/index.js');
+      const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
 
-      execFileSync(process.execPath, [orchestratorScript, 'stop', flowId], {
+      execFileSync(process.execPath, [orchestratorScript, "stop", flowId], {
         cwd: scriptDir,
-        encoding: 'utf8',
+        encoding: "utf8",
         timeout: 15000,
       });
 
@@ -211,23 +229,33 @@ export function flowsRouter(config: DashboardConfig): Router {
    * Start a new workflow with optional jira key and custom prompt.
    * Body: { jiraKey?: string, customPrompt?: string, workflowId?: string }
    */
-  router.post('/flows/start', (req, res) => {
-    const { jiraKey = '', customPrompt = '', workflowId = '' } = req.body as { jiraKey?: string; customPrompt?: string, workflowId?: string };
+  router.post("/flows/start", (req, res) => {
+    const {
+      jiraKey = "",
+      customPrompt = "",
+      workflowId = "",
+    } = req.body as {
+      jiraKey?: string;
+      customPrompt?: string;
+      workflowId?: string;
+    };
 
     if (!jiraKey && !customPrompt) {
-      res.status(400).json({ error: 'Either jiraKey or customPrompt is required' });
+      res
+        .status(400)
+        .json({ error: "Either jiraKey or customPrompt is required" });
       return;
     }
 
     try {
       const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, 'orchestrator/index.js');
+      const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
 
       // Start workflow via orchestrator
-      const args = ['start'];
+      const args = ["start"];
 
       if (workflowId) {
-        args.push('--workflow', workflowId);
+        args.push("--workflow", workflowId);
       }
 
       if (jiraKey && customPrompt) {
@@ -235,19 +263,25 @@ export function flowsRouter(config: DashboardConfig): Router {
       } else if (jiraKey) {
         args.push(jiraKey);
       } else {
-        args.push('--prompt', customPrompt);
+        args.push("--prompt", customPrompt);
       }
 
-      const output = execFileSync(process.execPath, [orchestratorScript, ...args], {
-        cwd: scriptDir,
-        encoding: 'utf8',
-        timeout: 15000,
-      });
+      const output = execFileSync(
+        process.execPath,
+        [orchestratorScript, ...args],
+        {
+          cwd: scriptDir,
+          encoding: "utf8",
+          timeout: 15000,
+        },
+      );
 
       // Extract flow ID from output
       const match = output.match(/Workflow started: (flow_\S+)/);
       if (!match) {
-        res.status(500).json({ error: 'Failed to parse flow ID from orchestrator output' });
+        res
+          .status(500)
+          .json({ error: "Failed to parse flow ID from orchestrator output" });
         return;
       }
 
@@ -258,7 +292,7 @@ export function flowsRouter(config: DashboardConfig): Router {
       res.json({
         success: true,
         flowId,
-        message: `Workflow ${flowId} started successfully`
+        message: `Workflow ${flowId} started successfully`,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -270,15 +304,15 @@ export function flowsRouter(config: DashboardConfig): Router {
    * GET /api/git/status
    * Returns git status for each jinjer_* subdirectory in the repo root.
    */
-  router.get('/git/status', (_req, res) => {
+  router.get("/git/status", (_req, res) => {
     try {
-      const repoRoot = path.resolve(config.taskFlowsDir, '../..');
+      const repoRoot = path.resolve(config.taskFlowsDir, "../..");
 
       // Find all jinjer_* directories
       const entries = fs.readdirSync(repoRoot, { withFileTypes: true });
       const repos = entries
-        .filter(e => e.isDirectory() && e.name.startsWith('jinjer_'))
-        .map(e => e.name);
+        .filter((e) => e.isDirectory() && e.name.startsWith("jinjer_"))
+        .map((e) => e.name);
 
       const results: Array<{
         repo: string;
@@ -290,29 +324,30 @@ export function flowsRouter(config: DashboardConfig): Router {
       for (const repo of repos) {
         const repoDir = path.join(repoRoot, repo);
         try {
-          const branch = execSync('git branch --show-current', {
+          const branch = execSync("git branch --show-current", {
             cwd: repoDir,
-            encoding: 'utf8',
+            encoding: "utf8",
             timeout: 5000,
           }).trim();
 
-          const output = execSync('git status --short', {
+          const output = execSync("git status --short", {
             cwd: repoDir,
-            encoding: 'utf8',
+            encoding: "utf8",
             timeout: 10000,
           });
 
           results.push({
             repo,
             branch,
-            files: output.trim().split('\n').filter(Boolean),
+            files: output.trim().split("\n").filter(Boolean),
           });
         } catch (err) {
           results.push({
             repo,
-            branch: '',
+            branch: "",
             files: [],
-            error: err instanceof Error ? err.message.split('\n')[0] : String(err),
+            error:
+              err instanceof Error ? err.message.split("\n")[0] : String(err),
           });
         }
       }
@@ -348,7 +383,9 @@ function listFlows(taskFlowsDir: string): FlowSummary[] {
     if (!workflow) continue;
 
     const stepsToUse = workflow.stepOrder || STEPS;
-    const completedSteps = stepsToUse.filter(s => workflow.steps[s] === 'done').length;
+    const completedSteps = stepsToUse.filter(
+      (s) => workflow.steps[s] === "done",
+    ).length;
 
     summaries.push({
       flowId: workflow.flowId,
@@ -365,22 +402,24 @@ function listFlows(taskFlowsDir: string): FlowSummary[] {
 }
 
 function stripAnsi(value: string): string {
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
 }
 
 function parseTokenNumber(value: string): number {
-  const cleaned = stripAnsi(value).trim().replace(/[,.\s]/g, '');
+  const cleaned = stripAnsi(value)
+    .trim()
+    .replace(/[,.\s]/g, "");
   return parseInt(cleaned, 10) || 0;
 }
 
 function extractTokensFromLog(content: string): number[] {
   const tokens: number[] = [];
-  const lines = content.split('\n');
+  const lines = content.split("\n");
 
   for (let i = 0; i < lines.length; i++) {
     const line = stripAnsi(lines[i]).trim();
 
-    if (line === 'tokens used' && i + 1 < lines.length) {
+    if (line === "tokens used" && i + 1 < lines.length) {
       const value = parseTokenNumber(lines[i + 1]);
       if (value > 0) {
         tokens.push(value);
@@ -391,34 +430,42 @@ function extractTokensFromLog(content: string): number[] {
   return tokens;
 }
 
-function startWatcher(config: DashboardConfig, scriptDir: string, flowId: string): void {
-  const watcherScript = path.join(scriptDir, 'watcher/index.js');
+function startWatcher(
+  config: DashboardConfig,
+  scriptDir: string,
+  flowId: string,
+): void {
+  const watcherScript = path.join(scriptDir, "watcher/index.js");
   const flowDir = path.join(config.taskFlowsDir, flowId);
-  const logDir = path.join(flowDir, 'logs');
-  const logFile = path.join(logDir, 'watcher.log');
+  const logDir = path.join(flowDir, "logs");
+  const logFile = path.join(logDir, "watcher.log");
 
   fs.mkdirSync(logDir, { recursive: true });
 
   const watcher = spawn(process.execPath, [watcherScript, flowId], {
     detached: true,
-    stdio: ['ignore', fs.openSync(logFile, 'a'), fs.openSync(logFile, 'a')],
+    stdio: ["ignore", fs.openSync(logFile, "a"), fs.openSync(logFile, "a")],
   });
   watcher.unref();
 }
 
-function restartWatcher(config: DashboardConfig, scriptDir: string, flowId: string): number {
+function restartWatcher(
+  config: DashboardConfig,
+  scriptDir: string,
+  flowId: string,
+): number {
   const killedCount = stopWatcherProcesses(flowId);
   startWatcher(config, scriptDir, flowId);
   return killedCount;
 }
 
 function stopWatcherProcesses(flowId: string): number {
-  let output = '';
+  let output = "";
   const pgrepCommand = resolvePgrepCommand();
 
   try {
-    output = execFileSync(pgrepCommand, ['-f', `watcher/index.js ${flowId}`], {
-      encoding: 'utf8',
+    output = execFileSync(pgrepCommand, ["-f", `watcher/index.js ${flowId}`], {
+      encoding: "utf8",
       timeout: 5000,
     });
   } catch {
@@ -426,14 +473,14 @@ function stopWatcherProcesses(flowId: string): number {
   }
 
   const pids = output
-    .split('\n')
+    .split("\n")
     .map((pid) => Number(pid.trim()))
     .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
 
   let killedCount = 0;
   for (const pid of pids) {
     try {
-      process.kill(pid, 'SIGTERM');
+      process.kill(pid, "SIGTERM");
       killedCount++;
     } catch {
       // Process already exited.
@@ -444,11 +491,11 @@ function stopWatcherProcesses(flowId: string): number {
 }
 
 function resolvePgrepCommand(): string {
-  for (const candidate of ['/usr/bin/pgrep', '/bin/pgrep']) {
+  for (const candidate of ["/usr/bin/pgrep", "/bin/pgrep"]) {
     if (fs.existsSync(candidate)) {
       return candidate;
     }
   }
 
-  return 'pgrep';
+  return "pgrep";
 }

@@ -76,9 +76,10 @@ function markStaleAfterRetry(workflow, step) {
  * @param {object} [opts] - Options
  * @param {boolean} [opts.clearOutput=false] - Whether to unlink the step's output file
  * @param {string} [opts.source='manual'] - Retry source ('manual' resets needsFixCount)
+ * @param {string} [opts.prompt] - Optional new prompt to overwrite the workflow's customPrompt
  * @returns {{ workDir: string, member: object, outputFile: string }}
  */
-function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } = {}) {
+function prepareRetry(flowId, step, { clearOutput = false, source = 'manual', prompt } = {}) {
   // Resolve paths
   const workDir = path.join(OUTPUT_ROOT, flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
@@ -94,6 +95,11 @@ function prepareRetry(flowId, step, { clearOutput = false, source = 'manual' } =
   // Validate step
   if (!stepsToUse.includes(step)) {
     throw new Error(`Invalid step: "${step}". Valid steps: ${stepsToUse.join(', ')}`);
+  }
+
+  // Update prompt if provided
+  if (prompt !== undefined) {
+    workflow.customPrompt = prompt;
   }
 
   // Mutate state
