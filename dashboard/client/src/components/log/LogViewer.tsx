@@ -82,7 +82,7 @@ export function LogViewer() {
           type="button"
           onClick={toggleAutoScroll}
           className={
-            'text-xs px-2 py-0.5 rounded border transition-colors ' +
+            'text-xs px-2.5 py-1 rounded-md border transition-all duration-300 hover:scale-105 ' +
             (autoScroll
               ? 'bg-primary/20 border-primary/50 text-primary'
               : 'bg-muted border-border text-muted-foreground hover:text-foreground')

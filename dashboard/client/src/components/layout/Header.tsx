@@ -29,8 +29,8 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
 
         <div className="flex items-center gap-2.5">
           {/* Logo icon */}
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <div className="h-7 w-7 rounded-lg bg-primary hover:scale-105 transition-transform duration-300 flex items-center justify-center shadow-md">
+            <svg className="w-4 h-4 text-primary-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
@@ -54,7 +54,7 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
           onClick={onThemeToggle}
           title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
           aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-muted text-muted-foreground hover:bg-accent hover:text-foreground hover:scale-105 transition-all duration-300"
         >
           {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>

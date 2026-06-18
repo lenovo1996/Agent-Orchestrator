@@ -30,7 +30,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
     <div
       data-flow-card
       className={cn(
-        'group relative rounded-xl p-3.5 transition-all duration-200 cursor-pointer',
+        'group relative rounded-xl p-4 transition-all duration-300 ease-in-out hover:-translate-y-0.5 hover:shadow-md cursor-pointer',
         'border border-border/50 hover:border-border',
         'bg-card/60 hover:bg-card',
         isSelected && 'border-primary/50 bg-primary/5 glow-sm'
@@ -39,7 +39,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
     >
       {/* Top row: Jira key + status */}
       <div className="flex items-center justify-between gap-2 mb-2.5">
-        <span className="text-sm font-semibold text-foreground">
+        <span className="text-base font-medium text-foreground">
           {flow.jiraKey}
         </span>
         <div className={cn(

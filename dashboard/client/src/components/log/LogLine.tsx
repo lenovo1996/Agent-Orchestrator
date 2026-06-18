@@ -18,7 +18,7 @@ export const LogLine = memo(function LogLine({ line, index }: LogLineProps) {
   return (
     <div
       className={cn(
-        'text-xs font-mono px-2 py-0.5 whitespace-pre-wrap break-all',
+        'text-[13px] leading-relaxed font-mono px-3 py-1 whitespace-pre-wrap break-all hover:bg-muted/50 transition-colors',
         isTokenEntry
           ? 'text-amber-400 bg-amber-500/10'
           : 'text-muted-foreground'
