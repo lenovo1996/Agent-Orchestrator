@@ -49,7 +49,7 @@ export function flowsRouter(config: DashboardConfig): Router {
   router.get("/flows/:flowId", (req, res) => {
     const { flowId } = req.params;
     const workspaceName = req.query.workspaceName as string;
-    const flowDir = workspaceName ? path.join(config.taskFlowsDir, workspaceName, flowId) : path.join(config.taskFlowsDir, flowId);
+    const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
     const workflow = readWorkflowJson(flowDir);
 
     if (!workflow) {
@@ -67,7 +67,8 @@ export function flowsRouter(config: DashboardConfig): Router {
   router.get("/flows/:flowId/logs/:step", (req, res) => {
     const { flowId, step } = req.params;
     const workspaceName = req.query.workspaceName as string;
-    const logPath = workspaceName ? path.join(config.taskFlowsDir, workspaceName, flowId, "logs", `${step}.log`) : path.join(config.taskFlowsDir, flowId, "logs", `${step}.log`);
+    const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
+    const logPath = path.join(flowDir, "logs", `${step}.log`);
 
     if (!fs.existsSync(logPath)) {
       res.json({ lines: [] });
@@ -94,7 +95,8 @@ export function flowsRouter(config: DashboardConfig): Router {
       return;
     }
 
-    const filePath = workspaceName ? path.join(config.taskFlowsDir, workspaceName, flowId, "output", filename) : path.join(config.taskFlowsDir, flowId, "output", filename);
+    const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
+    const filePath = path.join(flowDir, "output", filename);
     const result = readOutputContent(filePath);
 
     if (!result) {
@@ -117,7 +119,7 @@ export function flowsRouter(config: DashboardConfig): Router {
   router.get("/flows/:flowId/tokens", (req, res) => {
     const { flowId } = req.params;
     const workspaceName = req.query.workspaceName as string;
-    const flowDir = workspaceName ? path.join(config.taskFlowsDir, workspaceName, flowId) : path.join(config.taskFlowsDir, flowId);
+    const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
 
     if (!fs.existsSync(flowDir)) {
       res.status(404).json({ error: "Flow not found" });
@@ -523,6 +525,32 @@ function listFlows(taskFlowsDir: string): FlowSummary[] {
   }
 
   return summaries;
+}
+
+function resolveFlowDir(taskFlowsDir: string, flowId: string, workspaceName?: string): string {
+  if (workspaceName) {
+    return path.join(taskFlowsDir, workspaceName, flowId);
+  }
+
+  const directPath = path.join(taskFlowsDir, flowId);
+  if (fs.existsSync(directPath)) {
+    return directPath;
+  }
+
+  try {
+    for (const entry of fs.readdirSync(taskFlowsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+
+      const workspaceFlowDir = path.join(taskFlowsDir, entry.name, flowId);
+      if (fs.existsSync(workspaceFlowDir)) {
+        return workspaceFlowDir;
+      }
+    }
+  } catch {
+    // Fall through to the direct path so callers can return their normal 404 response.
+  }
+
+  return directPath;
 }
 
 function stripAnsi(value: string): string {

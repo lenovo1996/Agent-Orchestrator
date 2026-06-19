@@ -13,7 +13,7 @@ const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
-const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
+const { loadWorkflow, getSteps, resolveWorkDir } = require('../orchestrator/workflow-manager');
 
 function _getSteps(flowId) {
   let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];

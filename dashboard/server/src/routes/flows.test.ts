@@ -333,6 +333,33 @@ describe('flowsRouter', () => {
       expect(body.tokens.implementer).toBe(354321);
       expect(body.total).toBe(738345);
     });
+
+    it('resolves token data for flows inside a workspace directory', async () => {
+      const flowId = 'flow_workspace_tokens';
+      const workspaceName = 'Jinjer';
+      const flowDir = path.join(tempDir, workspaceName, flowId);
+      fs.mkdirSync(path.join(flowDir, 'logs'), { recursive: true });
+      fs.writeFileSync(
+        path.join(flowDir, 'workflow.json'),
+        JSON.stringify(createMockWorkflow(flowId, {
+          stepOrder: ['analyzer', 'planner'],
+          currentStep: 'analyzer',
+          steps: {
+            analyzer: 'running',
+            planner: 'waiting',
+          },
+        })),
+      );
+      fs.writeFileSync(path.join(flowDir, 'logs', 'analyzer.log'), 'tokens used\n12,345\n');
+
+      const app = makeApp(config);
+      const { status, body } = await request(app, 'GET', `/api/flows/${flowId}/tokens`);
+
+      expect(status).toBe(200);
+      expect(body.tokens.analyzer).toBe(12345);
+      expect(body.tokens.planner).toBe(0);
+      expect(body.total).toBe(12345);
+    });
   });
 
   describe('POST /api/flows/start', () => {

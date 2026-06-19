@@ -162,6 +162,35 @@ describe('setupSocketEvents', () => {
     });
   });
 
+  describe('workspace:select', () => {
+    it('should send state:init with flows from selected workspace', () => {
+      const workspaceDir = path.join(tmpDir, 'workspace-alpha');
+      const flowDir = path.join(workspaceDir, 'flow_workspace_001');
+      fs.mkdirSync(flowDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(flowDir, 'workflow.json'),
+        JSON.stringify(makeWorkflow({ flowId: 'flow_workspace_001', jiraKey: 'WS-1' })),
+      );
+
+      const { io, simulateConnect } = createMockIo();
+      setupSocketEvents(io as any, config);
+
+      const socket = simulateConnect();
+      socket.emit.mockClear();
+
+      socket.triggerEvent('workspace:select', { workspaceName: 'workspace-alpha' });
+
+      expect(socket.emit).toHaveBeenCalledWith('state:init', {
+        flows: {
+          flow_workspace_001: expect.objectContaining({
+            flowId: 'flow_workspace_001',
+            jiraKey: 'WS-1',
+          }),
+        },
+      });
+    });
+  });
+
   describe('log:subscribe / log:unsubscribe', () => {
     it('should join the log room on log:subscribe', () => {
       const { io, simulateConnect } = createMockIo();

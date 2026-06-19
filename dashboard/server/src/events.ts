@@ -1,5 +1,5 @@
-import fs from 'node:fs';
 import type { EventEmitter } from 'node:events';
+import path from 'node:path';
 import type { Server, Socket } from 'socket.io';
 import { listAllFlows } from './flow-reader.js';
 import type {
@@ -16,7 +16,7 @@ export interface EventsConfig {
  * Build the full state payload for state:init and state:resync.
  */
 function buildStatePayload(config: EventsConfig, workspaceName?: string): StateInitPayload {
-  const dir = workspaceName ? require('path').join(config.taskFlowsDir, workspaceName) : config.taskFlowsDir;
+  const dir = workspaceName ? path.join(config.taskFlowsDir, workspaceName) : config.taskFlowsDir;
   const flows = listAllFlows(dir);
   return { flows };
 }

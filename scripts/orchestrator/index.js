@@ -27,10 +27,10 @@ if (WORKTREE_CONFIG.enabled) {
 }
 
 // Step order
-const { STEPS: DEFAULT_STEPS, getSteps } = require('./workflow-manager');
+const { STEPS: DEFAULT_STEPS, getSteps, resolveWorkDir } = require('./workflow-manager');
 
 function loadWorkflow(flowId) {
-  const workDir = workspaceName ? path.join(OUTPUT_ROOT, workspaceName, flowId) : path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   if (!fs.existsSync(workflowPath)) {
     throw new Error(`Workflow not found: ${flowId}`);
@@ -68,7 +68,7 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
   const timestamp = formatTimestampYmdHis();
   const suffix = sanitizeFlowSuffix(jiraKey);
   const flowId = suffix ? `flow_${timestamp}_${suffix}` : `flow_${timestamp}`;
-  const workDir = resolveWorkDir(flowId);
+  const workDir = workspaceName ? path.join(OUTPUT_ROOT, workspaceName, flowId) : resolveWorkDir(flowId);
 
   fs.mkdirSync(workDir, { recursive: true });
   fs.mkdirSync(path.join(workDir, 'output'), { recursive: true });

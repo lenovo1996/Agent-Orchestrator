@@ -24,7 +24,7 @@ const STATUS_CONFIG: Record<StepStatus, { icon: string; color: string; bg: strin
 /**
  * Fetch token counts and output completion times from backend.
  */
-function useFlowStepData(flowId: string | null) {
+function useFlowStepData(flowId: string | null, workspaceName?: string) {
   const [data, setData] = useState<{
     perStep: Record<string, number>;
     total: number;
@@ -42,24 +42,31 @@ function useFlowStepData(flowId: string | null) {
     }
 
     const controller = new AbortController();
+    const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
 
-    fetch(`${API_BASE}/api/flows/${flowId}/tokens`, { signal: controller.signal })
-      .then((res) => res.json())
+    fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}/tokens${query}`, { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch step data: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((json: { tokens: Record<string, number>; total: number; outputTimes: Record<string, string | null> }) => {
         setData({
-          perStep: json.tokens,
-          total: json.total,
+          perStep: json.tokens || {},
+          total: json.total || 0,
           outputTimes: json.outputTimes || {},
         });
       })
       .catch((err) => {
         if (err.name !== 'AbortError') {
           console.error('[AgentPanel] Failed to fetch step data:', err);
+          setData({ perStep: {}, total: 0, outputTimes: {} });
         }
       });
 
     return () => controller.abort();
-  }, [flowId]);
+  }, [flowId, workspaceName]);
 
   return data;
 }
@@ -73,13 +80,16 @@ function formatTime(iso: string | undefined): string {
 
 export function AgentPanel() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
+  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
+  const workspaces = useDashboardStore((s) => s.workspaces);
   const flows = useDashboardStore((s) => s.flows);
   const agents = useDashboardStore((s) => s.agents);
   const selectedStep = useDashboardStore((s) => s.selectedStep);
   const selectStep = useDashboardStore((s) => s.selectStep);
 
   const flow = selectedFlowId ? flows[selectedFlowId] : null;
-  const { perStep, total, outputTimes } = useFlowStepData(selectedFlowId);
+  const workspaceName = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name;
+  const { perStep, total, outputTimes } = useFlowStepData(selectedFlowId, workspaceName);
 
   if (!flow) {
     return (
