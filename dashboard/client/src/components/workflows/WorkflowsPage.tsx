@@ -109,21 +109,25 @@ export function WorkflowsPage() {
   };
 
   return (
-    <div className="p-6 h-full overflow-y-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-8 h-full overflow-y-auto bg-background/50">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <GitMerge className="w-6 h-6 text-primary" />
+          <h1 className="text-3xl font-bold text-foreground flex items-center gap-3 tracking-tight">
+            <div className="p-2 bg-primary/10 rounded-xl">
+              <GitMerge className="w-7 h-7 text-primary" />
+            </div>
             Custom Workflows
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Design and manage agent execution sequences.</p>
+          <p className="text-sm text-muted-foreground mt-2 max-w-xl leading-relaxed">
+            Design and manage agent execution sequences. Define custom workflows to orchestrate different agents for specific tasks.
+          </p>
         </div>
         {!isEditing && (
           <button
             onClick={() => setIsEditing(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm hover:shadow"
+            className="group flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 transition-transform group-hover:rotate-90 duration-300" />
             Create Workflow
           </button>
         )}
@@ -132,16 +136,20 @@ export function WorkflowsPage() {
       {error && <div className="mb-4 p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg">{error}</div>}
 
       {isEditing ? (
-        <form onSubmit={handleSave} className="bg-card/60 border border-border/50 rounded-xl p-6 space-y-6 mb-8 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-4">
-          <div className="flex items-center gap-2 border-b border-border/50 pb-4">
-            <GitMerge className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">{currentId ? 'Edit Workflow' : 'Create New Workflow'}</h2>
+        <form onSubmit={handleSave} className="bg-card border border-border/60 rounded-2xl p-7 space-y-7 mb-10 shadow-lg shadow-black/5 transition-all animate-in fade-in slide-in-from-bottom-4 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/40 via-primary to-primary/40"></div>
+
+          <div className="flex items-center gap-3 border-b border-border/50 pb-5">
+            <div className="p-1.5 bg-primary/10 rounded-lg">
+              <GitMerge className="w-5 h-5 text-primary" />
+            </div>
+            <h2 className="text-xl font-semibold tracking-tight">{currentId ? 'Edit Workflow' : 'Create New Workflow'}</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
-                <FileText className="w-4 h-4 text-muted-foreground" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2 text-foreground/90">
+                <FileText className="w-4 h-4 text-primary/70" />
                 Name
               </label>
               <input
@@ -149,28 +157,28 @@ export function WorkflowsPage() {
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all hover:bg-background"
                 placeholder="e.g. Code Review Process"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2 text-foreground/90">
                 Description
               </label>
               <input
                 type="text"
                 value={description}
                 onChange={e => setDescription(e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all hover:bg-background"
                 placeholder="Brief description of this workflow"
               />
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
-              <ListTree className="w-4 h-4 text-muted-foreground" />
+          <div className="space-y-2">
+            <label className="text-sm font-medium flex items-center gap-2 text-foreground/90">
+              <ListTree className="w-4 h-4 text-primary/70" />
               Steps <span className="text-muted-foreground font-normal">(comma separated agent IDs)</span>
             </label>
             <input
@@ -179,25 +187,30 @@ export function WorkflowsPage() {
               value={steps}
               onChange={e => setSteps(e.target.value)}
               placeholder="clarifier, planner, implementer, verifier"
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-mono"
+              className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all font-mono hover:bg-background"
             />
             {agents.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5 items-center">
-                <span className="text-xs text-muted-foreground mr-1">Available agents:</span>
+              <div className="mt-3 flex flex-wrap gap-2 items-center bg-muted/30 p-3 rounded-xl border border-border/40">
+                <span className="text-xs font-medium text-muted-foreground mr-1">Available agents:</span>
                 {agents.map(a => (
-                  <span key={a.id} className="text-[10px] px-1.5 py-0.5 bg-muted rounded border border-border text-muted-foreground">
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setSteps(prev => prev ? `${prev}, ${a.id}` : a.id)}
+                    className="text-[11px] px-2 py-1 bg-background/80 hover:bg-primary/10 hover:text-primary hover:border-primary/30 rounded-md border border-border text-muted-foreground transition-all cursor-pointer shadow-sm"
+                  >
                     {a.id}
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
           </div>
 
-          <div className="flex gap-3 justify-end pt-4 border-t border-border/50">
-            <button type="button" onClick={resetForm} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg transition-colors">
+          <div className="flex gap-3 justify-end pt-5 border-t border-border/50">
+            <button type="button" onClick={resetForm} className="px-5 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-xl transition-all">
               Cancel
             </button>
-            <button type="submit" className="px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm">
+            <button type="submit" className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm hover:shadow active:scale-[0.98]">
               Save Workflow
             </button>
           </div>
@@ -209,70 +222,84 @@ export function WorkflowsPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 xl:gap-6">
           {workflows.map(wf => (
             <div
               key={wf.id}
               className={cn(
-                "group relative bg-card/60 border border-border/50 rounded-xl p-5 transition-all duration-200",
-                "hover:border-border hover:bg-card hover:shadow-md hover:glow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+                "group relative bg-card border border-border/60 rounded-2xl p-6 transition-all duration-300",
+                "hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex flex-col h-full overflow-hidden"
               )}
             >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center border border-primary/20 shrink-0">
-                    <GitMerge className="w-5 h-5 text-primary" />
+              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none transition-opacity group-hover:opacity-100 opacity-0"></div>
+
+              <div className="flex justify-between items-start mb-4 relative z-10">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/20 shrink-0 shadow-inner">
+                    <GitMerge className="w-6 h-6 text-primary" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground text-lg">{wf.name}</h3>
-                    {wf.description && <p className="text-sm text-muted-foreground">{wf.description}</p>}
+                    <h3 className="font-semibold text-foreground text-lg tracking-tight group-hover:text-primary transition-colors">{wf.name}</h3>
+                    <p className="text-xs font-mono text-muted-foreground/70 mt-0.5">{wf.id}</p>
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-wrap items-center gap-1 md:pl-13">
+                <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
+                  <button
+                    onClick={() => startEdit(wf)}
+                    className="p-2 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all"
+                    title="Edit workflow"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(wf.id)}
+                    className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                    title="Delete workflow"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {wf.description && (
+                <p className="text-sm text-muted-foreground mb-6 line-clamp-2 leading-relaxed relative z-10">{wf.description}</p>
+              )}
+
+              <div className="mt-auto pt-5 border-t border-border/40 relative z-10">
+                <div className="flex items-center gap-2 mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  <ListTree className="w-3.5 h-3.5" />
+                  <span>Execution Sequence ({wf.steps.length})</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-y-2 gap-x-1">
                   {wf.steps.map((step, index) => (
                     <div key={index} className="flex items-center">
-                      <span className="text-xs font-medium px-2 py-1 bg-blue-500/10 text-blue-500 border border-blue-500/20 rounded-md">
+                      <span className="text-xs font-medium px-2.5 py-1.5 bg-secondary/50 hover:bg-secondary text-secondary-foreground border border-border/50 rounded-lg transition-colors shadow-sm">
                         {step}
                       </span>
                       {index < wf.steps.length - 1 && (
-                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50 mx-0.5" />
+                        <ChevronRight className="w-4 h-4 text-muted-foreground/40 mx-1" />
                       )}
                     </div>
                   ))}
                 </div>
               </div>
-
-              <div className="flex gap-2 shrink-0 md:self-start opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => startEdit(wf)}
-                  className="p-2 text-muted-foreground hover:text-blue-400 hover:bg-blue-500/10 rounded-md transition-colors"
-                  title="Edit workflow"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => handleDelete(wf.id)}
-                  className="p-2 text-muted-foreground hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
-                  title="Delete workflow"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
             </div>
           ))}
 
           {workflows.length === 0 && !isEditing && (
-            <div className="text-center py-16 border-2 border-dashed border-border/60 rounded-xl bg-card/30">
-              <GitMerge className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-              <h3 className="text-lg font-medium text-foreground mb-1">No Workflows Found</h3>
-              <p className="text-muted-foreground mb-4">Create your first custom workflow to orchestrate agents.</p>
+            <div className="col-span-full flex flex-col items-center justify-center py-20 px-4 border-2 border-dashed border-border/60 rounded-2xl bg-card/30 text-center">
+              <div className="w-20 h-20 bg-primary/5 rounded-full flex items-center justify-center mb-5">
+                <GitMerge className="w-10 h-10 text-primary/40" />
+              </div>
+              <h3 className="text-xl font-semibold text-foreground mb-2">No Workflows Configured</h3>
+              <p className="text-muted-foreground max-w-sm mb-6">Create your first custom workflow to define how multiple agents should collaborate to complete tasks.</p>
               <button
                 onClick={() => setIsEditing(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
               >
                 <Plus className="w-4 h-4" />
-                Create Workflow
+                Create First Workflow
               </button>
             </div>
           )}
