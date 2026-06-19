@@ -37,7 +37,22 @@ async function main() {
   const realRepoRoot = path.resolve(scriptsDir, '../..');
   const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(repoRoot, 'team.json'), 'utf8'));
   const outputRoot = path.resolve(repoRoot, TEAM_CONFIG.outputRoot || 'task-flows');
-  const workDir = path.join(outputRoot, flowId);
+
+  function resolveWorkDir(flowId) {
+    const directPath = path.join(outputRoot, flowId);
+    if (fs.existsSync(directPath)) return directPath;
+
+    // Search in workspaces
+    if (fs.existsSync(outputRoot)) {
+        for (const ws of fs.readdirSync(outputRoot)) {
+           const potentialPath = path.join(outputRoot, ws, flowId);
+           if (fs.existsSync(potentialPath)) return potentialPath;
+        }
+    }
+    return directPath; // default fallback
+  }
+
+  const workDir = resolveWorkDir(flowId);
 
   if (!fs.existsSync(workDir)) {
     console.error(`❌ Flow not found: ${flowId}`);
@@ -45,6 +60,7 @@ async function main() {
   }
 
   const workflow = JSON.parse(fs.readFileSync(path.join(workDir, 'workflow.json'), 'utf8'));
+  const workspaceDir = workflow.workspaceDir;
   const jiraKey = workflow.jiraKey;
   const customPrompt = workflow.customPrompt || '';
 
@@ -92,6 +108,7 @@ async function main() {
   task += `## Context\n\n`;
   task += `- Jira ticket: ${jiraKey}\n`;
   task += `- Repo root: ${realRepoRoot}\n`;
+  if (workspaceDir) task += `- Workspace dir: ${workspaceDir}\n`;
   task += `- Work dir: ${workDir}\n`;
 
   // Inject active-context reference
@@ -148,7 +165,9 @@ async function main() {
   console.log(`🤖 Model: ${member.model || 'default'}`);
   console.log(`🧠 Reasoning: ${member.thinking || 'default'}`);
   console.log(`⚙️  Runtime: ${member.runtime || 'codex'}`);
-  if (worktreePath) {
+  if (workspaceDir) {
+    console.log(`🌲 Workspace: ${workspaceDir}`);
+  } else if (worktreePath) {
     console.log(`🌲 Worktree: ${worktreePath}`);
   }
 
@@ -174,12 +193,14 @@ async function main() {
   }
 
   const spawnArgs = [wrapperScript, flowId, step, workDir, promptFile];
-  if (worktreePath) {
+  if (workspaceDir) {
+    spawnArgs.push(workspaceDir);
+  } else if (worktreePath) {
     spawnArgs.push(worktreePath);
   }
 
   const child = spawn('bash', spawnArgs, {
-    cwd: worktreePath || repoRoot,
+    cwd: workspaceDir || worktreePath || repoRoot,
     env: env,
     stdio: 'ignore',
     detached: true

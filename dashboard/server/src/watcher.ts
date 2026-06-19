@@ -52,11 +52,24 @@ export function createWatcher(taskFlowsDir: string): EventEmitter {
     const parts = relative.split(path.sep);
     if (parts.length < 2) return;
 
-    const flowId = parts[0];
+    let workspaceName = '';
+    let flowId = '';
+    let restParts = [];
+
+    // Check if it's a workspace path (e.g. workspaceName/flowId/...)
+    if (parts.length >= 3 && parts[0] && parts[0].length > 0 && parts[1].startsWith('flow_')) {
+      workspaceName = parts[0];
+      flowId = parts[1];
+      restParts = parts.slice(2);
+    } else {
+      flowId = parts[0];
+      restParts = parts.slice(1);
+    }
 
     // workflow.json changed
-    if (parts[1] === 'workflow.json') {
-      const workflow = readWorkflowJson(path.join(taskFlowsDir, flowId));
+    if (restParts[0] === 'workflow.json') {
+      const dirPath = workspaceName ? path.join(taskFlowsDir, workspaceName, flowId) : path.join(taskFlowsDir, flowId);
+      const workflow = readWorkflowJson(dirPath);
       if (workflow) {
         emitter.emit('workflow-changed', flowId, workflow);
       }
@@ -64,8 +77,8 @@ export function createWatcher(taskFlowsDir: string): EventEmitter {
     }
 
     // logs/{step}.log changed
-    if (parts[1] === 'logs' && parts[2]?.endsWith('.log')) {
-      const step = parts[2].replace('.log', '') as AgentStep;
+    if (restParts[0] === 'logs' && restParts[1]?.endsWith('.log')) {
+      const step = restParts[1].replace('.log', '') as AgentStep;
       const newLines = readNewLogLines(filePath, logOffsets);
       if (newLines.length > 0) {
         emitter.emit('log-appended', flowId, step, newLines);
@@ -74,8 +87,8 @@ export function createWatcher(taskFlowsDir: string): EventEmitter {
     }
 
     // output/{filename}.md changed
-    if (parts[1] === 'output' && parts[2]?.endsWith('.md')) {
-      const step = mapOutputFileToStep(parts[2]);
+    if (restParts[0] === 'output' && restParts[1]?.endsWith('.md')) {
+      const step = mapOutputFileToStep(restParts[1]);
       if (step) {
         const result = readOutputContent(filePath);
         if (result) {
@@ -90,10 +103,22 @@ export function createWatcher(taskFlowsDir: string): EventEmitter {
     const relative = path.relative(taskFlowsDir, filePath);
     const parts = relative.split(path.sep);
 
+    let workspaceName = '';
+    let flowId = '';
+    let restParts = [];
+
+    if (parts.length >= 3 && parts[0] && parts[0].length > 0 && parts[1].startsWith('flow_')) {
+      workspaceName = parts[0];
+      flowId = parts[1];
+      restParts = parts.slice(2);
+    } else {
+      flowId = parts[0];
+      restParts = parts.slice(1);
+    }
+
     // New output file created
-    if (parts.length >= 3 && parts[1] === 'output' && parts[2].endsWith('.md')) {
-      const flowId = parts[0];
-      const step = mapOutputFileToStep(parts[2]);
+    if (restParts.length >= 2 && restParts[0] === 'output' && restParts[1].endsWith('.md')) {
+      const step = mapOutputFileToStep(restParts[1]);
       if (step) {
         emitter.emit('output-created', flowId, step, filePath);
       }

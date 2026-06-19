@@ -8,6 +8,7 @@ import { setupSocketEvents } from './events.js';
 import { flowsRouter } from './routes/flows.js';
 import { workflowsRouter } from './routes/workflows.js';
 import { agentsRouter } from './routes/agents.js';
+import { workspacesRouter } from './routes/workspaces.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@devteam-dashboard/shared';
 
 // 1. Load configuration
@@ -22,6 +23,7 @@ app.use(express.json());
 app.use('/api', flowsRouter(config));
 app.use('/api', workflowsRouter());
 app.use('/api', agentsRouter());
+app.use('/api', workspacesRouter());
 
 // 4. Create HTTP server, then Socket.IO server on top
 const httpServer = createServer(app);

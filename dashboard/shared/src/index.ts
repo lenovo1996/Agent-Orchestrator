@@ -99,6 +99,8 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   'state:resync': () => void;
+  'workspace:select': (payload: { workspaceName: string | null }) => void;
   'log:subscribe': (payload: { flowId: string; step: AgentStep }) => void;
   'log:unsubscribe': (payload: { flowId: string; step: AgentStep }) => void;
 }
+export * from './workspaces';

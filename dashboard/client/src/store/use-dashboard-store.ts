@@ -4,8 +4,10 @@ import type {
   WorkflowState,
   AgentStep,
   StateInitPayload,
+  Workspace,
 } from '@devteam-dashboard/shared';
 import { AGENT_STEPS } from '@/lib/constants';
+import { socket } from '@/lib/socket';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -15,6 +17,14 @@ export interface LogBuffer {
 }
 
 export interface DashboardState {
+  // Workspaces
+  workspaces: Workspace[];
+  selectedWorkspaceId: string | null;
+  setWorkspaces: (workspaces: Workspace[]) => void;
+  selectWorkspace: (workspaceId: string | null) => void;
+  fetchWorkspaces: () => Promise<void>;
+  createWorkspace: (name: string, path: string) => Promise<boolean>;
+
   // Connection
   connected: boolean;
   setConnected: (v: boolean) => void;
@@ -64,7 +74,42 @@ function getLatestAgentStep(flow: WorkflowState | undefined): AgentStep | null {
   return flow.currentStep ?? null;
 }
 
-export const useDashboardStore = create<DashboardState>((set) => ({
+export const useDashboardStore = create<DashboardState>((set, get) => ({
+  workspaces: [],
+  selectedWorkspaceId: null,
+  setWorkspaces: (workspaces) => set({ workspaces }),
+  selectWorkspace: (workspaceId) => {
+    set({ selectedWorkspaceId: workspaceId, selectedFlowId: null, flows: {} });
+    const ws = get().workspaces.find(w => w.id === workspaceId);
+    socket.emit('workspace:select', { workspaceName: ws ? ws.name : null });
+  },
+  fetchWorkspaces: async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/workspaces`);
+      if (res.ok) {
+        const workspaces = await res.json();
+        set({ workspaces });
+      }
+    } catch (err) {
+      console.error('Failed to fetch workspaces', err);
+    }
+  },
+  createWorkspace: async (name, path) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/workspaces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'ws_' + Date.now(), name, path })
+      });
+      if (res.ok) {
+        get().fetchWorkspaces();
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to create workspace', err);
+    }
+    return false;
+  },
   connected: false,
   setConnected: (v) => set({ connected: v }),
 
@@ -88,7 +133,9 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       };
     }),
   fetchFlow: async (flowId) => {
-    const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}`);
+    const workspace = get().workspaces.find(w => w.id === get().selectedWorkspaceId);
+    const qs = workspace ? `?workspaceName=${encodeURIComponent(workspace.name)}` : '';
+    const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}${qs}`);
     if (!res.ok) return null;
 
     const data = (await res.json()) as { workflow?: WorkflowState };

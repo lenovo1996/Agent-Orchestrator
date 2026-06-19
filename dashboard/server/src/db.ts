@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 // Create DB file in project root or custom path
 const dbDir = path.resolve(__dirname, '../../../');
-const dbPath = path.join(dbDir, 'workflows.db');
+const dbPath = process.env.NODE_ENV === 'test' ? ':memory:' : path.join(dbDir, 'workflows.db');
 
 export const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
@@ -24,7 +24,19 @@ export const db = new sqlite3.Database(dbPath, (err) => {
       )
     `, (createErr) => {
       if (createErr) {
-        console.error('Error creating table', createErr);
+        console.error('Error creating table workflows', createErr);
+      }
+    });
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL
+      )
+    `, (createErr) => {
+      if (createErr) {
+        console.error('Error creating table workspaces', createErr);
       }
     });
 

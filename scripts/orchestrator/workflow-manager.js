@@ -11,8 +11,22 @@ function getSteps(workflow) {
   return workflow?.stepOrder || DEFAULT_STEPS;
 }
 
+function resolveWorkDir(flowId) {
+    const directPath = path.join(OUTPUT_ROOT, flowId);
+    if (fs.existsSync(directPath)) return directPath;
+
+    // Search in workspaces
+    if (fs.existsSync(OUTPUT_ROOT)) {
+        for (const ws of fs.readdirSync(OUTPUT_ROOT)) {
+           const potentialPath = path.join(OUTPUT_ROOT, ws, flowId);
+           if (fs.existsSync(potentialPath)) return potentialPath;
+        }
+    }
+    return directPath; // default fallback
+}
+
 function loadWorkflow(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   if (!fs.existsSync(workflowPath)) {
     throw new Error(`Workflow not found: ${flowId}`);
@@ -21,13 +35,13 @@ function loadWorkflow(flowId) {
 }
 
 function saveWorkflow(flowId, workflow) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   fs.writeFileSync(workflowPath, JSON.stringify(workflow, null, 2));
 }
 
 function getWorkflowState(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
 
   if (!fs.existsSync(workflowPath)) {
@@ -84,7 +98,7 @@ function parseOutputStatus(filePath) {
 }
 
 function updateWorkflowState(flowId, updates) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
 
@@ -108,7 +122,7 @@ function updateWorkflowState(flowId, updates) {
   fs.writeFileSync(workflowPath, JSON.stringify(workflow, null, 2));
 }
 
-module.exports = {
+module.exports = { resolveWorkDir,
   OUTPUT_ROOT,
   STEPS: DEFAULT_STEPS,
   getSteps,

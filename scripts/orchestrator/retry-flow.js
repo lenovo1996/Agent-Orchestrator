@@ -81,7 +81,7 @@ function markStaleAfterRetry(workflow, step) {
  */
 function prepareRetry(flowId, step, { clearOutput = false, source = 'manual', prompt } = {}) {
   // Resolve paths
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
 
   // Read workflow
