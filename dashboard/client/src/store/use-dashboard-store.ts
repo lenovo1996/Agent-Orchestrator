@@ -23,6 +23,7 @@ export interface DashboardState {
   flows: Record<string, WorkflowState>;
   setFlows: (flows: Record<string, WorkflowState>) => void;
   updateFlow: (flowId: string, workflow: WorkflowState) => void;
+  deleteFlowLocally: (flowId: string) => void;
   fetchFlow: (flowId: string) => Promise<WorkflowState | null>;
 
   // Agents
@@ -75,6 +76,15 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       return {
         flows: { ...state.flows, [flowId]: workflow },
         selectedStep: shouldSelectStep ? getLatestAgentStep(workflow) : state.selectedStep,
+      };
+    }),
+  deleteFlowLocally: (flowId) =>
+    set((state) => {
+      const newFlows = { ...state.flows };
+      delete newFlows[flowId];
+      return {
+        flows: newFlows,
+        selectedFlowId: state.selectedFlowId === flowId ? null : state.selectedFlowId
       };
     }),
   fetchFlow: async (flowId) => {
