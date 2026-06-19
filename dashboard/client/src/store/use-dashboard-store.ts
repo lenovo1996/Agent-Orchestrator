@@ -4,6 +4,7 @@ import type {
   WorkflowState,
   AgentStep,
   StateInitPayload,
+  Workspace,
 } from '@devteam-dashboard/shared';
 import { AGENT_STEPS } from '@/lib/constants';
 
@@ -18,6 +19,12 @@ export interface DashboardState {
   // Connection
   connected: boolean;
   setConnected: (v: boolean) => void;
+
+  // Workspaces
+  workspaces: Workspace[];
+  activeWorkspaceId: string | null;
+  fetchWorkspaces: () => Promise<void>;
+  setActiveWorkspace: (id: string | null) => void;
 
   // Flows
   flows: Record<string, WorkflowState>;
@@ -64,9 +71,23 @@ function getLatestAgentStep(flow: WorkflowState | undefined): AgentStep | null {
   return flow.currentStep ?? null;
 }
 
-export const useDashboardStore = create<DashboardState>((set) => ({
+export const useDashboardStore = create<DashboardState>((set, get) => ({
   connected: false,
   setConnected: (v) => set({ connected: v }),
+
+  workspaces: [],
+  activeWorkspaceId: null,
+  fetchWorkspaces: async () => {
+    const res = await fetch(`${API_BASE}/api/workspaces`);
+    if (!res.ok) return;
+    const workspaces = (await res.json()) as Workspace[];
+    set({ workspaces });
+    const { activeWorkspaceId } = get();
+    if (workspaces.length > 0 && !activeWorkspaceId) {
+      set({ activeWorkspaceId: workspaces[0].id });
+    }
+  },
+  setActiveWorkspace: (id) => set({ activeWorkspaceId: id, flows: {}, selectedFlowId: null, selectedStep: null, logBuffers: {} }),
 
   flows: {},
   setFlows: (flows) => set({ flows }),
@@ -88,7 +109,12 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       };
     }),
   fetchFlow: async (flowId) => {
-    const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}`);
+    const workspaceId = get().activeWorkspaceId;
+    const url = new URL(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}`, window.location.origin);
+    if (workspaceId) {
+      url.searchParams.append('workspaceId', workspaceId);
+    }
+    const res = await fetch(url.toString());
     if (!res.ok) return null;
 
     const data = (await res.json()) as { workflow?: WorkflowState };

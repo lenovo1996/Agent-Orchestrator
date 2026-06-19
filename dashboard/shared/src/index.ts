@@ -4,6 +4,12 @@ export type AgentStep = string;
 
 export type StepStatus = 'waiting' | 'pending' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled' | 'retrying' | 'unknown';
 
+export interface Workspace {
+  id: string;
+  name: string;
+  path: string;
+}
+
 export interface CustomWorkflow {
   id: string;
   name: string;
@@ -95,10 +101,12 @@ export interface ServerToClientEvents {
   'log:append': (payload: LogAppendPayload) => void;
   'output:created': (payload: OutputCreatedPayload) => void;
   'output:updated': (payload: OutputUpdatedPayload) => void;
+  'workspace:switch': (workspaceId: string) => void;
 }
 
 export interface ClientToServerEvents {
-  'state:resync': () => void;
+  'state:resync': (workspaceId?: string) => void;
   'log:subscribe': (payload: { flowId: string; step: AgentStep }) => void;
   'log:unsubscribe': (payload: { flowId: string; step: AgentStep }) => void;
+  'workspace:switch': (workspaceId: string) => void;
 }

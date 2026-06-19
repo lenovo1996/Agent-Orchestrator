@@ -29,6 +29,25 @@ export const db = new sqlite3.Database(dbPath, (err) => {
     });
 
     db.run(`
+      CREATE TABLE IF NOT EXISTS workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL
+      )
+    `, (createErr) => {
+      if (createErr) {
+        console.error('Error creating workspaces table', createErr);
+      } else {
+        // Initialize default workspace if table is empty
+        db.get('SELECT COUNT(*) as count FROM workspaces', (err, row: any) => {
+          if (!err && row && row.count === 0) {
+            initializeWorkspaces();
+          }
+        });
+      }
+    });
+
+    db.run(`
       CREATE TABLE IF NOT EXISTS agents (
         id TEXT PRIMARY KEY,
         role TEXT NOT NULL,
@@ -89,5 +108,20 @@ function initializeAgents() {
     }
   } catch (error) {
     console.error('Error initializing agents:', error);
+  }
+}
+
+function initializeWorkspaces() {
+  try {
+    const defaultWorkspaceId = 'default';
+    const defaultWorkspaceName = 'Default Workspace';
+    const defaultWorkspacePath = path.resolve(dbDir); // Default to current root
+
+    const stmt = db.prepare('INSERT INTO workspaces (id, name, path) VALUES (?, ?, ?)');
+    stmt.run([defaultWorkspaceId, defaultWorkspaceName, defaultWorkspacePath]);
+    stmt.finalize();
+    console.log('Successfully initialized default workspace');
+  } catch (error) {
+    console.error('Error initializing default workspace:', error);
   }
 }
