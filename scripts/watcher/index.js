@@ -13,7 +13,7 @@ const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
-const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
+const { loadWorkflow, getSteps, resolveWorkDir } = require('../orchestrator/workflow-manager');
 
 function _getSteps(flowId) {
   let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
@@ -32,7 +32,7 @@ const MAX_NEEDS_FIX = 5; // Max NEEDS_FIX iterations before blocking workflow
 // Survives watcher restarts — on next launch we can detect leftover processes.
 
 function pidFilePath(flowId, step) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   return path.join(workDir, `.pid.${step}`);
 }
 
@@ -114,7 +114,7 @@ function isStepStillRunning(flowId, step) {
 }
 
 function getWorkflowState(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
 
   if (!fs.existsSync(workflowPath)) {
@@ -171,7 +171,7 @@ function parseOutputStatus(filePath) {
 }
 
 function updateWorkflowState(flowId, updates) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
 

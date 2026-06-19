@@ -27,10 +27,10 @@ if (WORKTREE_CONFIG.enabled) {
 }
 
 // Step order
-const { STEPS: DEFAULT_STEPS, getSteps } = require('./workflow-manager');
+const { STEPS: DEFAULT_STEPS, getSteps, resolveWorkDir } = require('./workflow-manager');
 
 function loadWorkflow(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   if (!fs.existsSync(workflowPath)) {
     throw new Error(`Workflow not found: ${flowId}`);
@@ -39,7 +39,7 @@ function loadWorkflow(flowId) {
 }
 
 function saveWorkflow(flowId, workflow) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
   fs.writeFileSync(workflowPath, JSON.stringify(workflow, null, 2));
 }
@@ -64,11 +64,11 @@ function sanitizeFlowSuffix(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
+function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspaceName = '', workspaceDir = '') {
   const timestamp = formatTimestampYmdHis();
   const suffix = sanitizeFlowSuffix(jiraKey);
   const flowId = suffix ? `flow_${timestamp}_${suffix}` : `flow_${timestamp}`;
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = workspaceName ? path.join(OUTPUT_ROOT, workspaceName, flowId) : resolveWorkDir(flowId);
 
   fs.mkdirSync(workDir, { recursive: true });
   fs.mkdirSync(path.join(workDir, 'output'), { recursive: true });
@@ -81,6 +81,8 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '') {
     jiraKey,
     customPrompt,
     workflowId,
+    workspaceName,
+    workspaceDir,
     status: 'running',
     currentStep: 'clarifier',
     startedAt: new Date().toISOString(),
@@ -222,7 +224,7 @@ function resumeWorkflow(flowId, step) {
 
 function stopWorkflow(flowId) {
   const workflow = loadWorkflow(flowId);
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
 
   console.log(`🛑 Stopping workflow: ${flowId}`);
 
@@ -343,7 +345,7 @@ function stopWorkflow(flowId) {
 
 function statusWorkflow(flowId) {
   const workflow = loadWorkflow(flowId);
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
 
   console.log(`📊 Workflow Status: ${flowId}\n`);
   console.log(`Jira: ${workflow.jiraKey}`);
@@ -432,7 +434,7 @@ function scheduleImplementer(flowId, repo) {
  * @param {string} flowId - The flow identifier
  */
 function scheduleParallelAuto(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
 
   if (!fs.existsSync(workDir)) {
     console.error(`❌ Flow not found: ${flowId}`);
@@ -500,9 +502,23 @@ try {
       //   orchestrator.js start [--workflow <id>] --prompt <custom-prompt>
       let workflowId = '';
       let i = 0;
-      if (args[0] === '--workflow') {
-        workflowId = args[1];
-        i = 2;
+      let workspaceName = '';
+      let workspaceDir = '';
+      while (i < args.length && args[i].startsWith('--')) {
+        if (args[i] === '--workflow') {
+          workflowId = args[i+1];
+          i += 2;
+        } else if (args[i] === '--workspace-name') {
+          workspaceName = args[i+1];
+          i += 2;
+        } else if (args[i] === '--workspace-dir') {
+          workspaceDir = args[i+1];
+          i += 2;
+        } else if (args[i] === '--prompt') {
+          break; // Handled below
+        } else {
+          i++;
+        }
       }
 
       let jiraKey = args[i] || '';
@@ -516,7 +532,7 @@ try {
         console.error('   or: orchestrator.js start [--workflow <id>] --prompt <custom-prompt>');
         process.exit(1);
       }
-      startWorkflow(jiraKey, customPrompt, workflowId);
+      startWorkflow(jiraKey, customPrompt, workflowId, workspaceName, workspaceDir);
       break;
     }
 

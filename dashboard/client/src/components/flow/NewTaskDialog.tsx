@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { useDashboardStore } from '../../store/use-dashboard-store';
 import type { CustomWorkflow } from '@devteam-dashboard/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -11,6 +12,7 @@ interface NewTaskDialogProps {
 }
 
 export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) {
+  const selectedWorkspaceId = useDashboardStore(s => s.selectedWorkspaceId);
   const [jiraKey, setJiraKey] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [workflowId, setWorkflowId] = useState('');
@@ -42,7 +44,8 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
       const res = await fetch(`${API_BASE}/api/flows/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jiraKey, customPrompt, workflowId }),
+        body: JSON.stringify({
+          workspaceId: selectedWorkspaceId, jiraKey, customPrompt, workflowId }),
       });
 
       const data = await res.json();

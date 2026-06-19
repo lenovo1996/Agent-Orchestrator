@@ -16,6 +16,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 export function LogViewer() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const selectedStep = useDashboardStore((s) => s.selectedStep);
+  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
+  const workspaces = useDashboardStore((s) => s.workspaces);
   const logBuffers = useDashboardStore((s) => s.logBuffers);
   const setLogBuffer = useDashboardStore((s) => s.setLogBuffer);
   const toggleAutoScroll = useDashboardStore((s) => s.toggleAutoScroll);
@@ -41,9 +43,14 @@ export function LogViewer() {
 
     // Fetch initial log content via REST API
     const controller = new AbortController();
-    fetch(`${API_BASE}/api/flows/${selectedFlowId}/logs/${selectedStep}`, {
+    const workspaceName = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name;
+    const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
+    fetch(
+      `${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/logs/${encodeURIComponent(selectedStep)}${query}`,
+      {
       signal: controller.signal,
-    })
+      }
+    )
       .then((res) => res.json())
       .then((data: { lines: string[] }) => {
         if (data.lines && data.lines.length > 0) {
@@ -60,7 +67,7 @@ export function LogViewer() {
       controller.abort();
       socket.emit('log:unsubscribe', { flowId: selectedFlowId, step: selectedStep });
     };
-  }, [selectedFlowId, selectedStep, setLogBuffer]);
+  }, [selectedFlowId, selectedStep, selectedWorkspaceId, workspaces, setLogBuffer]);
 
   // Placeholder when no step is selected
   if (!selectedFlowId || !selectedStep) {

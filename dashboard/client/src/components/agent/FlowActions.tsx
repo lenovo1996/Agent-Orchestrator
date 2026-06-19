@@ -21,6 +21,8 @@ export function FlowActions() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const flows = useDashboardStore((s) => s.flows);
   const agents = useDashboardStore((s) => s.agents);
+  const workspaces = useDashboardStore((s) => s.workspaces);
+  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
   const flow = selectedFlowId ? flows[selectedFlowId] : null;
 
   const [retryOpen, setRetryOpen] = useState(false);
@@ -57,6 +59,8 @@ export function FlowActions() {
     try {
       const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/stop`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceName: workspaces.find(w => w.id === selectedWorkspaceId)?.name })
       });
       const data = await res.json();
       if (res.ok) {

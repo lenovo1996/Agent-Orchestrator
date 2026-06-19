@@ -18,7 +18,7 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
-const { getSteps } = require('./workflow-manager');
+const { getSteps, resolveWorkDir } = require('./workflow-manager');
 
 /**
  * Staleness threshold for markStaleAfterRetry (3 years in ms).
@@ -81,7 +81,7 @@ function markStaleAfterRetry(workflow, step) {
  */
 function prepareRetry(flowId, step, { clearOutput = false, source = 'manual', prompt } = {}) {
   // Resolve paths
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const workflowPath = path.join(workDir, 'workflow.json');
 
   // Read workflow

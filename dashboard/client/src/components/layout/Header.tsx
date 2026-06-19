@@ -1,5 +1,7 @@
 import { useDashboardStore } from '../../store/use-dashboard-store';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Plus, FolderGit2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { NewWorkspaceDialog } from './NewWorkspaceDialog';
 
 interface HeaderProps {
   theme: 'light' | 'dark';
@@ -10,7 +12,17 @@ interface HeaderProps {
 export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
   const connected = useDashboardStore((s) => s.connected);
   const flows = useDashboardStore((s) => s.flows);
+  const workspaces = useDashboardStore(s => s.workspaces);
+  const selectedWorkspaceId = useDashboardStore(s => s.selectedWorkspaceId);
+  const selectWorkspace = useDashboardStore(s => s.selectWorkspace);
+  const fetchWorkspaces = useDashboardStore(s => s.fetchWorkspaces);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
   const flowCount = Object.keys(flows).length;
+
+  useEffect(() => {
+    fetchWorkspaces();
+  }, [fetchWorkspaces]);
 
   return (
     <header className="relative flex items-center justify-between border-b border-border/50 px-4 md:px-6 py-3 bg-card/80 glass">
@@ -28,21 +40,27 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
         </button>
 
         <div className="flex items-center gap-2.5">
-          {/* Logo icon */}
-          <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
+          <div className="h-7 w-7 rounded-lg bg-blue-500 flex items-center justify-center shadow-md">
+            <FolderGit2 className="w-4 h-4 text-white" />
           </div>
-          <div>
-            <h1 className="text-sm md:text-base font-semibold text-foreground leading-tight">
-              Dev Team Dashboard
-            </h1>
-            {flowCount > 0 && (
-              <p className="text-[10px] text-muted-foreground leading-tight hidden md:block">
-                {flowCount} flow{flowCount !== 1 ? 's' : ''} tracked
-              </p>
-            )}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedWorkspaceId || ''}
+              onChange={(e) => selectWorkspace(e.target.value || null)}
+              className="text-sm md:text-base font-semibold text-foreground bg-transparent border-none focus:ring-0 cursor-pointer hover:opacity-80 transition-opacity"
+            >
+              <option value="">Default Workspace</option>
+              {workspaces.map(w => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+              title="Add Workspace"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -69,6 +87,7 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
           {connected ? 'Live' : 'Offline'}
         </div>
       </div>
+          <NewWorkspaceDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
     </header>
   );
 }

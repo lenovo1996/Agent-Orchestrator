@@ -31,7 +31,7 @@ const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 const { parseStepTokens, getFlowTokens, formatTokens, formatFlowSummary } = require('../utils/token-tracker');
-const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
+const { loadWorkflow, getSteps, resolveWorkDir } = require('../orchestrator/workflow-manager');
 
 function _getSteps(flowId) {
   let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
@@ -48,11 +48,12 @@ function _getSteps(flowId) {
  * Resolve task ID from flow. Uses jiraKey from workflow.json if available.
  */
 function resolveTaskId(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
-  const workflowPath = path.join(workDir, 'workflow.json');
-  if (!fs.existsSync(workflowPath)) return flowId;
-  const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
-  return workflow.jiraKey || flowId;
+  try {
+    const workflow = loadWorkflow(flowId);
+    return workflow.jiraKey || flowId;
+  } catch {
+    return flowId;
+  }
 }
 
 /**
@@ -205,7 +206,7 @@ function getFlowStatus(tree, flowId) {
  * Initialize memory tree for a flow
  */
 function initTree(flowId) {
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   if (!fs.existsSync(workDir)) {
     console.error(`❌ Flow not found: ${flowId}`);
     return null;
@@ -343,7 +344,7 @@ function updateTree(flowId, step) {
   }
 
   const tree = JSON.parse(fs.readFileSync(treePath, 'utf8'));
-  const workDir = path.join(OUTPUT_ROOT, flowId);
+  const workDir = resolveWorkDir(flowId);
   const member = TEAM_CONFIG.members[step];
 
   if (!member) {

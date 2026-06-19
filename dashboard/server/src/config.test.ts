@@ -10,6 +10,7 @@ describe('config', () => {
   let tmpDir: string;
 
   beforeEach(() => {
+    fs.writeFileSync('/tmp/team.json', JSON.stringify({ outputRoot: 'task-flows' }));
     // Reset env vars before each test
     vi.resetModules();
     process.env = { ...originalEnv };
