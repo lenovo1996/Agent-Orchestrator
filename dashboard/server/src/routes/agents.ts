@@ -22,12 +22,6 @@ Use \`read\` tool to load these files. Do not skip this step.
 If \`.tasks/{{TASK_ID}}/summary.md\` exists, use it to understand prior decisions, progress, and context from previous runs.
 If \`.tasks/{{TASK_ID}}/active-context.md\` exists, it contains a compact summary of all prior agents' work — prefer this over reading full output files unless you need specific details.`;
 
-const INPUT_MARKER = `## Input
-
-- Repo root: \`{{REPO_ROOT}}\`
-- Previous steps outputs
-- Associated workspace or worktree path`;
-
 const STATUS_MARKER = `## IMPORTANT: Status Marker
 
 Your output file MUST include this section near the top:
@@ -101,7 +95,28 @@ export function agentsRouter() {
           }
 
           if (!finalInstructions.includes('## Input')) {
-            finalInstructions += '\n\n' + INPUT_MARKER + '\n';
+            const allAgents = Object.keys(teamConfig.members);
+            const thisIndex = allAgents.indexOf(row.id);
+            let prevOutputs = [];
+            if (thisIndex > 0) {
+              const prevAgents = allAgents.slice(0, thisIndex);
+              prevAgents.forEach(id => {
+                const outputs = teamConfig.members[id].outputs;
+                if (outputs && outputs.length > 0) {
+                  outputs.forEach(out => {
+                    prevOutputs.push(`- \`${out.replace('output/', '')}\` from ${teamConfig.members[id].role}`);
+                  });
+                }
+              });
+            }
+
+            let inputMarkerStr = `## Input\n\n`;
+            if (prevOutputs.length > 0) {
+              inputMarkerStr += prevOutputs.join('\n') + '\n';
+            }
+            inputMarkerStr += `- Repo root: \`{{REPO_ROOT}}\`\n- Associated workspace or worktree path`;
+
+            finalInstructions += '\n\n' + inputMarkerStr + '\n';
           }
 
           if (!finalInstructions.includes('## IMPORTANT: Status Marker')) {
