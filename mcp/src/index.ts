@@ -11,6 +11,48 @@ import * as path from "path";
 import { execFileSync, spawn } from "child_process";
 import { fileURLToPath } from "url";
 
+const TOOL_DESCRIPTIONS: Record<string, string> = {
+  get_task_list: `Tool: get_task_list
+Description: Lists all currently tracked tasks (flows).
+Parameters:
+  - workspaceName (string, optional): Specific workspace to filter tasks.`,
+  get_task_status: `Tool: get_task_status
+Description: Retrieves detailed JSON status and metadata for a specific task.
+Parameters:
+  - flowId (string, required): The ID of the flow to check.
+  - workspaceName (string, optional): Specific workspace the flow belongs to.`,
+  update_task_status: `Tool: update_task_status
+Description: Directly patches the workflow.json for a given flowId.
+Parameters:
+  - flowId (string, required): The ID of the flow.
+  - updates (object, required): Key-value pairs to merge into workflow.json (e.g. {"status": "completed", "steps.implementer": "done"}).
+  - workspaceName (string, optional): Specific workspace.`,
+  create_task: `Tool: create_task
+Description: Bootstraps a new workflow via the orchestrator.
+Parameters:
+  - jiraKey (string, optional): Jira ticket key. Required if customPrompt is missing.
+  - customPrompt (string, optional): Custom instructions for the task. Required if jiraKey is missing.
+  - workflowId (string, optional): Force a specific flow ID.
+  - workspaceName (string, optional): Specific workspace name.
+  - workspacePath (string, optional): Specific workspace path.`,
+  delete_task: `Tool: delete_task
+Description: Forcefully stops and deletes a task and its history.
+Parameters:
+  - flowId (string, required): The ID of the flow to delete.`,
+  retry_step_with_prompt_update: `Tool: retry_step_with_prompt_update
+Description: Forces the orchestrator to retry a specific step and optionally allows you to provide a brand new custom prompt.
+Parameters:
+  - flowId (string, required): The ID of the flow.
+  - step (string, required): The step to retry (e.g., 'implementer', 'verifier').
+  - prompt (string, optional): New prompt to use for the retry.
+  - clearOutput (boolean, optional): Clear previous outputs. Defaults to true.`,
+  get_help: `Tool: get_help
+Description: Get comprehensive help about how to use the DevTeam Task MCP Server tools.
+Parameters:
+  - topic (string, optional): Specific tool name to get detailed help for.`
+};
+
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -240,6 +282,7 @@ class TaskServer {
 
           case "get_task_status": {
             const { flowId, workspaceName } = request.params.arguments as any;
+            if (!flowId) throw new McpError(ErrorCode.InvalidParams, "flowId is required");
             const state = this.getWorkflowState(flowId, workspaceName);
             return {
               content: [{ type: "text", text: JSON.stringify(state, null, 2) }],
@@ -248,6 +291,8 @@ class TaskServer {
 
           case "update_task_status": {
              const { flowId, workspaceName, updates } = request.params.arguments as any;
+             if (!flowId) throw new McpError(ErrorCode.InvalidParams, "flowId is required");
+             if (!updates || typeof updates !== "object" || Array.isArray(updates)) throw new McpError(ErrorCode.InvalidParams, "updates must be a valid JSON object");
              const workDir = this.resolveWorkDir(flowId, workspaceName);
              const workflowPath = path.join(workDir, "workflow.json");
 
@@ -276,6 +321,7 @@ class TaskServer {
 
           case "create_task": {
             const { jiraKey = "", customPrompt = "", workflowId, workspaceName, workspacePath } = request.params.arguments || {};
+            if (!jiraKey && !customPrompt) throw new McpError(ErrorCode.InvalidParams, "Must provide jiraKey or customPrompt");
             const args = ["start"];
             if (workflowId) args.push("--workflow", workflowId as string);
             if (workspaceName) args.push("--workspace-name", workspaceName as string);
@@ -302,6 +348,7 @@ class TaskServer {
 
           case "delete_task": {
              const { flowId } = request.params.arguments as any;
+             if (!flowId) throw new McpError(ErrorCode.InvalidParams, "flowId is required");
 
              // Try to stop first
              try {
@@ -355,6 +402,8 @@ class TaskServer {
 
           case "retry_step_with_prompt_update": {
              const { flowId, step, prompt, clearOutput = true } = request.params.arguments as any;
+             if (!flowId) throw new McpError(ErrorCode.InvalidParams, "flowId is required");
+             if (!step) throw new McpError(ErrorCode.InvalidParams, "step is required");
              const retryLib = path.join(SCRIPT_DIR, "orchestrator", "retry-flow.js");
              const promptArg = prompt !== undefined ? JSON.stringify(prompt) : "undefined";
              const retryExpression = `require(${JSON.stringify(retryLib)}).prepareRetry(${JSON.stringify(flowId)}, ${JSON.stringify(step)}, { clearOutput: ${clearOutput}, source: 'manual', prompt: ${promptArg} })`;
@@ -379,6 +428,13 @@ class TaskServer {
           }
 
           case "get_help": {
+            const { topic } = (request.params.arguments || {}) as any;
+            if (topic && TOOL_DESCRIPTIONS[topic]) {
+               return {
+                 content: [{ type: "text", text: TOOL_DESCRIPTIONS[topic] }]
+               };
+            }
+
             const helpContent = `
 DevTeam Task MCP Server Help Guide
 ====================================
@@ -444,12 +500,14 @@ Options:
 Description:
   DevTeam Task MCP Server.
   This server connects via stdio and implements the Model Context Protocol (MCP).
-  It provides tools to manage local DevTeam tasks: reading statuses, listing tasks,
-  creating new tasks, and retrying steps without needing the Dashboard API.
+  It provides tools to manage local DevTeam tasks.
 
   Configure your MCP Client to spawn this process.
   Example config (Cursor / Claude Desktop):
   { "command": "node", "args": ["/path/to/devteam/mcp/dist/index.js"] }
+
+Available Tools:
+${Object.values(TOOL_DESCRIPTIONS).join('\n\n')}
     `.trim());
     process.exit(0);
   }
