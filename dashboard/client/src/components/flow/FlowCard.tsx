@@ -1,11 +1,11 @@
-import type { WorkflowState, FlowStatus } from '@devteam-dashboard/shared';
-import { StepIndicator } from './StepIndicator';
-import { formatElapsedTime } from '@/lib/format';
-import { getStepDisplayName } from '@/lib/constants';
-import { cn } from '@/lib/utils';
-import { useDashboardStore } from '@/store/use-dashboard-store';
-import { useState } from 'react';
-import { DeleteFlowDialog } from './DeleteFlowDialog';
+import type { WorkflowState, FlowStatus } from "@devteam-dashboard/shared";
+import { StepIndicator } from "./StepIndicator";
+import { formatElapsedTime } from "@/lib/format";
+import { getStepDisplayName } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { useDashboardStore } from "@/store/use-dashboard-store";
+import { useState } from "react";
+import { DeleteFlowDialog } from "./DeleteFlowDialog";
 
 interface FlowCardProps {
   flow: WorkflowState;
@@ -13,12 +13,31 @@ interface FlowCardProps {
   onSelect: (flowId: string) => void;
 }
 
-const FLOW_STATUS_CONFIG: Record<FlowStatus, { bg: string; text: string; dot: string }> = {
-  running: { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400 animate-pulse' },
-  completed: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-400' },
-  failed: { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
-  blocked: { bg: 'bg-purple-500/10', text: 'text-purple-400', dot: 'bg-purple-400' },
-  stopped: { bg: 'bg-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-400' },
+const FLOW_STATUS_CONFIG: Record<
+  FlowStatus,
+  { bg: string; text: string; dot: string }
+> = {
+  running: {
+    bg: "bg-blue-500/10",
+    text: "text-blue-400",
+    dot: "bg-blue-400 animate-pulse",
+  },
+  completed: {
+    bg: "bg-emerald-500/10",
+    text: "text-emerald-400",
+    dot: "bg-emerald-400",
+  },
+  failed: { bg: "bg-red-500/10", text: "text-red-400", dot: "bg-red-400" },
+  blocked: {
+    bg: "bg-purple-500/10",
+    text: "text-purple-400",
+    dot: "bg-purple-400",
+  },
+  stopped: {
+    bg: "bg-amber-500/10",
+    text: "text-amber-400",
+    dot: "bg-amber-400",
+  },
 };
 
 export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
@@ -33,10 +52,10 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
     <div
       data-flow-card
       className={cn(
-        'group relative rounded-xl p-3.5 transition-all duration-200 cursor-pointer',
-        'border border-border/50 hover:border-border',
-        'bg-card/60 hover:bg-card',
-        isSelected && 'border-primary/50 bg-primary/5 glow-sm'
+        "group relative rounded-xl p-3.5 transition-all duration-200 cursor-pointer",
+        "border border-border/50 hover:border-border",
+        "bg-card/60 hover:bg-card",
+        isSelected && "border-primary/50 bg-primary/5 glow-sm",
       )}
       onClick={() => onSelect(flow.flowId)}
     >
@@ -46,12 +65,17 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
           {flow.jiraKey}
         </span>
         <div className="flex items-center gap-2">
-          <div className={cn(
-            'flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border',
-            statusConfig.bg, statusConfig.text,
-            `border-current/20`
-          )}>
-            <span className={cn('h-1.5 w-1.5 rounded-full', statusConfig.dot)} />
+          <div
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border",
+              statusConfig.bg,
+              statusConfig.text,
+              `border-current/20`,
+            )}
+          >
+            <span
+              className={cn("h-1.5 w-1.5 rounded-full", statusConfig.dot)}
+            />
             {flow.status}
           </div>
           <button
@@ -62,8 +86,18 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
             className="p-1 rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
             title="Delete Flow"
           >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            <svg
+              className="w-3.5 h-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
             </svg>
           </button>
         </div>
@@ -74,8 +108,11 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
         <span className="text-xs text-muted-foreground">
           {getStepDisplayName(flow.currentStep, agents)}
         </span>
-        <span className="text-[10px] font-mono text-muted-foreground/70" title={flow.flowId}>
-          {flow.flowId.replace('flow_', '').slice(0, 14)}
+        <span
+          className="text-[10px] font-mono text-muted-foreground/70"
+          title={flow.flowId}
+        >
+          {flow.flowId.replace("flow_", "").slice(0, 14)}
         </span>
       </div>
 
@@ -87,19 +124,39 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
       {/* Footer: elapsed time + needsFix */}
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <svg
+            className="w-3 h-3"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           {flow.stoppedAt
             ? formatElapsedTime(flow.startedAt, new Date(flow.stoppedAt))
-            : flow.status === 'running'
+            : flow.status === "running"
               ? formatElapsedTime(flow.startedAt)
-              : '—'}
+              : "—"}
         </span>
         {totalNeedsFix > 0 && (
           <span className="text-amber-400 flex items-center gap-0.5">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+              />
             </svg>
             {totalNeedsFix}
           </span>
@@ -107,7 +164,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
       </div>
 
       {/* Blocked reason */}
-      {flow.status === 'blocked' && flow.blockedReason && (
+      {flow.status === "blocked" && flow.blockedReason && (
         <div className="mt-2.5 text-[11px] text-purple-300 bg-purple-500/10 border border-purple-500/20 rounded-lg px-2.5 py-1.5">
           ⚠ {flow.blockedReason}
         </div>

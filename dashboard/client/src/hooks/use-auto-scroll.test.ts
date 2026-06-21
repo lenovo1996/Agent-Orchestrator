@@ -1,11 +1,11 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook } from '@testing-library/react';
-import { useAutoScroll } from './use-auto-scroll';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { renderHook } from "@testing-library/react";
+import { useAutoScroll } from "./use-auto-scroll";
 
-describe('useAutoScroll', () => {
+describe("useAutoScroll", () => {
   let mockElement: {
     scrollHeight: number;
     scrollTo: ReturnType<typeof vi.fn>;
@@ -20,15 +20,16 @@ describe('useAutoScroll', () => {
     containerRef = { current: mockElement as unknown as HTMLElement } as any;
   });
 
-  it('scrolls to bottom when autoScroll is true and deps change', () => {
+  it("scrolls to bottom when autoScroll is true and deps change", () => {
     const { rerender } = renderHook(
-      ({ deps }) => useAutoScroll(containerRef as any, { autoScroll: true, deps }),
+      ({ deps }) =>
+        useAutoScroll(containerRef as any, { autoScroll: true, deps }),
       { initialProps: { deps: [5] } },
     );
 
     expect(mockElement.scrollTo).toHaveBeenCalledWith({
       top: 500,
-      behavior: 'smooth',
+      behavior: "smooth",
     });
 
     mockElement.scrollHeight = 800;
@@ -38,11 +39,11 @@ describe('useAutoScroll', () => {
 
     expect(mockElement.scrollTo).toHaveBeenCalledWith({
       top: 800,
-      behavior: 'smooth',
+      behavior: "smooth",
     });
   });
 
-  it('does not scroll when autoScroll is false', () => {
+  it("does not scroll when autoScroll is false", () => {
     renderHook(() =>
       useAutoScroll(containerRef as any, { autoScroll: false, deps: [5] }),
     );
@@ -50,7 +51,7 @@ describe('useAutoScroll', () => {
     expect(mockElement.scrollTo).not.toHaveBeenCalled();
   });
 
-  it('stops scrolling when autoScroll transitions from true to false', () => {
+  it("stops scrolling when autoScroll transitions from true to false", () => {
     const { rerender } = renderHook(
       ({ autoScroll, deps }) =>
         useAutoScroll(containerRef as any, { autoScroll, deps }),
@@ -65,7 +66,7 @@ describe('useAutoScroll', () => {
     expect(mockElement.scrollTo).not.toHaveBeenCalled();
   });
 
-  it('resumes scrolling when autoScroll transitions from false to true', () => {
+  it("resumes scrolling when autoScroll transitions from false to true", () => {
     const { rerender } = renderHook(
       ({ autoScroll, deps }) =>
         useAutoScroll(containerRef as any, { autoScroll, deps }),
@@ -78,32 +79,30 @@ describe('useAutoScroll', () => {
 
     expect(mockElement.scrollTo).toHaveBeenCalledWith({
       top: 500,
-      behavior: 'smooth',
+      behavior: "smooth",
     });
   });
 
-  it('handles null ref gracefully', () => {
+  it("handles null ref gracefully", () => {
     const nullRef = { current: null } as any;
 
     expect(() => {
-      renderHook(() =>
-        useAutoScroll(nullRef, { autoScroll: true, deps: [5] }),
-      );
+      renderHook(() => useAutoScroll(nullRef, { autoScroll: true, deps: [5] }));
     }).not.toThrow();
   });
 
-  it('returns scrollToBottom function', () => {
+  it("returns scrollToBottom function", () => {
     const { result } = renderHook(() =>
       useAutoScroll(containerRef as any, { autoScroll: false, deps: [0] }),
     );
 
-    expect(typeof result.current.scrollToBottom).toBe('function');
+    expect(typeof result.current.scrollToBottom).toBe("function");
 
     // Manual call should scroll regardless of autoScroll state
     result.current.scrollToBottom();
     expect(mockElement.scrollTo).toHaveBeenCalledWith({
       top: 500,
-      behavior: 'smooth',
+      behavior: "smooth",
     });
   });
 });

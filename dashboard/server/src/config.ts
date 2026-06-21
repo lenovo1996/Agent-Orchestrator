@@ -1,6 +1,6 @@
-import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export interface DashboardConfig {
   port: number;
@@ -25,7 +25,7 @@ function findRepoRoot(): string {
   const root = path.parse(current).root;
 
   while (current !== root) {
-    const candidate = path.join(current, 'team.json');
+    const candidate = path.join(current, "team.json");
     if (fs.existsSync(candidate)) {
       return current;
     }
@@ -33,7 +33,7 @@ function findRepoRoot(): string {
   }
 
   throw new Error(
-    '[config] Cannot find repository root: no team.json found in parent directories'
+    "[config] Cannot find repository root: no team.json found in parent directories",
   );
 }
 
@@ -45,20 +45,23 @@ function findRepoRoot(): string {
  * - Creates task-flows directory if it doesn't exist, logs a warning.
  */
 export function loadConfig(): DashboardConfig {
-  const repoRoot = path.join(findRepoRoot(), '..');
+  const repoRoot = path.join(findRepoRoot(), "..");
 
-  const teamConfigPath = path.join(repoRoot, 'team.json');
+  const teamConfigPath = path.join(repoRoot, "team.json");
 
   let teamConfig: { outputRoot?: string };
   try {
-    teamConfig = JSON.parse(fs.readFileSync(teamConfigPath, 'utf8'));
+    teamConfig = JSON.parse(fs.readFileSync(teamConfigPath, "utf8"));
   } catch (err) {
     throw new Error(
-      `[config] Failed to read team.json at ${teamConfigPath}: ${(err as Error).message}`
+      `[config] Failed to read team.json at ${teamConfigPath}: ${(err as Error).message}`,
     );
   }
 
-  const outputRoot = path.resolve(repoRoot, teamConfig.outputRoot || 'task-flows');
+  const outputRoot = path.resolve(
+    repoRoot,
+    teamConfig.outputRoot || "task-flows",
+  );
 
   // Ensure task-flows directory exists (Requirement 1.4)
   if (!fs.existsSync(outputRoot)) {
@@ -70,12 +73,12 @@ export function loadConfig(): DashboardConfig {
   const __dirname = path.dirname(__filename);
 
   return {
-    port: parseInt(process.env.DASHBOARD_PORT || '3001', 10),
-    host: process.env.DASHBOARD_HOST || '127.0.0.1',
-    corsOrigin: process.env.DASHBOARD_CORS_ORIGIN || '*',
+    port: parseInt(process.env.DASHBOARD_PORT || "3001", 10),
+    host: process.env.DASHBOARD_HOST || "127.0.0.1",
+    corsOrigin: process.env.DASHBOARD_CORS_ORIGIN || "*",
     taskFlowsDir: outputRoot,
-    scriptDir: path.join(repoRoot, 'scripts'),
-    clientDistPath: path.resolve(__dirname, '../../client/dist'),
-    isProduction: process.env.NODE_ENV === 'production',
+    scriptDir: path.join(repoRoot, "scripts"),
+    clientDistPath: path.resolve(__dirname, "../../client/dist"),
+    isProduction: process.env.NODE_ENV === "production",
   };
 }

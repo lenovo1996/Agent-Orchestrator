@@ -4,9 +4,16 @@ import path from "node:path";
 import { execFileSync, execSync, spawn } from "node:child_process";
 import type { DashboardConfig } from "../config.js";
 import { db } from "../db.js";
-import type { FlowSummary, AgentStep } from "@devteam-dashboard/shared";
+import type { AgentStep } from "@devteam-dashboard/shared";
 import { readWorkflowJson, readOutputContent } from "../flow-reader.js";
 import { getOutputFilename } from "../utils.js";
+import {
+  listFlows,
+  resolveFlowDir,
+  extractTokensFromLog,
+  startWatcher,
+  restartWatcher,
+} from "../services/flow.service.js";
 
 const STEPS: AgentStep[] = [
   "clarifier",
@@ -27,15 +34,19 @@ export function flowsRouter(config: DashboardConfig): Router {
     const workspaceId = req.query.workspaceId as string;
 
     if (workspaceId) {
-      db.get('SELECT name FROM workspaces WHERE id = ?', [workspaceId], (err, row: any) => {
-        if (err || !row) {
-           res.json({ flows: [] });
-           return;
-        }
-        const dir = path.join(config.taskFlowsDir, row.name);
-        const flows = listFlows(dir);
-        res.json({ flows });
-      });
+      db.get(
+        "SELECT name FROM workspaces WHERE id = ?",
+        [workspaceId],
+        (err, row: any) => {
+          if (err || !row) {
+            res.json({ flows: [] });
+            return;
+          }
+          const dir = path.join(config.taskFlowsDir, row.name);
+          const flows = listFlows(dir);
+          res.json({ flows });
+        },
+      );
     } else {
       const flows = listFlows(config.taskFlowsDir);
       res.json({ flows });
@@ -181,7 +192,12 @@ export function flowsRouter(config: DashboardConfig): Router {
       clearOutput = true,
       prompt,
       workspaceName,
-    } = req.body as { step: string; clearOutput?: boolean; prompt?: string; workspaceName?: string };
+    } = req.body as {
+      step: string;
+      clearOutput?: boolean;
+      prompt?: string;
+      workspaceName?: string;
+    };
 
     try {
       const scriptDir = config.scriptDir;
@@ -197,7 +213,7 @@ export function flowsRouter(config: DashboardConfig): Router {
       const spawnScript = path.join(scriptDir, "api/spawn.js");
       const spawnArgs = [spawnScript, flowId, step];
       if (workspaceName) {
-         spawnArgs.push("--workspace-name", workspaceName);
+        spawnArgs.push("--workspace-name", workspaceName);
       }
 
       const child = spawn(process.execPath, spawnArgs, {
@@ -206,7 +222,12 @@ export function flowsRouter(config: DashboardConfig): Router {
       });
       child.unref();
 
-      const killedWatchers = restartWatcher(config, scriptDir, flowId, workspaceName);
+      const killedWatchers = restartWatcher(
+        config,
+        scriptDir,
+        flowId,
+        workspaceName,
+      );
 
       res.json({
         success: true,
@@ -283,12 +304,16 @@ export function flowsRouter(config: DashboardConfig): Router {
 
       // Fetch workspace path if workspaceId is provided
       if (workspaceId) {
-        db.get('SELECT name, path FROM workspaces WHERE id = ?', [workspaceId], (err, row: any) => {
-          if (err || !row) {
-            return res.status(404).json({ error: "Workspace not found" });
-          }
-          executeStart(row.name, row.path);
-        });
+        db.get(
+          "SELECT name, path FROM workspaces WHERE id = ?",
+          [workspaceId],
+          (err, row: any) => {
+            if (err || !row) {
+              return res.status(404).json({ error: "Workspace not found" });
+            }
+            executeStart(row.name, row.path);
+          },
+        );
       } else {
         executeStart();
       }
@@ -333,7 +358,9 @@ export function flowsRouter(config: DashboardConfig): Router {
           if (!match) {
             res
               .status(500)
-              .json({ error: "Failed to parse flow ID from orchestrator output" });
+              .json({
+                error: "Failed to parse flow ID from orchestrator output",
+              });
             return;
           }
 
@@ -347,7 +374,8 @@ export function flowsRouter(config: DashboardConfig): Router {
             message: `Workflow ${flowId} started successfully`,
           });
         } catch (execErr) {
-          const message = execErr instanceof Error ? execErr.message : String(execErr);
+          const message =
+            execErr instanceof Error ? execErr.message : String(execErr);
           res.status(500).json({ error: message });
         }
       }
@@ -486,175 +514,4 @@ export function flowsRouter(config: DashboardConfig): Router {
   });
 
   return router;
-}
-
-/**
- * Scan task-flows directory and build FlowSummary list.
- */
-function listFlows(taskFlowsDir: string): FlowSummary[] {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(taskFlowsDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  const summaries: FlowSummary[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const flowDir = path.join(taskFlowsDir, entry.name);
-    const workflow = readWorkflowJson(flowDir);
-    if (!workflow) continue;
-
-    const stepsToUse = workflow.stepOrder || STEPS;
-    const completedSteps = stepsToUse.filter(
-      (s) => workflow.steps[s] === "done",
-    ).length;
-
-    summaries.push({
-      flowId: workflow.flowId,
-      jiraKey: workflow.jiraKey,
-      status: workflow.status,
-      currentStep: workflow.currentStep,
-      startedAt: workflow.startedAt,
-      completedSteps,
-      totalSteps: stepsToUse.length,
-    });
-  }
-
-  return summaries;
-}
-
-function resolveFlowDir(taskFlowsDir: string, flowId: string, workspaceName?: string): string {
-  if (workspaceName) {
-    return path.join(taskFlowsDir, workspaceName, flowId);
-  }
-
-  const directPath = path.join(taskFlowsDir, flowId);
-  if (fs.existsSync(directPath)) {
-    return directPath;
-  }
-
-  try {
-    for (const entry of fs.readdirSync(taskFlowsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-
-      const workspaceFlowDir = path.join(taskFlowsDir, entry.name, flowId);
-      if (fs.existsSync(workspaceFlowDir)) {
-        return workspaceFlowDir;
-      }
-    }
-  } catch {
-    // Fall through to the direct path so callers can return their normal 404 response.
-  }
-
-  return directPath;
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
-}
-
-function parseTokenNumber(value: string): number {
-  const cleaned = stripAnsi(value)
-    .trim()
-    .replace(/[,.\s]/g, "");
-  return parseInt(cleaned, 10) || 0;
-}
-
-function extractTokensFromLog(content: string): number[] {
-  const tokens: number[] = [];
-  const lines = content.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = stripAnsi(lines[i]).trim();
-
-    if (line === "tokens used" && i + 1 < lines.length) {
-      const value = parseTokenNumber(lines[i + 1]);
-      if (value > 0) {
-        tokens.push(value);
-      }
-    }
-  }
-
-  return tokens;
-}
-
-function startWatcher(
-  config: DashboardConfig,
-  scriptDir: string,
-  flowId: string,
-  workspaceName?: string
-): void {
-  const watcherScript = path.join(scriptDir, "watcher/index.js");
-  const flowDir = workspaceName ? path.join(config.taskFlowsDir, workspaceName, flowId) : path.join(config.taskFlowsDir, flowId);
-  const logDir = path.join(flowDir, "logs");
-  const logFile = path.join(logDir, "watcher.log");
-
-  fs.mkdirSync(logDir, { recursive: true });
-
-  const args = [watcherScript, flowId];
-  if (workspaceName) {
-    args.push("--workspace-name", workspaceName);
-  }
-
-  const watcher = spawn(process.execPath, args, {
-    detached: true,
-    stdio: ["ignore", fs.openSync(logFile, "a"), fs.openSync(logFile, "a")],
-  });
-  watcher.unref();
-}
-
-function restartWatcher(
-  config: DashboardConfig,
-  scriptDir: string,
-  flowId: string,
-  workspaceName?: string
-): number {
-  const killedCount = stopWatcherProcesses(flowId);
-  startWatcher(config, scriptDir, flowId, workspaceName);
-  return killedCount;
-}
-
-function stopWatcherProcesses(flowId: string): number {
-  let output = "";
-  const pgrepCommand = resolvePgrepCommand();
-
-  try {
-    output = execFileSync(pgrepCommand, ["-f", `watcher/index.js ${flowId}`], {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-  } catch {
-    return 0;
-  }
-
-  const pids = output
-    .split("\n")
-    .map((pid) => Number(pid.trim()))
-    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
-
-  let killedCount = 0;
-  for (const pid of pids) {
-    try {
-      process.kill(pid, "SIGTERM");
-      killedCount++;
-    } catch {
-      // Process already exited.
-    }
-  }
-
-  return killedCount;
-}
-
-function resolvePgrepCommand(): string {
-  for (const candidate of ["/usr/bin/pgrep", "/bin/pgrep"]) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "pgrep";
 }

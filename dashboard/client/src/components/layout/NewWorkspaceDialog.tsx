@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { createPortal } from 'react-dom';
-import { useDashboardStore } from '../../store/use-dashboard-store';
+import React, { useState } from "react";
+import { createPortal } from "react-dom";
+import { useDashboardStore } from "../../store/use-dashboard-store";
 
 interface Props {
   open: boolean;
@@ -8,34 +8,36 @@ interface Props {
 }
 
 export function NewWorkspaceDialog({ open, onClose }: Props) {
-  const [name, setName] = useState('');
-  const [path, setPath] = useState('');
-  const [error, setError] = useState('');
+  const [name, setName] = useState("");
+  const [path, setPath] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const createWorkspace = useDashboardStore(s => s.createWorkspace);
+  const createWorkspace = useDashboardStore((s) => s.createWorkspace);
 
   if (!open) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !path.trim()) {
-      setError('Both name and path are required.');
+      setError("Both name and path are required.");
       return;
     }
 
     setLoading(true);
-    setError('');
+    setError("");
 
     const success = await createWorkspace(name, path);
     setLoading(false);
 
     if (success) {
-      setName('');
-      setPath('');
+      setName("");
+      setPath("");
       onClose();
     } else {
-      setError('Failed to create workspace. Please check your connection and try again.');
+      setError(
+        "Failed to create workspace. Please check your connection and try again.",
+      );
     }
   };
 
@@ -46,8 +48,12 @@ export function NewWorkspaceDialog({ open, onClose }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="shrink-0 p-4 border-b border-border bg-muted/30">
-          <h2 className="text-xl font-semibold text-foreground">Add New Workspace</h2>
-          <p className="text-sm text-muted-foreground mt-1">Configure a new independent project</p>
+          <h2 className="text-xl font-semibold text-foreground">
+            Add New Workspace
+          </h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure a new independent project
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 overflow-y-auto p-4">
@@ -84,7 +90,9 @@ export function NewWorkspaceDialog({ open, onClose }: Props) {
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               placeholder="e.g. /home/user/projects/alpha"
             />
-            <p className="text-xs text-muted-foreground mt-1">Please paste the absolute path to your project folder.</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Please paste the absolute path to your project folder.
+            </p>
           </div>
 
           <div className="flex gap-3 justify-end pt-2">
@@ -110,6 +118,6 @@ export function NewWorkspaceDialog({ open, onClose }: Props) {
         </form>
       </div>
     </div>,
-    document.body
+    document.body,
   );
 }

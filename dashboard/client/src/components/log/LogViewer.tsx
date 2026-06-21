@@ -1,11 +1,11 @@
-import { useEffect, useRef } from 'react';
-import { useDashboardStore } from '@/store/use-dashboard-store';
-import { socket } from '@/lib/socket';
-import { useAutoScroll } from '@/hooks/use-auto-scroll';
-import { LogLine } from './LogLine';
+import { useEffect, useRef } from "react";
+import { useDashboardStore } from "@/store/use-dashboard-store";
+import { socket } from "@/lib/socket";
+import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import { LogLine } from "./LogLine";
 
 // In dev mode, Vite proxy handles /api routing so we use empty string (relative path).
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 /**
  * Realtime log viewer component with auto-scroll, socket subscription,
@@ -24,9 +24,8 @@ export function LogViewer() {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const bufferKey = selectedFlowId && selectedStep
-    ? `${selectedFlowId}:${selectedStep}`
-    : null;
+  const bufferKey =
+    selectedFlowId && selectedStep ? `${selectedFlowId}:${selectedStep}` : null;
 
   const buffer = bufferKey ? logBuffers[bufferKey] : null;
   const lines = buffer?.lines ?? [];
@@ -39,17 +38,24 @@ export function LogViewer() {
     if (!selectedFlowId || !selectedStep) return;
 
     // Subscribe to realtime log events
-    socket.emit('log:subscribe', { flowId: selectedFlowId, step: selectedStep });
+    socket.emit("log:subscribe", {
+      flowId: selectedFlowId,
+      step: selectedStep,
+    });
 
     // Fetch initial log content via REST API
     const controller = new AbortController();
-    const workspaceName = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name;
-    const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
+    const workspaceName = workspaces.find(
+      (workspace) => workspace.id === selectedWorkspaceId,
+    )?.name;
+    const query = workspaceName
+      ? `?workspaceName=${encodeURIComponent(workspaceName)}`
+      : "";
     fetch(
       `${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/logs/${encodeURIComponent(selectedStep)}${query}`,
       {
-      signal: controller.signal,
-      }
+        signal: controller.signal,
+      },
     )
       .then((res) => res.json())
       .then((data: { lines: string[] }) => {
@@ -58,16 +64,25 @@ export function LogViewer() {
         }
       })
       .catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.error('[LogViewer] Failed to fetch initial logs:', err);
+        if (err.name !== "AbortError") {
+          console.error("[LogViewer] Failed to fetch initial logs:", err);
         }
       });
 
     return () => {
       controller.abort();
-      socket.emit('log:unsubscribe', { flowId: selectedFlowId, step: selectedStep });
+      socket.emit("log:unsubscribe", {
+        flowId: selectedFlowId,
+        step: selectedStep,
+      });
     };
-  }, [selectedFlowId, selectedStep, selectedWorkspaceId, workspaces, setLogBuffer]);
+  }, [
+    selectedFlowId,
+    selectedStep,
+    selectedWorkspaceId,
+    workspaces,
+    setLogBuffer,
+  ]);
 
   // Placeholder when no step is selected
   if (!selectedFlowId || !selectedStep) {
@@ -89,13 +104,13 @@ export function LogViewer() {
           type="button"
           onClick={toggleAutoScroll}
           className={
-            'text-xs px-2 py-0.5 rounded border transition-colors ' +
+            "text-xs px-2 py-0.5 rounded border transition-colors " +
             (autoScroll
-              ? 'bg-primary/20 border-primary/50 text-primary'
-              : 'bg-muted border-border text-muted-foreground hover:text-foreground')
+              ? "bg-primary/20 border-primary/50 text-primary"
+              : "bg-muted border-border text-muted-foreground hover:text-foreground")
           }
         >
-          Auto-scroll {autoScroll ? 'ON' : 'OFF'}
+          Auto-scroll {autoScroll ? "ON" : "OFF"}
         </button>
       </div>
 

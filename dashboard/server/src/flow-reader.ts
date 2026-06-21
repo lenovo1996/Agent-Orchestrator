@@ -1,15 +1,15 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import type { WorkflowState, FileMetadata } from '@devteam-dashboard/shared';
+import fs from "node:fs";
+import path from "node:path";
+import type { WorkflowState, FileMetadata } from "@devteam-dashboard/shared";
 
 /**
  * Parse workflow.json from a flow directory.
  * Returns null on any error (file missing, invalid JSON, etc.) — never throws.
  */
 export function readWorkflowJson(flowDir: string): WorkflowState | null {
-  const filePath = path.join(flowDir, 'workflow.json');
+  const filePath = path.join(flowDir, "workflow.json");
   try {
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = fs.readFileSync(filePath, "utf8");
     const parsed = JSON.parse(content) as WorkflowState;
     // Basic validation: must have flowId and status
     if (!parsed.flowId || !parsed.status) {
@@ -27,11 +27,11 @@ export function readWorkflowJson(flowDir: string): WorkflowState | null {
  * Returns null if the file doesn't exist or can't be read.
  */
 export function readOutputContent(
-  filePath: string
+  filePath: string,
 ): { content: string; metadata: FileMetadata } | null {
   try {
     const stat = fs.statSync(filePath);
-    const content = fs.readFileSync(filePath, 'utf8');
+    const content = fs.readFileSync(filePath, "utf8");
     return {
       content,
       metadata: {
@@ -49,7 +49,9 @@ export function readOutputContent(
  * Skips directories without a valid workflow.json.
  * Returns an empty record if the directory doesn't exist or can't be read.
  */
-export function listAllFlows(taskFlowsDir: string): Record<string, WorkflowState> {
+export function listAllFlows(
+  taskFlowsDir: string,
+): Record<string, WorkflowState> {
   const result: Record<string, WorkflowState> = {};
 
   let entries: fs.Dirent[];

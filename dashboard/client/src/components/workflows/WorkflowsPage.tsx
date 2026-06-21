@@ -1,9 +1,17 @@
-import { useEffect, useState } from 'react';
-import type { CustomWorkflow, AgentConfig } from '@devteam-dashboard/shared';
-import { Plus, Edit2, Trash2, GitMerge, FileText, ListTree, ChevronRight } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useEffect, useState } from "react";
+import type { CustomWorkflow, AgentConfig } from "@devteam-dashboard/shared";
+import {
+  Plus,
+  Edit2,
+  Trash2,
+  GitMerge,
+  FileText,
+  ListTree,
+  ChevronRight,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 export function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
@@ -13,10 +21,10 @@ export function WorkflowsPage() {
 
   // form state
   const [isEditing, setIsEditing] = useState(false);
-  const [currentId, setCurrentId] = useState('');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [steps, setSteps] = useState('');
+  const [currentId, setCurrentId] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [steps, setSteps] = useState("");
 
   const fetchWorkflows = async () => {
     try {
@@ -34,10 +42,10 @@ export function WorkflowsPage() {
         const data = await res.json();
         setWorkflows(data);
       } else {
-        setError('Failed to fetch workflows');
+        setError("Failed to fetch workflows");
       }
     } catch (err) {
-      setError('Connection error');
+      setError("Connection error");
     } finally {
       setLoading(false);
     }
@@ -50,22 +58,27 @@ export function WorkflowsPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const stepArray = steps.split(',').map(s => s.trim()).filter(Boolean);
+      const stepArray = steps
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
 
       const payload = {
         id: currentId || `wf_${Date.now()}`,
         name,
         description,
-        steps: stepArray
+        steps: stepArray,
       };
 
-      const url = currentId ? `${API_BASE}/api/workflows/${currentId}` : `${API_BASE}/api/workflows`;
-      const method = currentId ? 'PUT' : 'POST';
+      const url = currentId
+        ? `${API_BASE}/api/workflows/${currentId}`
+        : `${API_BASE}/api/workflows`;
+      const method = currentId ? "PUT" : "POST";
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
 
       if (res.ok) {
@@ -73,30 +86,32 @@ export function WorkflowsPage() {
         resetForm();
         fetchWorkflows();
       } else {
-        setError('Failed to save workflow');
+        setError("Failed to save workflow");
       }
     } catch (err) {
-      setError('Connection error');
+      setError("Connection error");
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this workflow?')) return;
+    if (!confirm("Are you sure you want to delete this workflow?")) return;
     try {
-      const res = await fetch(`${API_BASE}/api/workflows/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE}/api/workflows/${id}`, {
+        method: "DELETE",
+      });
       if (res.ok) {
         fetchWorkflows();
       }
     } catch (err) {
-      setError('Connection error');
+      setError("Connection error");
     }
   };
 
   const resetForm = () => {
-    setCurrentId('');
-    setName('');
-    setDescription('');
-    setSteps('');
+    setCurrentId("");
+    setName("");
+    setDescription("");
+    setSteps("");
     setIsEditing(false);
   };
 
@@ -104,7 +119,7 @@ export function WorkflowsPage() {
     setCurrentId(wf.id);
     setName(wf.name);
     setDescription(wf.description);
-    setSteps(wf.steps.join(', '));
+    setSteps(wf.steps.join(", "));
     setIsEditing(true);
   };
 
@@ -116,7 +131,9 @@ export function WorkflowsPage() {
             <GitMerge className="w-6 h-6 text-primary" />
             Custom Workflows
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Design and manage agent execution sequences.</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Design and manage agent execution sequences.
+          </p>
         </div>
         {!isEditing && (
           <button
@@ -129,13 +146,22 @@ export function WorkflowsPage() {
         )}
       </div>
 
-      {error && <div className="mb-4 p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg">{error}</div>}
+      {error && (
+        <div className="mb-4 p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg">
+          {error}
+        </div>
+      )}
 
       {isEditing ? (
-        <form onSubmit={handleSave} className="bg-card/60 border border-border/50 rounded-xl p-6 space-y-6 mb-8 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-4">
+        <form
+          onSubmit={handleSave}
+          className="bg-card/60 border border-border/50 rounded-xl p-6 space-y-6 mb-8 shadow-sm transition-all animate-in fade-in slide-in-from-bottom-4"
+        >
           <div className="flex items-center gap-2 border-b border-border/50 pb-4">
             <GitMerge className="w-5 h-5 text-primary" />
-            <h2 className="text-lg font-semibold">{currentId ? 'Edit Workflow' : 'Create New Workflow'}</h2>
+            <h2 className="text-lg font-semibold">
+              {currentId ? "Edit Workflow" : "Create New Workflow"}
+            </h2>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -148,7 +174,7 @@ export function WorkflowsPage() {
                 required
                 type="text"
                 value={name}
-                onChange={e => setName(e.target.value)}
+                onChange={(e) => setName(e.target.value)}
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                 placeholder="e.g. Code Review Process"
               />
@@ -161,7 +187,7 @@ export function WorkflowsPage() {
               <input
                 type="text"
                 value={description}
-                onChange={e => setDescription(e.target.value)}
+                onChange={(e) => setDescription(e.target.value)}
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
                 placeholder="Brief description of this workflow"
               />
@@ -171,21 +197,29 @@ export function WorkflowsPage() {
           <div className="space-y-1.5">
             <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
               <ListTree className="w-4 h-4 text-muted-foreground" />
-              Steps <span className="text-muted-foreground font-normal">(comma separated agent IDs)</span>
+              Steps{" "}
+              <span className="text-muted-foreground font-normal">
+                (comma separated agent IDs)
+              </span>
             </label>
             <input
               required
               type="text"
               value={steps}
-              onChange={e => setSteps(e.target.value)}
+              onChange={(e) => setSteps(e.target.value)}
               placeholder="clarifier, planner, implementer, verifier"
               className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-mono"
             />
             {agents.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5 items-center">
-                <span className="text-xs text-muted-foreground mr-1">Available agents:</span>
-                {agents.map(a => (
-                  <span key={a.id} className="text-[10px] px-1.5 py-0.5 bg-muted rounded border border-border text-muted-foreground">
+                <span className="text-xs text-muted-foreground mr-1">
+                  Available agents:
+                </span>
+                {agents.map((a) => (
+                  <span
+                    key={a.id}
+                    className="text-[10px] px-1.5 py-0.5 bg-muted rounded border border-border text-muted-foreground"
+                  >
                     {a.id}
                   </span>
                 ))}
@@ -194,10 +228,17 @@ export function WorkflowsPage() {
           </div>
 
           <div className="flex gap-3 justify-end pt-4 border-t border-border/50">
-            <button type="button" onClick={resetForm} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg transition-colors">
+            <button
+              type="button"
+              onClick={resetForm}
+              className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-lg transition-colors"
+            >
               Cancel
             </button>
-            <button type="submit" className="px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm">
+            <button
+              type="submit"
+              className="px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm"
+            >
               Save Workflow
             </button>
           </div>
@@ -210,12 +251,12 @@ export function WorkflowsPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {workflows.map(wf => (
+          {workflows.map((wf) => (
             <div
               key={wf.id}
               className={cn(
                 "group relative bg-card/60 border border-border/50 rounded-xl p-5 transition-all duration-200",
-                "hover:border-border hover:bg-card hover:shadow-md hover:glow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+                "hover:border-border hover:bg-card hover:shadow-md hover:glow-sm flex flex-col md:flex-row md:items-center justify-between gap-4",
               )}
             >
               <div className="flex-1 min-w-0">
@@ -224,8 +265,14 @@ export function WorkflowsPage() {
                     <GitMerge className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-foreground text-lg">{wf.name}</h3>
-                    {wf.description && <p className="text-sm text-muted-foreground">{wf.description}</p>}
+                    <h3 className="font-semibold text-foreground text-lg">
+                      {wf.name}
+                    </h3>
+                    {wf.description && (
+                      <p className="text-sm text-muted-foreground">
+                        {wf.description}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -265,8 +312,12 @@ export function WorkflowsPage() {
           {workflows.length === 0 && !isEditing && (
             <div className="text-center py-16 border-2 border-dashed border-border/60 rounded-xl bg-card/30">
               <GitMerge className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-              <h3 className="text-lg font-medium text-foreground mb-1">No Workflows Found</h3>
-              <p className="text-muted-foreground mb-4">Create your first custom workflow to orchestrate agents.</p>
+              <h3 className="text-lg font-medium text-foreground mb-1">
+                No Workflows Found
+              </h3>
+              <p className="text-muted-foreground mb-4">
+                Create your first custom workflow to orchestrate agents.
+              </p>
               <button
                 onClick={() => setIsEditing(true)}
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm"

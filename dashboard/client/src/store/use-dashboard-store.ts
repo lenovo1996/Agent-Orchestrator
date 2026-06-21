@@ -1,15 +1,15 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 import type {
   AgentConfig,
   WorkflowState,
   AgentStep,
   StateInitPayload,
   Workspace,
-} from '@devteam-dashboard/shared';
-import { AGENT_STEPS } from '@/lib/constants';
-import { socket } from '@/lib/socket';
+} from "@devteam-dashboard/shared";
+import { AGENT_STEPS } from "@/lib/constants";
+import { socket } from "@/lib/socket";
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 export interface LogBuffer {
   lines: string[];
@@ -66,7 +66,7 @@ function getLatestAgentStep(flow: WorkflowState | undefined): AgentStep | null {
   for (let i = stepsToUse.length - 1; i >= 0; i--) {
     const step = stepsToUse[i];
     const status = flow.steps[step];
-    if (status && status !== 'waiting') {
+    if (status && status !== "waiting") {
       return step;
     }
   }
@@ -80,8 +80,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   setWorkspaces: (workspaces) => set({ workspaces }),
   selectWorkspace: (workspaceId) => {
     set({ selectedWorkspaceId: workspaceId, selectedFlowId: null, flows: {} });
-    const ws = get().workspaces.find(w => w.id === workspaceId);
-    socket.emit('workspace:select', { workspaceName: ws ? ws.name : null });
+    const ws = get().workspaces.find((w) => w.id === workspaceId);
+    socket.emit("workspace:select", { workspaceName: ws ? ws.name : null });
   },
   fetchWorkspaces: async () => {
     try {
@@ -91,22 +91,22 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         set({ workspaces });
       }
     } catch (err) {
-      console.error('Failed to fetch workspaces', err);
+      console.error("Failed to fetch workspaces", err);
     }
   },
   createWorkspace: async (name, path) => {
     try {
       const res = await fetch(`${API_BASE}/api/workspaces`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: 'ws_' + Date.now(), name, path })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "ws_" + Date.now(), name, path }),
       });
       if (res.ok) {
         get().fetchWorkspaces();
         return true;
       }
     } catch (err) {
-      console.error('Failed to create workspace', err);
+      console.error("Failed to create workspace", err);
     }
     return false;
   },
@@ -117,10 +117,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   setFlows: (flows) => set({ flows }),
   updateFlow: (flowId, workflow) =>
     set((state) => {
-      const shouldSelectStep = state.selectedFlowId === flowId && !state.selectedStep;
+      const shouldSelectStep =
+        state.selectedFlowId === flowId && !state.selectedStep;
       return {
         flows: { ...state.flows, [flowId]: workflow },
-        selectedStep: shouldSelectStep ? getLatestAgentStep(workflow) : state.selectedStep,
+        selectedStep: shouldSelectStep
+          ? getLatestAgentStep(workflow)
+          : state.selectedStep,
       };
     }),
   deleteFlowLocally: (flowId) =>
@@ -129,23 +132,33 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       delete newFlows[flowId];
       return {
         flows: newFlows,
-        selectedFlowId: state.selectedFlowId === flowId ? null : state.selectedFlowId
+        selectedFlowId:
+          state.selectedFlowId === flowId ? null : state.selectedFlowId,
       };
     }),
   fetchFlow: async (flowId) => {
-    const workspace = get().workspaces.find(w => w.id === get().selectedWorkspaceId);
-    const qs = workspace ? `?workspaceName=${encodeURIComponent(workspace.name)}` : '';
-    const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}${qs}`);
+    const workspace = get().workspaces.find(
+      (w) => w.id === get().selectedWorkspaceId,
+    );
+    const qs = workspace
+      ? `?workspaceName=${encodeURIComponent(workspace.name)}`
+      : "";
+    const res = await fetch(
+      `${API_BASE}/api/flows/${encodeURIComponent(flowId)}${qs}`,
+    );
     if (!res.ok) return null;
 
     const data = (await res.json()) as { workflow?: WorkflowState };
     if (!data.workflow) return null;
 
     set((state) => {
-      const shouldSelectStep = state.selectedFlowId === flowId && !state.selectedStep;
+      const shouldSelectStep =
+        state.selectedFlowId === flowId && !state.selectedStep;
       return {
         flows: { ...state.flows, [flowId]: data.workflow! },
-        selectedStep: shouldSelectStep ? getLatestAgentStep(data.workflow) : state.selectedStep,
+        selectedStep: shouldSelectStep
+          ? getLatestAgentStep(data.workflow)
+          : state.selectedStep,
       };
     });
 

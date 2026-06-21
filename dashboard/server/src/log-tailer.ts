@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs from "node:fs";
 
 /**
  * Đọc incremental log lines từ vị trí offset cuối cùng.
@@ -10,7 +10,7 @@ import fs from 'node:fs';
  */
 export function readNewLogLines(
   filePath: string,
-  offsets: Map<string, number>
+  offsets: Map<string, number>,
 ): string[] {
   const currentOffset = offsets.get(filePath) || 0;
 
@@ -39,7 +39,7 @@ export function readNewLogLines(
 
   let fd: number;
   try {
-    fd = fs.openSync(filePath, 'r');
+    fd = fs.openSync(filePath, "r");
   } catch {
     return [];
   }
@@ -52,7 +52,7 @@ export function readNewLogLines(
 
   offsets.set(filePath, stat.size);
 
-  const newContent = buffer.toString('utf8');
+  const newContent = buffer.toString("utf8");
   // Split by newline, filter empty trailing entry from split
-  return newContent.split('\n').filter(line => line.length > 0);
+  return newContent.split("\n").filter((line) => line.length > 0);
 }

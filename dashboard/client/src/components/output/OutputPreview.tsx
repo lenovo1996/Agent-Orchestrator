@@ -1,14 +1,18 @@
-import { useEffect, useState, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { useDashboardStore } from '@/store/use-dashboard-store';
-import { socket } from '@/lib/socket';
-import { getStepDisplayName } from '@/lib/constants';
-import { FileText, Clock, HardDrive, RefreshCw } from 'lucide-react';
-import type { AgentStep, FileMetadata, OutputUpdatedPayload } from '@devteam-dashboard/shared';
+import { useEffect, useState, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { useDashboardStore } from "@/store/use-dashboard-store";
+import { socket } from "@/lib/socket";
+import { getStepDisplayName } from "@/lib/constants";
+import { FileText, Clock, HardDrive, RefreshCw } from "lucide-react";
+import type {
+  AgentStep,
+  FileMetadata,
+  OutputUpdatedPayload,
+} from "@devteam-dashboard/shared";
 
 // In dev mode, Vite proxy handles /api routing so we use empty string (relative path).
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 interface OutputData {
   content: string | null;
@@ -39,9 +43,10 @@ export function OutputPreview() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const stepStatus = selectedFlowId && selectedStep
-    ? flows[selectedFlowId]?.steps[selectedStep]
-    : null;
+  const stepStatus =
+    selectedFlowId && selectedStep
+      ? flows[selectedFlowId]?.steps[selectedStep]
+      : null;
 
   const fetchOutput = useCallback(async () => {
     if (!selectedFlowId || !selectedStep) return;
@@ -50,10 +55,14 @@ export function OutputPreview() {
     setError(null);
 
     try {
-      const workspaceName = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name;
-      const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
+      const workspaceName = workspaces.find(
+        (workspace) => workspace.id === selectedWorkspaceId,
+      )?.name;
+      const query = workspaceName
+        ? `?workspaceName=${encodeURIComponent(workspaceName)}`
+        : "";
       const res = await fetch(
-        `${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/output/${encodeURIComponent(selectedStep)}${query}`
+        `${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/output/${encodeURIComponent(selectedStep)}${query}`,
       );
       if (!res.ok) {
         throw new Error(`Failed to fetch output: ${res.status}`);
@@ -61,7 +70,7 @@ export function OutputPreview() {
       const data: OutputData = await res.json();
       setOutput(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(err instanceof Error ? err.message : "Unknown error");
       setOutput(null);
     } finally {
       setLoading(false);
@@ -91,10 +100,10 @@ export function OutputPreview() {
       }
     };
 
-    socket.on('output:updated', handleOutputUpdated);
+    socket.on("output:updated", handleOutputUpdated);
 
     return () => {
-      socket.off('output:updated', handleOutputUpdated);
+      socket.off("output:updated", handleOutputUpdated);
     };
   }, [selectedFlowId, selectedStep]);
 
@@ -109,12 +118,13 @@ export function OutputPreview() {
   }
 
   // Placeholder: step not completed
-  if (stepStatus && stepStatus !== 'done') {
+  if (stepStatus && stepStatus !== "done") {
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
         <FileText className="w-12 h-12 mb-3 opacity-40" />
         <p className="text-sm">
-          {getStepDisplayName(selectedStep as AgentStep, agents)} has not completed yet
+          {getStepDisplayName(selectedStep as AgentStep, agents)} has not
+          completed yet
         </p>
         <p className="text-xs mt-1 opacity-60">
           Output will be available once the step finishes
@@ -177,7 +187,8 @@ export function OutputPreview() {
 
       {/* Markdown content */}
       <div className="flex-1 overflow-y-auto p-4">
-        <article className="prose prose-invert prose-sm max-w-none
+        <article
+          className="prose prose-invert prose-sm max-w-none
           prose-headings:text-foreground prose-headings:font-semibold
           prose-h1:text-xl prose-h1:border-b prose-h1:border-border prose-h1:pb-2
           prose-h2:text-lg
@@ -194,7 +205,8 @@ export function OutputPreview() {
           prose-td:px-3 prose-td:py-2 prose-td:border-border
           prose-tr:border-border
           prose-hr:border-border
-        ">
+        "
+        >
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {output.content}
           </ReactMarkdown>

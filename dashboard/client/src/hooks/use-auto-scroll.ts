@@ -1,4 +1,4 @@
-import { useEffect, useCallback, type RefObject } from 'react';
+import { useEffect, useCallback, type RefObject } from "react";
 
 export interface UseAutoScrollOptions {
   /** Whether auto-scroll is currently enabled */
@@ -24,7 +24,7 @@ export function useAutoScroll(
     if (!el) return;
     el.scrollTo({
       top: el.scrollHeight,
-      behavior: 'smooth',
+      behavior: "smooth",
     });
   }, [containerRef]);
 

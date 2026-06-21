@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import type { WorkflowState } from '@devteam-dashboard/shared';
-import { useDashboardStore } from '@/store/use-dashboard-store';
+import { useState } from "react";
+import type { WorkflowState } from "@devteam-dashboard/shared";
+import { useDashboardStore } from "@/store/use-dashboard-store";
 
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
 interface DeleteFlowDialogProps {
   flow: WorkflowState;
@@ -18,20 +18,20 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
     setIsDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deleteMemory }),
       });
 
       if (!res.ok) {
-        throw new Error('Failed to delete flow');
+        throw new Error("Failed to delete flow");
       }
 
       deleteFlowLocally(flow.flowId);
       onClose();
     } catch (err) {
       console.error(err);
-      alert('Failed to delete flow.');
+      alert("Failed to delete flow.");
     } finally {
       setIsDeleting(false);
     }
@@ -48,7 +48,8 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
             Delete Flow: {flow.jiraKey}
           </h3>
           <p className="text-xs text-muted-foreground">
-            Are you sure you want to delete this flow? This action cannot be undone.
+            Are you sure you want to delete this flow? This action cannot be
+            undone.
           </p>
         </div>
 
@@ -60,12 +61,16 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
             onChange={(e) => setDeleteMemory(e.target.checked)}
             className="w-4 h-4 text-red-500 rounded border-input focus:ring-red-500 bg-background"
           />
-          <label htmlFor="delete-memory" className="text-sm text-foreground cursor-pointer select-none">
+          <label
+            htmlFor="delete-memory"
+            className="text-sm text-foreground cursor-pointer select-none"
+          >
             Also delete memory context
           </label>
         </div>
         <p className="text-[10px] text-muted-foreground/80 pl-6 -mt-2">
-          Checking this will remove all associated memory data for this flow (e.g. meta.json, tree.json).
+          Checking this will remove all associated memory data for this flow
+          (e.g. meta.json, tree.json).
         </p>
 
         <div className="flex justify-end gap-2 pt-4">
@@ -81,7 +86,7 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
             disabled={isDeleting}
             className="px-4 py-2 text-xs font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
-            {isDeleting ? 'Deleting...' : 'Delete Flow'}
+            {isDeleting ? "Deleting..." : "Delete Flow"}
           </button>
         </div>
       </div>

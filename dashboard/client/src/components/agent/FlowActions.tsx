@@ -60,7 +60,10 @@ export function FlowActions() {
       const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/stop`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceName: workspaces.find(w => w.id === selectedWorkspaceId)?.name })
+        body: JSON.stringify({
+          workspaceName: workspaces.find((w) => w.id === selectedWorkspaceId)
+            ?.name,
+        }),
       });
       const data = await res.json();
       if (res.ok) {
