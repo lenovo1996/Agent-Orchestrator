@@ -81,9 +81,9 @@ export function agentsRouter() {
           }
 
           if (!finalInstructions.includes('## Output Format')) {
-            const outputs = JSON.parse(row.outputs);
-            const outputFilename = outputs && outputs.length > 0 ? outputs[0].replace('output/', '') : 'output.md';
-            const outputFormatMarker = `## Output Format\n\nWrite to \`${outputFilename}\`:\n\n\`\`\`markdown\n# Output\n\n[Your content here]\n\`\`\`\n`;
+            const outputs: string[] = JSON.parse(row.outputs);
+            const outputFiles = outputs && outputs.length > 0 ? outputs.join(', ') : 'output.md';
+            const outputFormatMarker = `## Output Format\n\nWrite to \`${outputFiles}\`:\n\n\`\`\`markdown\n# Output\n\n[Your content here]\n\`\`\`\n`;
             finalInstructions += '\n' + outputFormatMarker + '\n';
           }
 
