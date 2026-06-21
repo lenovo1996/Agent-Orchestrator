@@ -9,6 +9,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dbDir = path.resolve(__dirname, '../../../');
 
+const PROJECT_CONTEXT_MARKER = `## MANDATORY: Read Project Context First
+
+**Before doing anything else, read these files to understand the project:**
+
+1. \`{{REPO_ROOT}}/AGENTS.md\` — project overview, conventions, agent guidelines
+2. \`{{REPO_ROOT}}/.agents/rules/\` — any rule files if present
+3. \`{{REPO_ROOT}}/.tasks/{{TASK_ID}}/summary.md\` — previous knowledge about this task (if exists)
+4. \`{{REPO_ROOT}}/.tasks/{{TASK_ID}}/active-context.md\` — compact context from prior steps (if exists, read FIRST)
+
+Use \`read\` tool to load these files. Do not skip this step.
+If \`.tasks/{{TASK_ID}}/summary.md\` exists, use it to understand prior decisions, progress, and context from previous runs.
+If \`.tasks/{{TASK_ID}}/active-context.md\` exists, it contains a compact summary of all prior agents' work — prefer this over reading full output files unless you need specific details.`;
+
+const INPUT_MARKER = `## Input
+
+- Repo root: \`{{REPO_ROOT}}\`
+- Previous steps outputs
+- Associated workspace or worktree path`;
+
 const STATUS_MARKER = `## IMPORTANT: Status Marker
 
 Your output file MUST include this section near the top:
@@ -76,6 +95,15 @@ export function agentsRouter() {
           };
 
           let finalInstructions = row.instructions;
+
+          if (!finalInstructions.includes('Read Project Context First')) {
+            finalInstructions += '\n\n' + PROJECT_CONTEXT_MARKER + '\n';
+          }
+
+          if (!finalInstructions.includes('## Input')) {
+            finalInstructions += '\n\n' + INPUT_MARKER + '\n';
+          }
+
           if (!finalInstructions.includes('## IMPORTANT: Status Marker')) {
             finalInstructions += '\n\n' + STATUS_MARKER + '\n';
           }
