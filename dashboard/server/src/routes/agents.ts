@@ -9,6 +9,36 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dbDir = path.resolve(__dirname, '../../../');
 
+const STATUS_MARKER = `## IMPORTANT: Status Marker
+
+Your output file MUST include this section near the top:
+
+\`\`\`markdown
+## Status
+DONE
+\`\`\`
+
+If blocked (missing context, access, environment, or decision), write:
+
+\`\`\`markdown
+## Status
+BLOCKED
+\`\`\`
+
+If you cannot complete due to technical error, write:
+
+\`\`\`markdown
+## Status
+FAILED
+\`\`\`
+
+**Status meanings:**
+- \`DONE\`: Step complete, can proceed
+- \`BLOCKED\`: Missing info/access/env, needs human intervention
+- \`FAILED\`: Technical error, will retry
+
+Do not omit the status marker.`;
+
 export function agentsRouter() {
   const router = Router();
 
@@ -45,8 +75,20 @@ export function agentsRouter() {
             runtime: row.runtime || undefined,
           };
 
+          let finalInstructions = row.instructions;
+          if (!finalInstructions.includes('## IMPORTANT: Status Marker')) {
+            finalInstructions += '\n\n' + STATUS_MARKER + '\n';
+          }
+
+          if (!finalInstructions.includes('## Output Format')) {
+            const outputs = JSON.parse(row.outputs);
+            const outputFilename = outputs && outputs.length > 0 ? outputs[0].replace('output/', '') : 'output.md';
+            const outputFormatMarker = `## Output Format\n\nWrite to \`${outputFilename}\`:\n\n\`\`\`markdown\n# Output\n\n[Your content here]\n\`\`\`\n`;
+            finalInstructions += '\n' + outputFormatMarker + '\n';
+          }
+
           const promptPath = path.join(promptsDir, `${row.id}.md`);
-          fs.writeFileSync(promptPath, row.instructions, 'utf8');
+          fs.writeFileSync(promptPath, finalInstructions, 'utf8');
         }
 
         fs.writeFileSync(teamJsonPath, JSON.stringify(teamConfig, null, 2), 'utf8');
