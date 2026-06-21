@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "fs";
 import * as path from "path";
-import { execFileSync } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -152,6 +152,16 @@ class TaskServer {
               flowId: { type: "string" },
             },
             required: ["flowId"],
+          },
+        },
+        {
+          name: "get_help",
+          description: "Get comprehensive help about how to use the DevTeam Task MCP Server tools",
+          inputSchema: {
+            type: "object",
+            properties: {
+              topic: { type: "string", description: "Optional specific topic or tool name to get help for" },
+            },
           },
         },
         {
@@ -356,7 +366,7 @@ class TaskServer {
 
              // Start watcher again to pick up the changes
              const args = [path.join(SCRIPT_DIR, "watcher", "index.js"), flowId];
-             const spawn = require("child_process").spawn;
+
              const watcher = spawn(process.execPath, args, {
                detached: true,
                stdio: 'ignore'
@@ -366,6 +376,33 @@ class TaskServer {
              return {
                content: [{ type: "text", text: `Successfully retried step ${step} for ${flowId}` }],
              };
+          }
+
+          case "get_help": {
+            const helpContent = `
+DevTeam Task MCP Server Help Guide
+====================================
+
+This MCP server provides direct local access to the workflow and task orchestration engine.
+
+Tools available:
+1. get_task_list: Lists all currently tracked tasks (flows). You can optionally filter by workspaceName.
+2. get_task_status: Retrieves detailed JSON status and metadata for a specific task using its flowId.
+3. update_task_status: Directly patches the workflow.json for a given flowId. Use this to update statuses like 'currentStep', 'status', or 'steps.<stepName>'.
+4. create_task: Bootstraps a new workflow. Must provide either a jiraKey or customPrompt. Can optionally run inside a specific workspace.
+5. delete_task: Forcefully stops and deletes a task and its history.
+6. retry_step_with_prompt_update: Forces the orchestrator to retry a specific step (e.g. 'implementer', 'verifier') and optionally allows you to provide a brand new custom prompt to guide the AI for that specific step. It clears previous outputs by default.
+
+Common Workflows:
+- To see what AI tasks are running: call get_task_list.
+- To view logs or details of a blocked task: call get_task_status.
+- If an AI step failed and needs redirection: call retry_step_with_prompt_update with a new prompt.
+- To start a completely new instruction: call create_task with a customPrompt.
+            `.trim();
+
+            return {
+              content: [{ type: "text", text: helpContent }],
+            };
           }
 
           default:
@@ -395,5 +432,30 @@ class TaskServer {
   }
 }
 
-const server = new TaskServer();
-server.run().catch(console.error);
+function main() {
+  const args = process.argv.slice(2);
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(`
+Usage: node dist/index.js [options]
+
+Options:
+  --help, -h     Show this help message and exit
+
+Description:
+  DevTeam Task MCP Server.
+  This server connects via stdio and implements the Model Context Protocol (MCP).
+  It provides tools to manage local DevTeam tasks: reading statuses, listing tasks,
+  creating new tasks, and retrying steps without needing the Dashboard API.
+
+  Configure your MCP Client to spawn this process.
+  Example config (Cursor / Claude Desktop):
+  { "command": "node", "args": ["/path/to/devteam/mcp/dist/index.js"] }
+    `.trim());
+    process.exit(0);
+  }
+
+  const server = new TaskServer();
+  server.run().catch(console.error);
+}
+
+main();
