@@ -15,18 +15,35 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   get_task_list: `Tool: get_task_list
 Description: Lists all currently tracked tasks (flows).
 Parameters:
-  - workspaceName (string, optional): Specific workspace to filter tasks.`,
+  - workspaceName (string, optional): Specific workspace to filter tasks.
+Example:
+  {
+    "workspaceName": "my-workspace"
+  }`,
   get_task_status: `Tool: get_task_status
 Description: Retrieves detailed JSON status and metadata for a specific task.
 Parameters:
   - flowId (string, required): The ID of the flow to check.
-  - workspaceName (string, optional): Specific workspace the flow belongs to.`,
+  - workspaceName (string, optional): Specific workspace the flow belongs to.
+Example:
+  {
+    "flowId": "flow_12345678",
+    "workspaceName": "my-workspace"
+  }`,
   update_task_status: `Tool: update_task_status
 Description: Directly patches the workflow.json for a given flowId.
 Parameters:
   - flowId (string, required): The ID of the flow.
-  - updates (object, required): Key-value pairs to merge into workflow.json (e.g. {"status": "completed", "steps.implementer": "done"}).
-  - workspaceName (string, optional): Specific workspace.`,
+  - updates (object, required): Key-value pairs to merge into workflow.json.
+  - workspaceName (string, optional): Specific workspace.
+Example:
+  {
+    "flowId": "flow_12345678",
+    "updates": {
+      "status": "running",
+      "steps.implementer": "done"
+    }
+  }`,
   create_task: `Tool: create_task
 Description: Bootstraps a new workflow via the orchestrator.
 Parameters:
@@ -34,22 +51,42 @@ Parameters:
   - customPrompt (string, optional): Custom instructions for the task. Required if jiraKey is missing.
   - workflowId (string, optional): Force a specific flow ID.
   - workspaceName (string, optional): Specific workspace name.
-  - workspacePath (string, optional): Specific workspace path.`,
+  - workspacePath (string, optional): Specific workspace path.
+Example:
+  {
+    "jiraKey": "PROJ-123",
+    "customPrompt": "Fix the background color in the header",
+    "workspaceName": "my-workspace"
+  }`,
   delete_task: `Tool: delete_task
 Description: Forcefully stops and deletes a task and its history.
 Parameters:
-  - flowId (string, required): The ID of the flow to delete.`,
+  - flowId (string, required): The ID of the flow to delete.
+Example:
+  {
+    "flowId": "flow_12345678"
+  }`,
   retry_step_with_prompt_update: `Tool: retry_step_with_prompt_update
 Description: Forces the orchestrator to retry a specific step and optionally allows you to provide a brand new custom prompt.
 Parameters:
   - flowId (string, required): The ID of the flow.
   - step (string, required): The step to retry (e.g., 'implementer', 'verifier').
   - prompt (string, optional): New prompt to use for the retry.
-  - clearOutput (boolean, optional): Clear previous outputs. Defaults to true.`,
+  - clearOutput (boolean, optional): Clear previous outputs. Defaults to true.
+Example:
+  {
+    "flowId": "flow_12345678",
+    "step": "implementer",
+    "prompt": "Please make sure to use array instead of list this time."
+  }`,
   get_help: `Tool: get_help
 Description: Get comprehensive help about how to use the DevTeam Task MCP Server tools.
 Parameters:
-  - topic (string, optional): Specific tool name to get detailed help for.`
+  - topic (string, optional): Specific tool name to get detailed help for.
+Example:
+  {
+    "topic": "create_task"
+  }`
 };
 
 
