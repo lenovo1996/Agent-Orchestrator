@@ -18,6 +18,7 @@ function createMockConfig(taskFlowsDir: string): DashboardConfig {
     port: 3001,
     host: '127.0.0.1',
     corsOrigin: '*',
+    repoRoot: path.resolve(taskFlowsDir, '..'),
     taskFlowsDir,
     scriptDir: path.join(taskFlowsDir, '..', 'scripts'),
     clientDistPath: '/tmp/client-dist',
@@ -455,6 +456,28 @@ describe('flowsRouter', () => {
         }
         fs.rmSync(rootDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('DELETE /api/flows/:flowId', () => {
+    it('deletes a flow inside a workspace directory', async () => {
+      const flowId = 'flow_workspace_delete';
+      const workspaceName = 'Jinjer';
+      const flowDir = path.join(tempDir, workspaceName, flowId);
+      fs.mkdirSync(flowDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(flowDir, 'workflow.json'),
+        JSON.stringify(createMockWorkflow(flowId, { jiraKey: 'JH-40515', status: 'stopped' })),
+      );
+
+      const app = makeApp(config);
+      const { status, body } = await request(app, 'DELETE', `/api/flows/${flowId}`, {
+        workspaceName,
+      });
+
+      expect(status, JSON.stringify(body)).toBe(200);
+      expect(body.success).toBe(true);
+      expect(fs.existsSync(flowDir)).toBe(false);
     });
   });
 });

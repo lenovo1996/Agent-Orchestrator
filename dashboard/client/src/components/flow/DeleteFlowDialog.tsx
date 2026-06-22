@@ -13,6 +13,10 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
   const [deleteMemory, setDeleteMemory] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const deleteFlowLocally = useDashboardStore((s) => s.deleteFlowLocally);
+  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
+  const workspaceName = useDashboardStore(
+    (s) => s.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name
+  );
 
   const handleDelete = async () => {
     setIsDeleting(true);
@@ -20,7 +24,7 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
       const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deleteMemory }),
+        body: JSON.stringify({ deleteMemory, workspaceName }),
       });
 
       if (!res.ok) {

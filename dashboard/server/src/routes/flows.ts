@@ -359,19 +359,30 @@ export function flowsRouter(config: DashboardConfig): Router {
 
   /**
    * DELETE /api/flows/:flowId
-   * Delete a specific flow. Body: { deleteMemory: boolean }
+   * Delete a specific flow. Body: { deleteMemory: boolean, workspaceName?: string }
    */
   router.delete("/flows/:flowId", (req, res) => {
     const { flowId } = req.params;
-    const { deleteMemory = false } = req.body as { deleteMemory?: boolean };
+    const { deleteMemory = false, workspaceName } = req.body as {
+      deleteMemory?: boolean;
+      workspaceName?: string;
+    };
 
     try {
+      const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
+      const workflow = readWorkflowJson(flowDir);
+
       // 1. Stop the workflow first
       const scriptDir = config.scriptDir;
       const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
 
       try {
-        execFileSync(process.execPath, [orchestratorScript, "stop", flowId], {
+        const stopArgs = [orchestratorScript, "stop", flowId];
+        if (workspaceName) {
+          stopArgs.push("--workspace-name", workspaceName);
+        }
+
+        execFileSync(process.execPath, stopArgs, {
           cwd: scriptDir,
           encoding: "utf8",
           timeout: 15000,
@@ -381,7 +392,6 @@ export function flowsRouter(config: DashboardConfig): Router {
       }
 
       // 2. Remove from task-flows directory
-      const flowDir = path.join(config.taskFlowsDir, flowId);
       if (fs.existsSync(flowDir)) {
         fs.rmSync(flowDir, { recursive: true, force: true });
       }
@@ -390,16 +400,7 @@ export function flowsRouter(config: DashboardConfig): Router {
       if (deleteMemory) {
         try {
           // Resolve task ID from workflow.json if available
-          let taskId = flowId;
-          const workflowPath = path.join(flowDir, "workflow.json");
-          if (fs.existsSync(workflowPath)) {
-            try {
-              const workflow = JSON.parse(fs.readFileSync(workflowPath, "utf8"));
-              if (workflow.jiraKey) {
-                taskId = workflow.jiraKey;
-              }
-            } catch (e) {}
-          }
+          const taskId = workflow?.jiraKey || flowId;
 
           const teamConfigPath = path.join(config.repoRoot, "team.json");
           let teamConfig: any = {};

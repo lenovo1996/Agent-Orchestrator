@@ -97,13 +97,13 @@ export function agentsRouter() {
           if (!finalInstructions.includes('## Input')) {
             const allAgents = Object.keys(teamConfig.members);
             const thisIndex = allAgents.indexOf(row.id);
-            let prevOutputs = [];
+            const prevOutputs: string[] = [];
             if (thisIndex > 0) {
               const prevAgents = allAgents.slice(0, thisIndex);
               prevAgents.forEach(id => {
                 const outputs = teamConfig.members[id].outputs;
                 if (outputs && outputs.length > 0) {
-                  outputs.forEach(out => {
+                  outputs.forEach((out: string) => {
                     prevOutputs.push(`- \`${out.replace('output/', '')}\` from ${teamConfig.members[id].role}`);
                   });
                 }
