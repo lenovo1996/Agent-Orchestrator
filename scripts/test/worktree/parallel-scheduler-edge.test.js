@@ -167,6 +167,71 @@ describe('ParallelScheduler - Edge Cases', () => {
     });
   });
 
+  describe('Dependencies and Cascading Failures', () => {
+    it('executes tasks out of order if earlier tasks have unmet dependencies', () => {
+      const scheduler = new ParallelScheduler({ maxConcurrency: 1, statusFile: '/dev/null' });
+
+      // Task 1: Depends on 'flow-0' which doesn't exist/isn't done
+      scheduler.schedule('flow-1', 'step', 'repo', ['flow-0']);
+
+      // Task 2: No dependencies
+      scheduler.schedule('flow-2', 'step', 'repo');
+
+      // Task 2 should jump the queue and run, Task 1 stays queued
+      assert.equal(scheduler.getRunning().length, 1);
+      assert.equal(scheduler.getRunning()[0].flowId, 'flow-2');
+      assert.equal(scheduler.getQueue().length, 1);
+      assert.equal(scheduler.getQueue()[0].flowId, 'flow-1');
+    });
+
+    it('starts dependent task immediately when dependency completes', () => {
+      const scheduler = new ParallelScheduler({ maxConcurrency: 2, statusFile: '/dev/null' });
+
+      // Task 1 runs immediately
+      scheduler.schedule('flow-1', 'step', 'repo');
+
+      // Task 2 depends on Task 1, queued
+      scheduler.schedule('flow-2', 'step', 'repo', ['flow-1']);
+
+      assert.equal(scheduler.getRunning().length, 1);
+      assert.equal(scheduler.getQueue().length, 1);
+
+      // Complete Task 1
+      scheduler.onTaskComplete('flow-1');
+
+      // Task 2 should now be running
+      assert.equal(scheduler.getRunning().length, 1);
+      assert.equal(scheduler.getRunning()[0].flowId, 'flow-2');
+      assert.equal(scheduler.getQueue().length, 0);
+    });
+
+    it('cascades failures to dependent tasks in queue', () => {
+      const scheduler = new ParallelScheduler({ maxConcurrency: 2, statusFile: '/dev/null' });
+
+      scheduler.schedule('flow-1', 'step', 'repo');
+      scheduler.schedule('flow-2', 'step', 'repo', ['flow-1']);
+      scheduler.schedule('flow-3', 'step', 'repo', ['flow-2']);
+      scheduler.schedule('flow-4', 'step', 'repo', ['flow-X']); // Independent
+
+      assert.equal(scheduler.getRunning().length, 1);
+      assert.equal(scheduler.getQueue().length, 3);
+
+      // Fail Task 1
+      scheduler.onTaskFailed('flow-1');
+
+      // flow-2 and flow-3 should be failed and in _completed list
+      const completed = scheduler.getStatus().completed;
+      assert.equal(completed.length, 3); // flow-1, flow-2, flow-3
+      assert.ok(completed.find(t => t.flowId === 'flow-1' && t.status === 'failed'));
+      assert.ok(completed.find(t => t.flowId === 'flow-2' && t.status === 'failed'));
+      assert.ok(completed.find(t => t.flowId === 'flow-3' && t.status === 'failed'));
+
+      // flow-4 should remain in queue
+      assert.equal(scheduler.getQueue().length, 1);
+      assert.equal(scheduler.getQueue()[0].flowId, 'flow-4');
+    });
+  });
+
   describe('Corrupt status file recovery (Requirement 2.6)', () => {
     let tmpFile;
 

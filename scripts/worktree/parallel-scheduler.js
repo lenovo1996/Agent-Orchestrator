@@ -18,6 +18,7 @@ const path = require('path');
  * @property {string} step
  * @property {string} repo
  * @property {'queued'|'running'|'done'|'failed'} status
+ * @property {string[]} [dependsOn]
  * @property {string} [worktreePath]
  * @property {string} queuedAt
  * @property {string} [startedAt]
@@ -52,40 +53,29 @@ class ParallelScheduler {
 
   /**
    * Schedule a task for execution.
-   * If a concurrency slot is available, the task is added to running immediately.
-   * Otherwise it is enqueued in FIFO order.
+   * If a concurrency slot is available and dependencies are met, the task is added to running immediately.
+   * Otherwise it is enqueued.
    * @param {string} flowId
    * @param {string} step
    * @param {string} repo
+   * @param {string[]} [dependsOn]
    * @returns {ParallelTask}
    */
-  schedule(flowId, step, repo) {
+  schedule(flowId, step, repo, dependsOn = []) {
     const now = new Date().toISOString();
-
-    if (this._running.length < this.maxConcurrency) {
-      /** @type {ParallelTask} */
-      const task = {
-        flowId,
-        step,
-        repo,
-        status: 'running',
-        queuedAt: now,
-        startedAt: now,
-      };
-      this._running.push(task);
-      this._save();
-      return task;
-    }
 
     /** @type {ParallelTask} */
     const task = {
       flowId,
       step,
       repo,
+      dependsOn: Array.isArray(dependsOn) ? [...dependsOn] : [],
       status: 'queued',
       queuedAt: now,
     };
+
     this._queue.push(task);
+    this._dequeueNext();
     this._save();
     return task;
   }
@@ -111,8 +101,23 @@ class ParallelScheduler {
   }
 
   /**
+   * Check if a task's dependencies are fully met.
+   * A dependency is met if it exists in _completed with status 'done'.
+   * @param {ParallelTask} task
+   * @returns {boolean}
+   * @private
+   */
+  _canTaskRun(task) {
+    if (!task.dependsOn || task.dependsOn.length === 0) return true;
+    return task.dependsOn.every(depFlowId =>
+      this._completed.some(c => c.flowId === depFlowId && c.status === 'done')
+    );
+  }
+
+  /**
    * Handle task failure.
    * Moves the task from running to completed with status 'failed',
+   * cascades the failure to any tasks in queue that depend on it,
    * then dequeues the next waiting task if available.
    * @param {string} flowId
    */
@@ -126,22 +131,57 @@ class ParallelScheduler {
     task.completedAt = now;
     this._completed.push(task);
 
+    this._cascadeFailure(flowId, now);
+
     this._dequeueNext();
     this._save();
   }
 
   /**
+   * Recursively fails any queued tasks that depend on the failed flowId.
+   * @param {string} failedFlowId
+   * @param {string} timestamp
+   * @private
+   */
+  _cascadeFailure(failedFlowId, timestamp) {
+    let tasksToFail = [];
+
+    // Find direct dependents in the queue
+    for (let i = this._queue.length - 1; i >= 0; i--) {
+      const qTask = this._queue[i];
+      if (qTask.dependsOn && qTask.dependsOn.includes(failedFlowId)) {
+        tasksToFail.push(this._queue.splice(i, 1)[0]);
+      }
+    }
+
+    // Fail them and recurse for transitive dependents
+    tasksToFail.forEach(t => {
+      t.status = 'failed';
+      t.completedAt = timestamp;
+      this._completed.push(t);
+      this._cascadeFailure(t.flowId, timestamp);
+    });
+  }
+
+  /**
    * Dequeue the next task from the queue and start it.
+   * Finds the first queued task whose dependencies are met.
    * @private
    */
   _dequeueNext() {
-    if (this._queue.length === 0) return;
-    if (this._running.length >= this.maxConcurrency) return;
+    while (this._queue.length > 0 && this._running.length < this.maxConcurrency) {
+      // Find first task whose dependencies are met
+      const nextIdx = this._queue.findIndex(t => this._canTaskRun(t));
+      if (nextIdx === -1) {
+        // No waiting tasks have their dependencies met yet
+        break;
+      }
 
-    const next = this._queue.shift();
-    next.status = 'running';
-    next.startedAt = new Date().toISOString();
-    this._running.push(next);
+      const next = this._queue.splice(nextIdx, 1)[0];
+      next.status = 'running';
+      next.startedAt = new Date().toISOString();
+      this._running.push(next);
+    }
   }
 
   /**
