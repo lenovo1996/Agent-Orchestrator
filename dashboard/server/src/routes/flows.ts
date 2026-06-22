@@ -1,12 +1,16 @@
 import { Router } from "express";
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync, execSync, spawn } from "node:child_process";
 import type { DashboardConfig } from "../config.js";
 import { db } from "../db.js";
-import type { FlowSummary, AgentStep } from "@devteam-dashboard/shared";
+import { spawn, execFileSync } from "node:child_process";
 import { readWorkflowJson, readOutputContent } from "../flow-reader.js";
 import { getOutputFilename } from "../utils.js";
+import { startWatcher, restartWatcher, stopWatcherProcesses, startOrchestrator, stopOrchestrator } from "../services/processService.js";
+import { getGitStatuses } from "../services/gitService.js";
+import { listFlows, resolveFlowDir, extractTokensFromLog, deleteFlow } from "../services/flowService.js";
+import { execSync } from "node:child_process";
+import type { FlowSummary, AgentStep } from "@devteam-dashboard/shared";
 
 const STEPS: AgentStep[] = [
   "clarifier",
@@ -88,7 +92,7 @@ export function flowsRouter(config: DashboardConfig): Router {
   router.get("/flows/:flowId/output/:step", (req, res) => {
     const { flowId, step } = req.params;
     const workspaceName = req.query.workspaceName as string;
-    const filename = getOutputFilename(step, config.scriptDir);
+    const filename = getOutputFilename(step as any, config.scriptDir);
 
     if (!filename) {
       res.status(400).json({ error: "Invalid step" });
@@ -153,7 +157,7 @@ export function flowsRouter(config: DashboardConfig): Router {
       }
 
       // Get output file mtime (completion time for each step)
-      const outputFilename = getOutputFilename(step, config.scriptDir);
+      const outputFilename = getOutputFilename(step as any, config.scriptDir);
       if (outputFilename) {
         const outputPath = path.join(flowDir, "output", outputFilename);
         try {
@@ -278,9 +282,6 @@ export function flowsRouter(config: DashboardConfig): Router {
     }
 
     try {
-      const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
-
       // Fetch workspace path if workspaceId is provided
       if (workspaceId) {
         db.get('SELECT name, path FROM workspaces WHERE id = ?', [workspaceId], (err, row: any) => {
@@ -294,52 +295,9 @@ export function flowsRouter(config: DashboardConfig): Router {
       }
 
       function executeStart(workspaceName?: string, workspacePath?: string) {
-        // Start workflow via orchestrator
-        const args = ["start"];
-
-        if (workflowId) {
-          args.push("--workflow", workflowId);
-        }
-
-        if (workspaceName) {
-          args.push("--workspace-name", workspaceName);
-        }
-
-        if (workspacePath) {
-          args.push("--workspace-dir", workspacePath);
-        }
-
-        if (jiraKey && customPrompt) {
-          args.push(jiraKey, customPrompt);
-        } else if (jiraKey) {
-          args.push(jiraKey);
-        } else {
-          args.push("--prompt", customPrompt);
-        }
-
         try {
-          const output = execFileSync(
-            process.execPath,
-            [orchestratorScript, ...args],
-            {
-              cwd: scriptDir,
-              encoding: "utf8",
-              timeout: 15000,
-            },
-          );
-
-          // Extract flow ID from output
-          const match = output.match(/Workflow started: (flow_\S+)/);
-          if (!match) {
-            res
-              .status(500)
-              .json({ error: "Failed to parse flow ID from orchestrator output" });
-            return;
-          }
-
-          const flowId = match[1];
-
-          startWatcher(config, scriptDir, flowId, workspaceName);
+          const flowId = startOrchestrator(config.scriptDir, workflowId, workspaceName, workspacePath, jiraKey, customPrompt);
+          startWatcher(config, config.scriptDir, flowId, workspaceName);
 
           res.json({
             success: true,
@@ -358,6 +316,47 @@ export function flowsRouter(config: DashboardConfig): Router {
   });
 
   /**
+   * POST /api/flows/:flowId/restart
+   * Kills any existing watcher for the flow and starts a new one.
+   */
+  router.post("/flows/:flowId/restart", (req, res) => {
+    const { flowId } = req.params;
+    const { workspaceName } = req.body;
+
+    try {
+      const killedCount = restartWatcher(config, config.scriptDir, flowId, workspaceName);
+      res.json({
+        success: true,
+        message: `Restarted watcher. Killed ${killedCount} existing processes.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/flows/:flowId/stop
+   * Stops the workflow via orchestrator and kills watchers.
+   */
+  router.post("/flows/:flowId/stop", (req, res) => {
+    const { flowId } = req.params;
+
+    try {
+      stopOrchestrator(config.scriptDir, flowId);
+      const killedCount = stopWatcherProcesses(flowId);
+
+      res.json({
+        success: true,
+        message: `Stopped workflow ${flowId}. Killed ${killedCount} watcher processes.`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
    * DELETE /api/flows/:flowId
    * Delete a specific flow. Body: { deleteMemory: boolean }
    */
@@ -367,57 +366,10 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     try {
       // 1. Stop the workflow first
-      const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
+      stopOrchestrator(config.scriptDir, flowId);
 
-      try {
-        execFileSync(process.execPath, [orchestratorScript, "stop", flowId], {
-          cwd: scriptDir,
-          encoding: "utf8",
-          timeout: 15000,
-        });
-      } catch (err) {
-        // Ignore if already stopped or doesn't exist
-      }
-
-      // 2. Remove from task-flows directory
-      const flowDir = path.join(config.taskFlowsDir, flowId);
-      if (fs.existsSync(flowDir)) {
-        fs.rmSync(flowDir, { recursive: true, force: true });
-      }
-
-      // 3. Optional: Delete memory context
-      if (deleteMemory) {
-        const memoryTreeScript = `
-          const { getFlowDir, getMetaPath } = require('./utils/memory-tree.js');
-          const fs = require('fs');
-
-          const flowId = process.argv[1];
-          const flowDir = getFlowDir(flowId);
-          if (fs.existsSync(flowDir)) {
-            fs.rmSync(flowDir, { recursive: true, force: true });
-          }
-
-          const metaPath = getMetaPath(flowId);
-          if (fs.existsSync(metaPath)) {
-            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-            meta.flows = meta.flows.filter((f: any) => f.flow_id !== flowId);
-
-            if (meta.flows.length === 0) {
-              // No more flows, maybe delete the whole task dir
-              const taskDir = require('path').dirname(metaPath);
-              fs.rmSync(taskDir, { recursive: true, force: true });
-            } else {
-              fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-            }
-          }
-        `;
-        execFileSync(process.execPath, ["-e", memoryTreeScript, flowId], {
-          cwd: scriptDir,
-          encoding: "utf8",
-          timeout: 10000,
-        });
-      }
+      // 2 & 3. Delete flow and optional memory
+      deleteFlow(config, flowId, deleteMemory);
 
       res.json({ success: true, message: `Deleted workflow ${flowId}` });
     } catch (err) {
@@ -432,52 +384,7 @@ export function flowsRouter(config: DashboardConfig): Router {
    */
   router.get("/git/status", (_req, res) => {
     try {
-      const repoRoot = path.resolve(config.taskFlowsDir, "../..");
-
-      // Find all jinjer_* directories
-      const entries = fs.readdirSync(repoRoot, { withFileTypes: true });
-      const repos = entries
-        .filter((e) => e.isDirectory() && e.name.startsWith("jinjer_"))
-        .map((e) => e.name);
-
-      const results: Array<{
-        repo: string;
-        branch: string;
-        files: string[];
-        error?: string;
-      }> = [];
-
-      for (const repo of repos) {
-        const repoDir = path.join(repoRoot, repo);
-        try {
-          const branch = execSync("git branch --show-current", {
-            cwd: repoDir,
-            encoding: "utf8",
-            timeout: 5000,
-          }).trim();
-
-          const output = execSync("git status --short", {
-            cwd: repoDir,
-            encoding: "utf8",
-            timeout: 10000,
-          });
-
-          results.push({
-            repo,
-            branch,
-            files: output.trim().split("\n").filter(Boolean),
-          });
-        } catch (err) {
-          results.push({
-            repo,
-            branch: "",
-            files: [],
-            error:
-              err instanceof Error ? err.message.split("\n")[0] : String(err),
-          });
-        }
-      }
-
+      const results = getGitStatuses(config);
       res.json({ repos: results });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -486,175 +393,4 @@ export function flowsRouter(config: DashboardConfig): Router {
   });
 
   return router;
-}
-
-/**
- * Scan task-flows directory and build FlowSummary list.
- */
-function listFlows(taskFlowsDir: string): FlowSummary[] {
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(taskFlowsDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  const summaries: FlowSummary[] = [];
-
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const flowDir = path.join(taskFlowsDir, entry.name);
-    const workflow = readWorkflowJson(flowDir);
-    if (!workflow) continue;
-
-    const stepsToUse = workflow.stepOrder || STEPS;
-    const completedSteps = stepsToUse.filter(
-      (s) => workflow.steps[s] === "done",
-    ).length;
-
-    summaries.push({
-      flowId: workflow.flowId,
-      jiraKey: workflow.jiraKey,
-      status: workflow.status,
-      currentStep: workflow.currentStep,
-      startedAt: workflow.startedAt,
-      completedSteps,
-      totalSteps: stepsToUse.length,
-    });
-  }
-
-  return summaries;
-}
-
-function resolveFlowDir(taskFlowsDir: string, flowId: string, workspaceName?: string): string {
-  if (workspaceName) {
-    return path.join(taskFlowsDir, workspaceName, flowId);
-  }
-
-  const directPath = path.join(taskFlowsDir, flowId);
-  if (fs.existsSync(directPath)) {
-    return directPath;
-  }
-
-  try {
-    for (const entry of fs.readdirSync(taskFlowsDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-
-      const workspaceFlowDir = path.join(taskFlowsDir, entry.name, flowId);
-      if (fs.existsSync(workspaceFlowDir)) {
-        return workspaceFlowDir;
-      }
-    }
-  } catch {
-    // Fall through to the direct path so callers can return their normal 404 response.
-  }
-
-  return directPath;
-}
-
-function stripAnsi(value: string): string {
-  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
-}
-
-function parseTokenNumber(value: string): number {
-  const cleaned = stripAnsi(value)
-    .trim()
-    .replace(/[,.\s]/g, "");
-  return parseInt(cleaned, 10) || 0;
-}
-
-function extractTokensFromLog(content: string): number[] {
-  const tokens: number[] = [];
-  const lines = content.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = stripAnsi(lines[i]).trim();
-
-    if (line === "tokens used" && i + 1 < lines.length) {
-      const value = parseTokenNumber(lines[i + 1]);
-      if (value > 0) {
-        tokens.push(value);
-      }
-    }
-  }
-
-  return tokens;
-}
-
-function startWatcher(
-  config: DashboardConfig,
-  scriptDir: string,
-  flowId: string,
-  workspaceName?: string
-): void {
-  const watcherScript = path.join(scriptDir, "watcher/index.js");
-  const flowDir = workspaceName ? path.join(config.taskFlowsDir, workspaceName, flowId) : path.join(config.taskFlowsDir, flowId);
-  const logDir = path.join(flowDir, "logs");
-  const logFile = path.join(logDir, "watcher.log");
-
-  fs.mkdirSync(logDir, { recursive: true });
-
-  const args = [watcherScript, flowId];
-  if (workspaceName) {
-    args.push("--workspace-name", workspaceName);
-  }
-
-  const watcher = spawn(process.execPath, args, {
-    detached: true,
-    stdio: ["ignore", fs.openSync(logFile, "a"), fs.openSync(logFile, "a")],
-  });
-  watcher.unref();
-}
-
-function restartWatcher(
-  config: DashboardConfig,
-  scriptDir: string,
-  flowId: string,
-  workspaceName?: string
-): number {
-  const killedCount = stopWatcherProcesses(flowId);
-  startWatcher(config, scriptDir, flowId, workspaceName);
-  return killedCount;
-}
-
-function stopWatcherProcesses(flowId: string): number {
-  let output = "";
-  const pgrepCommand = resolvePgrepCommand();
-
-  try {
-    output = execFileSync(pgrepCommand, ["-f", `watcher/index.js ${flowId}`], {
-      encoding: "utf8",
-      timeout: 5000,
-    });
-  } catch {
-    return 0;
-  }
-
-  const pids = output
-    .split("\n")
-    .map((pid) => Number(pid.trim()))
-    .filter((pid) => Number.isInteger(pid) && pid > 0 && pid !== process.pid);
-
-  let killedCount = 0;
-  for (const pid of pids) {
-    try {
-      process.kill(pid, "SIGTERM");
-      killedCount++;
-    } catch {
-      // Process already exited.
-    }
-  }
-
-  return killedCount;
-}
-
-function resolvePgrepCommand(): string {
-  for (const candidate of ["/usr/bin/pgrep", "/bin/pgrep"]) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "pgrep";
 }

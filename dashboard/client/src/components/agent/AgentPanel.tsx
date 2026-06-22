@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 import { AGENT_STEPS, getAgentOutputFilename, getStepDisplayName } from '@/lib/constants';
 import { formatTokens, calculateProgress } from '@/lib/format';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 import type { AgentStep, StepStatus } from '@devteam-dashboard/shared';
-
-const API_BASE = import.meta.env.VITE_API_URL || '';
+import { useFlowStepData } from '@/hooks/use-flow-step-data';
 
 /** Status → icon + color config */
 const STATUS_CONFIG: Record<StepStatus, { icon: string; color: string; bg: string }> = {
@@ -21,55 +19,6 @@ const STATUS_CONFIG: Record<StepStatus, { icon: string; color: string; bg: strin
   unknown: { icon: '?', color: 'text-gray-500', bg: 'bg-gray-500/10' },
 };
 
-/**
- * Fetch token counts and output completion times from backend.
- */
-function useFlowStepData(flowId: string | null, workspaceName?: string) {
-  const [data, setData] = useState<{
-    perStep: Record<string, number>;
-    total: number;
-    outputTimes: Record<string, string | null>;
-  }>({
-    perStep: {},
-    total: 0,
-    outputTimes: {},
-  });
-
-  useEffect(() => {
-    if (!flowId) {
-      setData({ perStep: {}, total: 0, outputTimes: {} });
-      return;
-    }
-
-    const controller = new AbortController();
-    const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
-
-    fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}/tokens${query}`, { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch step data: ${res.status}`);
-        }
-        return res.json();
-      })
-      .then((json: { tokens: Record<string, number>; total: number; outputTimes: Record<string, string | null> }) => {
-        setData({
-          perStep: json.tokens || {},
-          total: json.total || 0,
-          outputTimes: json.outputTimes || {},
-        });
-      })
-      .catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.error('[AgentPanel] Failed to fetch step data:', err);
-          setData({ perStep: {}, total: 0, outputTimes: {} });
-        }
-      });
-
-    return () => controller.abort();
-  }, [flowId, workspaceName]);
-
-  return data;
-}
 
 function formatTime(iso: string | undefined): string {
   if (!iso) return '—';
