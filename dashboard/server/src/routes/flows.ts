@@ -7,6 +7,7 @@ import { db } from "../db.js";
 import type { FlowSummary, AgentStep } from "@devteam-dashboard/shared";
 import { readWorkflowJson, readOutputContent } from "../flow-reader.js";
 import { getOutputFilename } from "../utils.js";
+import { executeFlowStart } from "../services/flow-service.js";
 
 const STEPS: AgentStep[] = [
   "clarifier",
@@ -279,7 +280,6 @@ export function flowsRouter(config: DashboardConfig): Router {
 
     try {
       const scriptDir = config.scriptDir;
-      const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
 
       // Fetch workspace path if workspaceId is provided
       if (workspaceId) {
@@ -294,50 +294,15 @@ export function flowsRouter(config: DashboardConfig): Router {
       }
 
       function executeStart(workspaceName?: string, workspacePath?: string) {
-        // Start workflow via orchestrator
-        const args = ["start"];
-
-        if (workflowId) {
-          args.push("--workflow", workflowId);
-        }
-
-        if (workspaceName) {
-          args.push("--workspace-name", workspaceName);
-        }
-
-        if (workspacePath) {
-          args.push("--workspace-dir", workspacePath);
-        }
-
-        if (jiraKey && customPrompt) {
-          args.push(jiraKey, customPrompt);
-        } else if (jiraKey) {
-          args.push(jiraKey);
-        } else {
-          args.push("--prompt", customPrompt);
-        }
-
         try {
-          const output = execFileSync(
-            process.execPath,
-            [orchestratorScript, ...args],
-            {
-              cwd: scriptDir,
-              encoding: "utf8",
-              timeout: 15000,
-            },
-          );
-
-          // Extract flow ID from output
-          const match = output.match(/Workflow started: (flow_\S+)/);
-          if (!match) {
-            res
-              .status(500)
-              .json({ error: "Failed to parse flow ID from orchestrator output" });
-            return;
-          }
-
-          const flowId = match[1];
+          const flowId = executeFlowStart({
+            scriptDir,
+            workflowId,
+            jiraKey,
+            customPrompt,
+            workspaceName,
+            workspacePath,
+          });
 
           startWatcher(config, scriptDir, flowId, workspaceName);
 
