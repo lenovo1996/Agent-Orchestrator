@@ -1,5 +1,6 @@
 import { useDashboardStore } from '../../store/use-dashboard-store';
 import { Moon, Sun, Plus, FolderGit2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { NewWorkspaceDialog } from './NewWorkspaceDialog';
 
@@ -26,12 +27,12 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
 
   return (
     <header className="relative flex items-center justify-between border-b border-border/50 px-4 md:px-6 py-3 bg-card/80 glass">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
         {/* Hamburger menu — visible on mobile only */}
         <button
           type="button"
           onClick={onMenuToggle}
-          className="md:hidden p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
+          className="md:hidden flex-shrink-0 p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
           aria-label="Toggle sidebar"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -39,24 +40,39 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
           </svg>
         </button>
 
-        <div className="flex items-center gap-2.5">
-          <div className="h-7 w-7 rounded-lg bg-blue-500 flex items-center justify-center shadow-md">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0 mr-4">
+          <div className="h-7 w-7 rounded-lg bg-blue-500 flex-shrink-0 flex items-center justify-center shadow-md">
             <FolderGit2 className="w-4 h-4 text-white" />
           </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedWorkspaceId || ''}
-              onChange={(e) => selectWorkspace(e.target.value || null)}
-              className="text-sm md:text-base font-semibold text-foreground bg-transparent border-none focus:ring-0 cursor-pointer hover:opacity-80 transition-opacity"
+          <div className="flex items-center gap-1 flex-1 overflow-x-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+            <button
+              onClick={() => selectWorkspace(null)}
+              className={cn(
+                "px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors",
+                !selectedWorkspaceId
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
             >
-              <option value="">Default Workspace</option>
-              {workspaces.map(w => (
-                <option key={w.id} value={w.id}>{w.name}</option>
-              ))}
-            </select>
+              Default Workspace
+            </button>
+            {workspaces.map(w => (
+              <button
+                key={w.id}
+                onClick={() => selectWorkspace(w.id)}
+                className={cn(
+                  "px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors",
+                  selectedWorkspaceId === w.id
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+              >
+                {w.name}
+              </button>
+            ))}
             <button
               onClick={() => setDialogOpen(true)}
-              className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+              className="p-1.5 ml-1 flex-shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
               title="Add Workspace"
             >
               <Plus className="w-4 h-4" />

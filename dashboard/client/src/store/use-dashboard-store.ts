@@ -80,6 +80,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   setWorkspaces: (workspaces) => set({ workspaces }),
   selectWorkspace: (workspaceId) => {
     set({ selectedWorkspaceId: workspaceId, selectedFlowId: null, flows: {} });
+    if (workspaceId) {
+      window.localStorage.setItem('dashboard-workspace-id', workspaceId);
+    } else {
+      window.localStorage.removeItem('dashboard-workspace-id');
+    }
     const ws = get().workspaces.find(w => w.id === workspaceId);
     socket.emit('workspace:select', { workspaceName: ws ? ws.name : null });
   },
@@ -89,6 +94,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       if (res.ok) {
         const workspaces = await res.json();
         set({ workspaces });
+
+        // Restore active workspace from localStorage if not set
+        const { selectedWorkspaceId, selectWorkspace } = get();
+        if (!selectedWorkspaceId) {
+          const storedId = window.localStorage.getItem('dashboard-workspace-id');
+          if (storedId && workspaces.find((w: Workspace) => w.id === storedId)) {
+            selectWorkspace(storedId);
+          } else if (storedId) {
+            // clear invalid stored id
+            window.localStorage.removeItem('dashboard-workspace-id');
+            selectWorkspace(null);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to fetch workspaces', err);
