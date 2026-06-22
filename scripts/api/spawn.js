@@ -40,13 +40,13 @@ async function main() {
 
   function resolveWorkDir(flowId) {
     const directPath = path.join(outputRoot, flowId);
-    if (fs.existsSync(directPath)) return directPath;
+    if (fs.existsSync(path.join(directPath, 'workflow.json'))) return directPath;
 
     // Search in workspaces
     if (fs.existsSync(outputRoot)) {
         for (const ws of fs.readdirSync(outputRoot)) {
            const potentialPath = path.join(outputRoot, ws, flowId);
-           if (fs.existsSync(potentialPath)) return potentialPath;
+           if (fs.existsSync(path.join(potentialPath, 'workflow.json'))) return potentialPath;
         }
     }
     return directPath; // default fallback

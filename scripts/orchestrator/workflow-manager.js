@@ -13,13 +13,13 @@ function getSteps(workflow) {
 
 function resolveWorkDir(flowId) {
     const directPath = path.join(OUTPUT_ROOT, flowId);
-    if (fs.existsSync(directPath)) return directPath;
+    if (fs.existsSync(path.join(directPath, 'workflow.json'))) return directPath;
 
     // Search in workspaces
     if (fs.existsSync(OUTPUT_ROOT)) {
         for (const ws of fs.readdirSync(OUTPUT_ROOT)) {
            const potentialPath = path.join(OUTPUT_ROOT, ws, flowId);
-           if (fs.existsSync(potentialPath)) return potentialPath;
+           if (fs.existsSync(path.join(potentialPath, 'workflow.json'))) return potentialPath;
         }
     }
     return directPath; // default fallback
