@@ -6,6 +6,7 @@ export interface DashboardConfig {
   port: number;
   host: string;
   corsOrigin: string;
+  repoRoot: string;
   taskFlowsDir: string;
   scriptDir: string;
   clientDistPath: string;
@@ -73,6 +74,7 @@ export function loadConfig(): DashboardConfig {
     port: parseInt(process.env.DASHBOARD_PORT || '3001', 10),
     host: process.env.DASHBOARD_HOST || '127.0.0.1',
     corsOrigin: process.env.DASHBOARD_CORS_ORIGIN || '*',
+    repoRoot,
     taskFlowsDir: outputRoot,
     scriptDir: path.join(repoRoot, 'scripts'),
     clientDistPath: path.resolve(__dirname, '../../client/dist'),

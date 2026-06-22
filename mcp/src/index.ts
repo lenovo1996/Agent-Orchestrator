@@ -397,34 +397,40 @@ class TaskServer {
              } catch (e) {}
 
              // Delete memory tree context (similar to dashboard logic)
-             const memoryTreeScript = `
-               const fs = require('fs');
-               const path = require('path');
-               try {
-                 const { getFlowDir, getMetaPath } = require('./utils/memory-tree.js');
-                 const flowId = process.argv[2];
-                 const flowDir = getFlowDir(flowId);
-                 if (fs.existsSync(flowDir)) fs.rmSync(flowDir, { recursive: true, force: true });
-
-                 const metaPath = getMetaPath(flowId);
-                 if (fs.existsSync(metaPath)) {
-                   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-                   if (meta.flows) meta.flows = meta.flows.filter(f => f.flow_id !== flowId);
-                   if (!meta.flows || meta.flows.length === 0) {
-                     const taskDir = path.dirname(metaPath);
-                     fs.rmSync(taskDir, { recursive: true, force: true });
-                   } else {
-                     fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
-                   }
-                 }
-               } catch(e) {}
-             `;
              try {
-               execFileSync(process.execPath, ["-e", memoryTreeScript, flowId], {
-                  cwd: SCRIPT_DIR,
-                  encoding: "utf8",
-               });
-             } catch(e) {}
+               // Resolve task ID from workflow.json if available
+               let taskId = flowId;
+               const workDir = this.resolveWorkDir(flowId);
+               const workflowPath = path.join(workDir, "workflow.json");
+               if (fs.existsSync(workflowPath)) {
+                 try {
+                   const workflow = JSON.parse(fs.readFileSync(workflowPath, "utf8"));
+                   if (workflow.jiraKey) {
+                     taskId = workflow.jiraKey;
+                   }
+                 } catch (e) {}
+               }
+
+               const taskDir = path.join(REPO_ROOT, ".tasks", taskId);
+               const flowDir = path.join(taskDir, "flows", flowId);
+               const metaPath = path.join(taskDir, "meta.json");
+
+               if (fs.existsSync(flowDir)) {
+                 fs.rmSync(flowDir, { recursive: true, force: true });
+               }
+
+               if (fs.existsSync(metaPath)) {
+                 const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                 if (meta.flows) {
+                   meta.flows = meta.flows.filter((f: any) => f.flow_id !== flowId);
+                 }
+                 if (!meta.flows || meta.flows.length === 0) {
+                   fs.rmSync(taskDir, { recursive: true, force: true });
+                 } else {
+                   fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+                 }
+               }
+             } catch (e) {}
 
              // Delete data folder
              const workDir = this.resolveWorkDir(flowId);

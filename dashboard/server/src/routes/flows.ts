@@ -324,19 +324,30 @@ export function flowsRouter(config: DashboardConfig): Router {
 
   /**
    * DELETE /api/flows/:flowId
-   * Delete a specific flow. Body: { deleteMemory: boolean }
+   * Delete a specific flow. Body: { deleteMemory: boolean, workspaceName?: string }
    */
   router.delete("/flows/:flowId", (req, res) => {
     const { flowId } = req.params;
-    const { deleteMemory = false } = req.body as { deleteMemory?: boolean };
+    const { deleteMemory = false, workspaceName } = req.body as {
+      deleteMemory?: boolean;
+      workspaceName?: string;
+    };
 
     try {
+      const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
+      const workflow = readWorkflowJson(flowDir);
+
       // 1. Stop the workflow first
       const scriptDir = config.scriptDir;
       const orchestratorScript = path.join(scriptDir, "orchestrator/index.js");
 
       try {
-        execFileSync(process.execPath, [orchestratorScript, "stop", flowId], {
+        const stopArgs = [orchestratorScript, "stop", flowId];
+        if (workspaceName) {
+          stopArgs.push("--workspace-name", workspaceName);
+        }
+
+        execFileSync(process.execPath, stopArgs, {
           cwd: scriptDir,
           encoding: "utf8",
           timeout: 15000,
@@ -346,42 +357,44 @@ export function flowsRouter(config: DashboardConfig): Router {
       }
 
       // 2. Remove from task-flows directory
-      const flowDir = path.join(config.taskFlowsDir, flowId);
       if (fs.existsSync(flowDir)) {
         fs.rmSync(flowDir, { recursive: true, force: true });
       }
 
       // 3. Optional: Delete memory context
       if (deleteMemory) {
-        const memoryTreeScript = `
-          const { getFlowDir, getMetaPath } = require('./utils/memory-tree.js');
-          const fs = require('fs');
+        try {
+          // Resolve task ID from workflow.json if available
+          const taskId = workflow?.jiraKey || flowId;
 
-          const flowId = process.argv[1];
-          const flowDir = getFlowDir(flowId);
-          if (fs.existsSync(flowDir)) {
-            fs.rmSync(flowDir, { recursive: true, force: true });
+          const teamConfigPath = path.join(config.repoRoot, "team.json");
+          let teamConfig: any = {};
+          if (fs.existsSync(teamConfigPath)) {
+            try {
+               teamConfig = JSON.parse(fs.readFileSync(teamConfigPath, "utf8"));
+            } catch (e) {}
           }
 
-          const metaPath = getMetaPath(flowId);
+          const taskDir = path.join(config.repoRoot, ".tasks", taskId);
+          const memoryFlowDir = path.join(taskDir, "flows", flowId);
+          const metaPath = path.join(taskDir, "meta.json");
+
+          if (fs.existsSync(memoryFlowDir)) {
+            fs.rmSync(memoryFlowDir, { recursive: true, force: true });
+          }
+
           if (fs.existsSync(metaPath)) {
             const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-            meta.flows = meta.flows.filter((f: any) => f.flow_id !== flowId);
-
-            if (meta.flows.length === 0) {
-              // No more flows, maybe delete the whole task dir
-              const taskDir = require('path').dirname(metaPath);
+            if (meta.flows) {
+              meta.flows = meta.flows.filter((f: any) => f.flow_id !== flowId);
+            }
+            if (!meta.flows || meta.flows.length === 0) {
               fs.rmSync(taskDir, { recursive: true, force: true });
             } else {
               fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
             }
           }
-        `;
-        execFileSync(process.execPath, ["-e", memoryTreeScript, flowId], {
-          cwd: scriptDir,
-          encoding: "utf8",
-          timeout: 10000,
-        });
+        } catch (e) {}
       }
 
       res.json({ success: true, message: `Deleted workflow ${flowId}` });
