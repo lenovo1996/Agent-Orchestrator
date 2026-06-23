@@ -143,4 +143,24 @@ set -e
 PID_FILE="$WORK_DIR/.pid.${STEP}"
 rm -f "$PID_FILE"
 
+# Auto-update workflow.json on successful completion
+if [ "$EXIT_CODE" -eq 0 ]; then
+  WORKFLOW_FILE="$WORK_DIR/workflow.json"
+  if [ -f "$WORKFLOW_FILE" ]; then
+    node -e "
+      const fs = require('fs');
+      const wf = JSON.parse(fs.readFileSync('$WORKFLOW_FILE', 'utf8'));
+      wf.steps['$STEP'] = 'done';
+      const steps = wf.stepOrder || Object.keys(wf.steps);
+      const allDone = steps.every(s => wf.steps[s] === 'done');
+      if (allDone) {
+        wf.status = 'completed';
+        wf.stoppedAt = new Date().toISOString();
+      }
+      fs.writeFileSync('$WORKFLOW_FILE', JSON.stringify(wf, null, 2));
+      console.log('✅ Workflow auto-updated: $STEP = done' + (allDone ? ' (flow completed)' : ''));
+    " 2>&1 | tee -a "$LOG_FILE"
+  fi
+fi
+
 exit $EXIT_CODE
