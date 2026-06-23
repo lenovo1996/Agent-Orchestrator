@@ -262,20 +262,20 @@ describe('flowsRouter', () => {
       expect(body.lines).toEqual(['line1', 'line2', 'line3']);
     });
 
-    it('returns only last 1000 lines for large logs', async () => {
+    it('returns recent log lines with parse context for large logs', async () => {
       writeWorkflow(tempDir, 'flow_006', createMockWorkflow('flow_006'));
       const logsDir = path.join(tempDir, 'flow_006', 'logs');
       fs.mkdirSync(logsDir, { recursive: true });
 
-      const lines = Array.from({ length: 1500 }, (_, i) => `line-${i}`);
+      const lines = Array.from({ length: 2500 }, (_, i) => `line-${i}`);
       fs.writeFileSync(path.join(logsDir, 'architect.log'), lines.join('\n'));
 
       const app = makeApp(config);
       const { status, body } = await request(app, 'GET', '/api/flows/flow_006/logs/architect');
       expect(status).toBe(200);
-      expect(body.lines.length).toBeLessThanOrEqual(1000);
-      // Should contain the last lines
-      expect(body.lines[body.lines.length - 1]).toBe('line-1499');
+      expect(body.lines).toHaveLength(2000);
+      expect(body.lines[0]).toBe('line-500');
+      expect(body.lines[body.lines.length - 1]).toBe('line-2499');
     });
   });
 
