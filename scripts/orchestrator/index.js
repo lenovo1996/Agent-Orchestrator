@@ -40,7 +40,12 @@ function loadWorkflow(flowId) {
 
 function saveWorkflow(flowId, workflow) {
   const workDir = resolveWorkDir(flowId);
+  saveWorkflowAt(workDir, workflow);
+}
+
+function saveWorkflowAt(workDir, workflow) {
   const workflowPath = path.join(workDir, 'workflow.json');
+  fs.mkdirSync(workDir, { recursive: true });
   fs.writeFileSync(workflowPath, JSON.stringify(workflow, null, 2));
 }
 
@@ -126,7 +131,7 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
     workflow.steps[step] = idx === 0 ? 'pending' : 'waiting';
   });
 
-  saveWorkflow(flowId, workflow);
+  saveWorkflowAt(workDir, workflow);
 
   // Initialize memory tree for this flow
   try {
@@ -152,7 +157,7 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
   });
 
   workflow.steps[firstStep] = 'running';
-  saveWorkflow(flowId, workflow);
+  saveWorkflowAt(workDir, workflow);
 
   return flowId;
 }
