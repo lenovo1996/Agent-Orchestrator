@@ -182,18 +182,47 @@ if [ -f "$WORKFLOW_FILE" ]; then
     }
 
     wf.steps[step] = stepStatus;
+    wf.currentStep = step;
 
-    // Check if all steps completed (only for 'done' status)
+    // Determine next step and auto-spawn if done
+    let nextStep = null;
     if (stepStatus === 'done') {
-      const steps = wf.stepOrder || Object.keys(wf.steps);
-      const allDone = steps.every(s => wf.steps[s] === 'done');
+      const allSteps = wf.stepOrder || Object.keys(wf.steps);
+      const currentIdx = allSteps.indexOf(step);
+
+      // Check all done → complete flow
+      const allDone = allSteps.every(s => s === step || wf.steps[s] === 'done');
       if (allDone) {
         wf.status = 'completed';
         wf.stoppedAt = new Date().toISOString();
+      } else if (currentIdx >= 0 && currentIdx < allSteps.length - 1) {
+        // More steps remain → set next as running
+        nextStep = allSteps[currentIdx + 1];
+        wf.currentStep = nextStep;
+        wf.steps[nextStep] = 'running';
       }
     }
 
+    // Write updated workflow once
     fs.writeFileSync('$WORKFLOW_FILE', JSON.stringify(wf, null, 2));
+    console.log('✅ Workflow auto-updated: ' + step + ' = ' + stepStatus);
+
+    // Auto-spawn next step as detached child process
+    if (nextStep) {
+      const repoRoot = '$REPO_ROOT';
+      const scriptDir = path.join(repoRoot, 'scripts', 'api');
+      const spawnScript = path.join(scriptDir, 'spawn.js');
+      const { spawn } = require('child_process');
+      const child = spawn(process.execPath, [spawnScript, '$FLOW_ID', nextStep], {
+        cwd: repoRoot,
+        stdio: 'ignore',
+        detached: true,
+        env: Object.assign({}, process.env)
+      });
+      child.unref();
+      console.log('▶️  Auto-spawned next step: ' + nextStep + ' (PID ' + (child.pid || 'N/A') + ')');
+    }
+
     console.log('✅ Workflow auto-updated: ' + step + ' = ' + stepStatus);
   " 2>&1 | tee -a "$LOG_FILE"
 fi
