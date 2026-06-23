@@ -17,6 +17,7 @@ const path = require('path');
  * @property {string} flowId
  * @property {string} step
  * @property {string} repo
+ * @property {string[]} [dependsOn]
  * @property {'queued'|'running'|'done'|'failed'} status
  * @property {string} [worktreePath]
  * @property {string} queuedAt
@@ -57,17 +58,24 @@ class ParallelScheduler {
    * @param {string} flowId
    * @param {string} step
    * @param {string} repo
+   * @param {string[]} [dependsOn=[]]
    * @returns {ParallelTask}
    */
-  schedule(flowId, step, repo) {
+  schedule(flowId, step, repo, dependsOn = []) {
     const now = new Date().toISOString();
 
-    if (this._running.length < this.maxConcurrency) {
+    const depsResolved = dependsOn.length === 0 || dependsOn.every(dep =>
+      this._completed.some(t => t.flowId === dep && t.status === 'done') ||
+      this._completed.some(t => t.repo === dep && t.status === 'done')
+    );
+
+    if (depsResolved && this._running.length < this.maxConcurrency) {
       /** @type {ParallelTask} */
       const task = {
         flowId,
         step,
         repo,
+        dependsOn,
         status: 'running',
         queuedAt: now,
         startedAt: now,
@@ -82,6 +90,7 @@ class ParallelScheduler {
       flowId,
       step,
       repo,
+      dependsOn,
       status: 'queued',
       queuedAt: now,
     };
@@ -138,7 +147,18 @@ class ParallelScheduler {
     if (this._queue.length === 0) return;
     if (this._running.length >= this.maxConcurrency) return;
 
-    const next = this._queue.shift();
+    // Find the first task whose dependencies are all resolved
+    const nextIdx = this._queue.findIndex(task => {
+      if (!task.dependsOn || task.dependsOn.length === 0) return true;
+      return task.dependsOn.every(dep =>
+        this._completed.some(t => t.flowId === dep && t.status === 'done') ||
+        this._completed.some(t => t.repo === dep && t.status === 'done')
+      );
+    });
+
+    if (nextIdx === -1) return; // No tasks are ready to run
+
+    const next = this._queue.splice(nextIdx, 1)[0];
     next.status = 'running';
     next.startedAt = new Date().toISOString();
     this._running.push(next);

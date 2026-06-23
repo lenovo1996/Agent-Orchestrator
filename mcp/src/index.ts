@@ -533,6 +533,11 @@ class TaskServer {
               workflowId: { type: "string", description: "Optional specific flow ID to use" },
               workspaceName: { type: "string" },
               workspacePath: { type: "string" },
+              dependsOn: {
+                type: "array",
+                items: { type: "string" },
+                description: "List of task flow IDs that must complete before this task starts"
+              },
             },
           },
         },
@@ -770,12 +775,15 @@ class TaskServer {
           }
 
           case "create_task": {
-            const { jiraKey = "", customPrompt = "", workflowId, workspaceName, workspacePath } = request.params.arguments || {};
+            const { jiraKey = "", customPrompt = "", workflowId, workspaceName, workspacePath, dependsOn } = request.params.arguments || {};
             if (!jiraKey && !customPrompt) throw new McpError(ErrorCode.InvalidParams, "Must provide jiraKey or customPrompt");
             const args = ["start"];
             if (workflowId) args.push("--workflow", workflowId as string);
             if (workspaceName) args.push("--workspace-name", workspaceName as string);
             if (workspacePath) args.push("--workspace-dir", workspacePath as string);
+            if (dependsOn && Array.isArray(dependsOn) && dependsOn.length > 0) {
+              args.push("--depends-on", dependsOn.join(','));
+            }
             if (jiraKey && customPrompt) {
               args.push(jiraKey as string, customPrompt as string);
             } else if (jiraKey) {
