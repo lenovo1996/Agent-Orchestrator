@@ -16,6 +16,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
   const [jiraKey, setJiraKey] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [workflowId, setWorkflowId] = useState('');
+  const [dependsOn, setDependsOn] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
@@ -45,7 +46,12 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          workspaceId: selectedWorkspaceId, jiraKey, customPrompt, workflowId }),
+          workspaceId: selectedWorkspaceId,
+          jiraKey,
+          customPrompt,
+          workflowId,
+          dependsOn: dependsOn.split(',').map(s => s.trim()).filter(Boolean)
+        }),
       });
 
       const data = await res.json();
@@ -55,6 +61,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
         setJiraKey('');
         setCustomPrompt('');
         setWorkflowId('');
+        setDependsOn('');
         onClose();
       } else {
         setError(data.error || 'Failed to start workflow');
@@ -165,6 +172,29 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
             />
             <p className="text-xs text-muted-foreground">
               Provide additional instructions or context for the dev-team agents
+            </p>
+          </div>
+
+          {/* Depends On */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-foreground">
+              Depends On <span className="text-muted-foreground">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={dependsOn}
+              onChange={(e) => setDependsOn(e.target.value)}
+              placeholder="e.g. flow_123, flow_456"
+              className={cn(
+                'w-full px-3 py-2 rounded-lg text-sm',
+                'bg-muted/50 border border-border',
+                'text-foreground placeholder:text-muted-foreground',
+                'focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500',
+                'transition-colors'
+              )}
+            />
+            <p className="text-xs text-muted-foreground">
+              Comma-separated flow IDs that must complete before this workflow starts
             </p>
           </div>
 
