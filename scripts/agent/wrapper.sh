@@ -143,24 +143,59 @@ set -e
 PID_FILE="$WORK_DIR/.pid.${STEP}"
 rm -f "$PID_FILE"
 
-# Auto-update workflow.json on successful completion
-if [ "$EXIT_CODE" -eq 0 ]; then
-  WORKFLOW_FILE="$WORK_DIR/workflow.json"
-  if [ -f "$WORKFLOW_FILE" ]; then
-    node -e "
-      const fs = require('fs');
-      const wf = JSON.parse(fs.readFileSync('$WORKFLOW_FILE', 'utf8'));
-      wf.steps['$STEP'] = 'done';
+# Auto-update workflow.json based on exit code and output status
+WORKFLOW_FILE="$WORK_DIR/workflow.json"
+if [ -f "$WORKFLOW_FILE" ]; then
+  node -e "
+    const fs = require('fs');
+    const exitCode = $EXIT_CODE;
+    const step = '$STEP';
+    const outputFile = '$OUTPUT_FILE';
+    const wf = JSON.parse(fs.readFileSync('$WORKFLOW_FILE', 'utf8'));
+
+    // Parse status from output file (## Status DONE|FAILED|BLOCKED)
+    let outputStatus = null;
+    if (fs.existsSync(outputFile)) {
+      const content = fs.readFileSync(outputFile, 'utf8');
+      const match = content.match(/##\\s*Status\\s*[:\\n]\\s*(DONE|NEEDS_FIX|FAILED|BLOCKED)/i);
+      if (match) outputStatus = match[1].toUpperCase().replace(/ /g, '_');
+    }
+
+    // Determine step status
+    let stepStatus;
+    if (exitCode === 0 && (!outputStatus || outputStatus === 'DONE')) {
+      stepStatus = 'done';
+    } else if (outputStatus === 'BLOCKED') {
+      stepStatus = 'blocked';
+      wf.blockedStep = step;
+      wf.blockedReason = 'Agent reported BLOCKED status';
+      wf.status = 'blocked';
+    } else if (outputStatus === 'NEEDS_FIX') {
+      stepStatus = 'failed';
+      wf.needsFixCount = wf.needsFixCount || {};
+      wf.needsFixCount[step] = (wf.needsFixCount[step] || 0) + 1;
+      wf.status = 'failed';
+    } else {
+      // exitCode != 0 or outputStatus === 'FAILED'
+      stepStatus = 'failed';
+      wf.status = 'failed';
+    }
+
+    wf.steps[step] = stepStatus;
+
+    // Check if all steps completed (only for 'done' status)
+    if (stepStatus === 'done') {
       const steps = wf.stepOrder || Object.keys(wf.steps);
       const allDone = steps.every(s => wf.steps[s] === 'done');
       if (allDone) {
         wf.status = 'completed';
         wf.stoppedAt = new Date().toISOString();
       }
-      fs.writeFileSync('$WORKFLOW_FILE', JSON.stringify(wf, null, 2));
-      console.log('✅ Workflow auto-updated: $STEP = done' + (allDone ? ' (flow completed)' : ''));
-    " 2>&1 | tee -a "$LOG_FILE"
-  fi
+    }
+
+    fs.writeFileSync('$WORKFLOW_FILE', JSON.stringify(wf, null, 2));
+    console.log('✅ Workflow auto-updated: ' + step + ' = ' + stepStatus);
+  " 2>&1 | tee -a "$LOG_FILE"
 fi
 
 exit $EXIT_CODE
