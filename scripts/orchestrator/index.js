@@ -64,7 +64,7 @@ function sanitizeFlowSuffix(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspaceName = '', workspaceDir = '') {
+function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspaceName = '', workspaceDir = '', dependsOn = []) {
   const timestamp = formatTimestampYmdHis();
   const suffix = sanitizeFlowSuffix(jiraKey);
   const flowId = suffix ? `flow_${timestamp}_${suffix}` : `flow_${timestamp}`;
@@ -76,6 +76,8 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
   fs.mkdirSync(path.join(workDir, 'logs'), { recursive: true });
   fs.mkdirSync(path.join(workDir, 'scripts'), { recursive: true });
 
+  const isPendingDeps = dependsOn && dependsOn.length > 0;
+
   const workflow = {
     flowId,
     jiraKey,
@@ -83,7 +85,8 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
     workflowId,
     workspaceName,
     workspaceDir,
-    status: 'running',
+    dependsOn,
+    status: isPendingDeps ? 'pending_dependencies' : 'running',
     currentStep: 'clarifier',
     startedAt: new Date().toISOString(),
     steps: {}
@@ -139,6 +142,11 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
   console.log(`✅ Workflow started: ${flowId}`);
   console.log(`📁 Work dir: ${workDir}`);
 
+  if (isPendingDeps) {
+    console.log(`⏳ Workflow pending dependencies: ${dependsOn.join(', ')}`);
+    return flowId;
+  }
+
   // Auto-spawn first step via canonical path
   const spawnScript = path.join(__dirname, '../api/spawn.js');
   const firstStep = workflow.currentStep;
@@ -156,6 +164,67 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
 
   return flowId;
 }
+
+/**
+ * Check all pending workflows and resume those whose dependencies are completed.
+ */
+function checkAndResumeDependentWorkflows() {
+  const { getWorkflowState, OUTPUT_ROOT } = require('./workflow-manager');
+  if (!fs.existsSync(OUTPUT_ROOT)) return;
+
+  const entries = fs.readdirSync(OUTPUT_ROOT, { withFileTypes: true });
+  for (const entry of entries) {
+    let flowDir;
+    if (entry.isDirectory()) {
+      const maybeWorkflowJson = path.join(OUTPUT_ROOT, entry.name, 'workflow.json');
+      if (fs.existsSync(maybeWorkflowJson)) {
+        flowDir = path.join(OUTPUT_ROOT, entry.name);
+      } else {
+        // Search one level deep (workspaces)
+        const subEntries = fs.readdirSync(path.join(OUTPUT_ROOT, entry.name), { withFileTypes: true });
+        for (const sub of subEntries) {
+          if (sub.isDirectory() && fs.existsSync(path.join(OUTPUT_ROOT, entry.name, sub.name, 'workflow.json'))) {
+             flowDir = path.join(OUTPUT_ROOT, entry.name, sub.name);
+             const flowId = sub.name;
+             tryResumeWorkflowIfDependenciesMet(flowId, getWorkflowState);
+          }
+        }
+        continue;
+      }
+    }
+
+    if (flowDir) {
+      const flowId = entry.name;
+      tryResumeWorkflowIfDependenciesMet(flowId, getWorkflowState);
+    }
+  }
+}
+
+function tryResumeWorkflowIfDependenciesMet(flowId, getWorkflowState) {
+  try {
+    const workflow = loadWorkflow(flowId);
+    if (workflow.status !== 'pending_dependencies' || !workflow.dependsOn || workflow.dependsOn.length === 0) {
+      return;
+    }
+
+    const allCompleted = workflow.dependsOn.every(depFlowId => {
+      try {
+        const depState = getWorkflowState(depFlowId);
+        return depState && depState.workflow && depState.workflow.status === 'completed';
+      } catch (e) {
+        return false;
+      }
+    });
+
+    if (allCompleted) {
+      console.log(`\n🎉 Dependencies met for ${flowId}, resuming...`);
+      workflow.status = 'running';
+      saveWorkflow(flowId, workflow);
+      resumeWorkflow(flowId, workflow.currentStep || getSteps(workflow)[0]);
+    }
+  } catch (e) {}
+}
+
 
 function retryStep(flowId, step, clearOutput = false) {
   const workflow = loadWorkflow(flowId);
@@ -491,19 +560,21 @@ function parallelStatus() {
 }
 
 // CLI
-const [,, command, ...args] = process.argv;
+if (require.main === module) {
+  const [,, command, ...args] = process.argv;
 
-try {
-  switch (command) {
-    case 'start': {
+  try {
+    switch (command) {
+      case 'start': {
       // Supports:
-      //   orchestrator.js start [--workflow <id>] <jira-key> [custom-prompt]
-      //   orchestrator.js start [--workflow <id>] "" <custom-prompt>
-      //   orchestrator.js start [--workflow <id>] --prompt <custom-prompt>
+      //   orchestrator.js start [--workflow <id>] [--depends-on <id1,id2>] <jira-key> [custom-prompt]
+      //   orchestrator.js start [--workflow <id>] [--depends-on <id1,id2>] "" <custom-prompt>
+      //   orchestrator.js start [--workflow <id>] [--depends-on <id1,id2>] --prompt <custom-prompt>
       let workflowId = '';
       let i = 0;
       let workspaceName = '';
       let workspaceDir = '';
+      let dependsOn = [];
       while (i < args.length && args[i].startsWith('--')) {
         if (args[i] === '--workflow') {
           workflowId = args[i+1];
@@ -513,6 +584,9 @@ try {
           i += 2;
         } else if (args[i] === '--workspace-dir') {
           workspaceDir = args[i+1];
+          i += 2;
+        } else if (args[i] === '--depends-on') {
+          dependsOn = args[i+1].split(',').map(s => s.trim()).filter(Boolean);
           i += 2;
         } else if (args[i] === '--prompt') {
           break; // Handled below
@@ -528,11 +602,11 @@ try {
         customPrompt = args[i+1] || '';
       }
       if (!jiraKey && !customPrompt) {
-        console.error('Usage: orchestrator.js start [--workflow <id>] [jira-key] [custom-prompt]');
-        console.error('   or: orchestrator.js start [--workflow <id>] --prompt <custom-prompt>');
+        console.error('Usage: orchestrator.js start [--workflow <id>] [--depends-on <id1,id2>] [jira-key] [custom-prompt]');
+        console.error('   or: orchestrator.js start [--workflow <id>] [--depends-on <id1,id2>] --prompt <custom-prompt>');
         process.exit(1);
       }
-      startWorkflow(jiraKey, customPrompt, workflowId, workspaceName, workspaceDir);
+      startWorkflow(jiraKey, customPrompt, workflowId, workspaceName, workspaceDir, dependsOn);
       break;
     }
 
@@ -593,11 +667,16 @@ try {
       break;
     }
 
-    default:
-      console.error('Usage: orchestrator.js <start|resume|retry|status|stop|parallel> [args]');
-      process.exit(1);
+      default:
+        console.error('Usage: orchestrator.js <start|resume|retry|status|stop|parallel> [args]');
+        process.exit(1);
+    }
+  } catch (err) {
+    console.error(`❌ Error: ${err.message}`);
+    process.exit(1);
   }
-} catch (err) {
-  console.error(`❌ Error: ${err.message}`);
-  process.exit(1);
 }
+
+module.exports = {
+  checkAndResumeDependentWorkflows
+};

@@ -5,9 +5,10 @@
       "flowId": "flow-4",
       "step": "step",
       "repo": "repo",
+      "dependsOn": [],
       "status": "running",
-      "queuedAt": "2026-06-22T02:21:31.709Z",
-      "startedAt": "2026-06-22T02:21:31.710Z"
+      "queuedAt": "2026-06-23T00:48:07.897Z",
+      "startedAt": "2026-06-23T00:48:07.898Z"
     }
   ],
   "queue": [],
@@ -16,29 +17,32 @@
       "flowId": "flow-1",
       "step": "step",
       "repo": "repo",
+      "dependsOn": [],
       "status": "done",
-      "queuedAt": "2026-06-22T02:21:31.709Z",
-      "startedAt": "2026-06-22T02:21:31.709Z",
-      "completedAt": "2026-06-22T02:21:31.710Z"
+      "queuedAt": "2026-06-23T00:48:07.896Z",
+      "startedAt": "2026-06-23T00:48:07.896Z",
+      "completedAt": "2026-06-23T00:48:07.897Z"
     },
     {
       "flowId": "flow-2",
       "step": "step",
       "repo": "repo",
+      "dependsOn": [],
       "status": "done",
-      "queuedAt": "2026-06-22T02:21:31.709Z",
-      "startedAt": "2026-06-22T02:21:31.710Z",
-      "completedAt": "2026-06-22T02:21:31.710Z"
+      "queuedAt": "2026-06-23T00:48:07.896Z",
+      "startedAt": "2026-06-23T00:48:07.897Z",
+      "completedAt": "2026-06-23T00:48:07.897Z"
     },
     {
       "flowId": "flow-3",
       "step": "step",
       "repo": "repo",
+      "dependsOn": [],
       "status": "done",
-      "queuedAt": "2026-06-22T02:21:31.709Z",
-      "startedAt": "2026-06-22T02:21:31.710Z",
-      "completedAt": "2026-06-22T02:21:31.710Z"
+      "queuedAt": "2026-06-23T00:48:07.897Z",
+      "startedAt": "2026-06-23T00:48:07.897Z",
+      "completedAt": "2026-06-23T00:48:07.898Z"
     }
   ],
-  "lastUpdated": "2026-06-22T02:21:31.710Z"
+  "lastUpdated": "2026-06-23T00:48:07.898Z"
 }

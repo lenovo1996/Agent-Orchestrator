@@ -384,6 +384,15 @@ function watchWorkflow(flowId, interval = 5000) {
               status: 'completed',
               stoppedAt: new Date().toISOString()
             });
+
+            // Check if any workflows are waiting on this one
+            try {
+              const orchestrator = require('../orchestrator/index.js');
+              if (typeof orchestrator.checkAndResumeDependentWorkflows === 'function') {
+                orchestrator.checkAndResumeDependentWorkflows();
+              }
+            } catch (e) {}
+
             // Print flow token summary
             const { getFlowTokens: getFlowTokensFn } = require('../utils/token-tracker');
             const { flowTotal } = getFlowTokensFn(flowId);
@@ -756,6 +765,13 @@ function watchParallel(interval = 5000) {
           status: 'completed',
           stoppedAt: new Date().toISOString()
         });
+        // Check if any workflows are waiting on this one
+        try {
+          const orchestrator = require('../orchestrator/index.js');
+          if (typeof orchestrator.checkAndResumeDependentWorkflows === 'function') {
+            orchestrator.checkAndResumeDependentWorkflows();
+          }
+        } catch (e) {}
       } else if (lastStepStatus === 'FAILED' && !flowResults[flowId]) {
         flowResults[flowId] = { status: 'fail', elapsed: Date.now() - startTime };
         // Mark workflow.json as failed
