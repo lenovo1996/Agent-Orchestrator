@@ -19,6 +19,7 @@ const FLOW_STATUS_CONFIG: Record<FlowStatus, { bg: string; text: string; dot: st
   failed: { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
   blocked: { bg: 'bg-purple-500/10', text: 'text-purple-400', dot: 'bg-purple-400' },
   stopped: { bg: 'bg-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-400' },
+  pending_dependencies: { bg: 'bg-sky-500/10', text: 'text-sky-400', dot: 'bg-sky-400 animate-pulse' },
 };
 
 export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
@@ -27,7 +28,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
   const totalNeedsFix = flow.needsFixCount
     ? Object.values(flow.needsFixCount).reduce((sum, n) => sum + n, 0)
     : 0;
-  const statusConfig = FLOW_STATUS_CONFIG[flow.status];
+  const statusConfig = FLOW_STATUS_CONFIG[flow.status] ?? { bg: 'bg-slate-500/10', text: 'text-slate-400', dot: 'bg-slate-400' };
 
   return (
     <div

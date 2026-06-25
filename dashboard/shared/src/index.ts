@@ -23,7 +23,7 @@ export interface AgentConfig {
   instructions: string;
 }
 
-export type FlowStatus = 'running' | 'stopped' | 'failed' | 'blocked' | 'completed';
+export type FlowStatus = 'running' | 'stopped' | 'failed' | 'blocked' | 'completed' | 'pending_dependencies';
 
 export interface WorkflowState {
   flowId: string;

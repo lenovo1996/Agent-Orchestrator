@@ -396,6 +396,49 @@ async function validateWorkflowSteps(db: any, steps: string[]): Promise<void> {
   }
 }
 
+const PROJECT_CONTEXT_MARKER = `## MANDATORY: Read Project Context First
+
+**Before doing anything else, read these files to understand the project:**
+
+1. \`{{REPO_ROOT}}/AGENTS.md\` — project overview, conventions, agent guidelines
+2. \`{{REPO_ROOT}}/.agents/rules/\` — any rule files if present
+3. \`{{REPO_ROOT}}/.tasks/{{TASK_ID}}/summary.md\` — previous knowledge about this task (if exists)
+4. \`{{REPO_ROOT}}/.tasks/{{TASK_ID}}/active-context.md\` — compact context from prior steps (if exists, read FIRST)
+
+Use \`read\` tool to load these files. Do not skip this step.
+If \`.tasks/{{TASK_ID}}/summary.md\` exists, use it to understand prior decisions, progress, and context from previous runs.
+If \`.tasks/{{TASK_ID}}/active-context.md\` exists, it contains a compact summary of all prior agents\' work — prefer this over reading full output files unless you need specific details.`;
+
+const STATUS_MARKER = `## IMPORTANT: Status Marker
+
+Your output file MUST include this section near the top:
+
+\`\`\`markdown
+## Status
+DONE
+\`\`\`
+
+If blocked (missing context, access, environment, or decision), write:
+
+\`\`\`markdown
+## Status
+BLOCKED
+\`\`\`
+
+If you cannot complete due to technical error, write:
+
+\`\`\`markdown
+## Status
+FAILED
+\`\`\`
+
+**Status meanings:**
+- \`DONE\`: Step complete, can proceed
+- \`BLOCKED\`: Missing info/access/env, needs human intervention
+- \`FAILED\`: Technical error, will retry
+
+Do not omit the status marker.`;
+
 async function syncAgentsToFileSystem(db: any): Promise<void> {
   const rows = await dbAll<any>(db, "SELECT * FROM agents ORDER BY id");
   let config: any = {};
@@ -417,7 +460,49 @@ async function syncAgentsToFileSystem(db: any): Promise<void> {
       runtime: row.runtime || undefined,
     };
 
-    fs.writeFileSync(path.join(PROMPTS_DIR, `${row.id}.md`), row.instructions || "", "utf8");
+    // Build final instructions with smart markers (same logic as dashboard)
+    let finalInstructions = row.instructions || "";
+
+    if (!finalInstructions.includes("Read Project Context First")) {
+      finalInstructions += "\n\n" + PROJECT_CONTEXT_MARKER + "\n";
+    }
+
+    if (!finalInstructions.includes("## Input")) {
+      let prevOutputs: string[] = [];
+      const allAgentIds = Object.keys(config.members);
+      const thisIndex = allAgentIds.indexOf(row.id);
+      if (thisIndex > 0) {
+        const prevIds = allAgentIds.slice(0, thisIndex);
+        prevIds.forEach((id: string) => {
+          const m = config.members[id];
+          if (m && m.outputs) {
+            m.outputs.forEach((out: string) => {
+              prevOutputs.push(`- \`${out.replace("output/", "")}\` from ${m.role}`);
+            });
+          }
+        });
+      }
+
+      let inputStr = `## Input\n\n`;
+      if (prevOutputs.length > 0) {
+        inputStr += prevOutputs.join("\n") + "\n";
+      }
+      inputStr += `- Repo root: \`{{REPO_ROOT}}\`\n- Associated workspace or worktree path`;
+      finalInstructions += "\n\n" + inputStr + "\n";
+    }
+
+    if (!finalInstructions.includes("## IMPORTANT: Status Marker")) {
+      finalInstructions += "\n\n" + STATUS_MARKER + "\n";
+    }
+
+    if (!finalInstructions.includes("## Output Format")) {
+      const outputs: string[] = parseJsonArray(row.outputs);
+      const outputFiles = outputs && outputs.length > 0 ? outputs.join(", ") : "output.md";
+      const outputFormatStr = `## Output Format\n\nWrite to \`${outputFiles}\`:\n\n\`\`\`markdown\n# Output\n\n[Your content here]\n\`\`\`\n`;
+      finalInstructions += "\n" + outputFormatStr + "\n";
+    }
+
+    fs.writeFileSync(path.join(PROMPTS_DIR, `${row.id}.md`), finalInstructions, "utf8");
   }
 
   fs.writeFileSync(TEAM_JSON_PATH, JSON.stringify(config, null, 2), "utf8");

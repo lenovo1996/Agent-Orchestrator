@@ -45,8 +45,9 @@ export function readOutputContent(
 }
 
 /**
- * Scan the task-flows directory and return a Record of all valid flows.
- * Skips directories without a valid workflow.json.
+ * Recursively scan a directory for flows (scan subdirectories that may contain workspace dirs).
+ * Looks for workflow.json in immediate children (flat structure) AND one level deeper
+ * (workspace/flowId/workflow.json structure).
  * Returns an empty record if the directory doesn't exist or can't be read.
  */
 export function listAllFlows(taskFlowsDir: string): Record<string, WorkflowState> {
@@ -56,17 +57,36 @@ export function listAllFlows(taskFlowsDir: string): Record<string, WorkflowState
   try {
     entries = fs.readdirSync(taskFlowsDir, { withFileTypes: true });
   } catch {
-    // Directory doesn't exist or can't be read
     return result;
   }
 
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
 
-    const flowDir = path.join(taskFlowsDir, entry.name);
-    const workflow = readWorkflowJson(flowDir);
-    if (workflow) {
-      result[workflow.flowId] = workflow;
+    const subDir = path.join(taskFlowsDir, entry.name);
+    
+    // Try reading workflow.json directly (flat structure)
+    const directWorkflow = readWorkflowJson(subDir);
+    if (directWorkflow) {
+      result[directWorkflow.flowId] = directWorkflow;
+      continue;
+    }
+
+    // Otherwise, this might be a workspace directory
+    let subEntries: fs.Dirent[];
+    try {
+      subEntries = fs.readdirSync(subDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const subEntry of subEntries) {
+      if (!subEntry.isDirectory()) continue;
+      const flowDir = path.join(subDir, subEntry.name);
+      const workflow = readWorkflowJson(flowDir);
+      if (workflow) {
+        result[workflow.flowId] = workflow;
+      }
     }
   }
 

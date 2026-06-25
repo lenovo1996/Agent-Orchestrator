@@ -9,7 +9,7 @@ import { syncAgentsToFileSystem } from '../services/agent-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dbDir = path.resolve(__dirname, '../../../');
+const dbDir = path.resolve(__dirname, '../../../../'); // Agent-Orchestrator root (not dashboard)
 
 export function agentsRouter() {
   const router = Router();

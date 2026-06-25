@@ -21,13 +21,15 @@ function findRepoRoot(): string {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
 
-  // Start from the server/src directory and walk up
+  // Start from the server/src directory and walk up.
+  // Require both team.json AND a scripts/ directory so we skip
+  // intermediate dirs (e.g. dashboard/) that may contain their own team.json.
   let current = __dirname;
   const root = path.parse(current).root;
 
   while (current !== root) {
     const candidate = path.join(current, 'team.json');
-    if (fs.existsSync(candidate)) {
+    if (fs.existsSync(candidate) && fs.existsSync(path.join(current, 'scripts'))) {
       return current;
     }
     current = path.dirname(current);

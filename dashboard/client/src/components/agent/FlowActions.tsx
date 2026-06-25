@@ -91,7 +91,11 @@ export function FlowActions() {
     setPromptModalOpen(false);
     setRetryOpen(false);
     try {
-      const bodyPayload: any = { step, clearOutput };
+      const bodyPayload: any = {
+        step,
+        clearOutput,
+        workspaceName: workspaces.find(w => w.id === selectedWorkspaceId)?.name
+      };
       if (prompt !== undefined) {
         bodyPayload.prompt = prompt;
       }

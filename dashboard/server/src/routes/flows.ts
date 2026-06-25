@@ -179,6 +179,16 @@ export function flowsRouter(config: DashboardConfig): Router {
     } = req.body as { step: string; clearOutput?: boolean; prompt?: string; workspaceName?: string };
 
     try {
+      // Validate: prevent retrying a step that is already running
+      const flowDir = resolveFlowDir(config.taskFlowsDir, flowId, workspaceName);
+      const workflow = readWorkflowJson(flowDir);
+      if (workflow && workflow.steps && workflow.steps[step] === 'running') {
+        res.status(409).json({
+          error: `Step "${step}" is currently running. Wait for it to finish or stop the workflow first.`
+        });
+        return;
+      }
+
       const scriptDir = config.scriptDir;
       const retryLib = path.join(scriptDir, "orchestrator", "retry-flow.js");
 
@@ -462,41 +472,64 @@ export function flowsRouter(config: DashboardConfig): Router {
 
 /**
  * Scan task-flows directory and build FlowSummary list.
+ * Supports both flat structure (flowId/) and workspace structure (workspace/flowId/).
  */
 function listFlows(taskFlowsDir: string): FlowSummary[] {
-  let entries: fs.Dirent[];
+  const result: FlowSummary[] = [];
+
+  function collectFromDir(dirPath: string) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+
+      const flowDir = path.join(dirPath, entry.name);
+      const workflow = readWorkflowJson(flowDir);
+      if (!workflow) continue;
+
+      const stepsToUse = workflow.stepOrder || STEPS;
+      const completedSteps = stepsToUse.filter(
+        (s) => workflow.steps[s] === "done",
+      ).length;
+
+      result.push({
+        flowId: workflow.flowId,
+        jiraKey: workflow.jiraKey,
+        status: workflow.status,
+        currentStep: workflow.currentStep,
+        startedAt: workflow.startedAt,
+        completedSteps,
+        totalSteps: stepsToUse.length,
+      });
+    }
+  }
+
+  // First pass: try flat structure (flowId/)
+  collectFromDir(taskFlowsDir);
+
+  // Second pass: check workspace subdirectories (workspace/flowId/)
+  let topEntries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(taskFlowsDir, { withFileTypes: true });
+    topEntries = fs.readdirSync(taskFlowsDir, { withFileTypes: true });
   } catch {
-    return [];
+    return result;
   }
 
-  const summaries: FlowSummary[] = [];
-
-  for (const entry of entries) {
+  for (const entry of topEntries) {
     if (!entry.isDirectory()) continue;
-
-    const flowDir = path.join(taskFlowsDir, entry.name);
-    const workflow = readWorkflowJson(flowDir);
-    if (!workflow) continue;
-
-    const stepsToUse = workflow.stepOrder || STEPS;
-    const completedSteps = stepsToUse.filter(
-      (s) => workflow.steps[s] === "done",
-    ).length;
-
-    summaries.push({
-      flowId: workflow.flowId,
-      jiraKey: workflow.jiraKey,
-      status: workflow.status,
-      currentStep: workflow.currentStep,
-      startedAt: workflow.startedAt,
-      completedSteps,
-      totalSteps: stepsToUse.length,
-    });
+    const subDir = path.join(taskFlowsDir, entry.name);
+    // If this dir doesn't have a workflow.json itself, it's likely a workspace dir
+    if (!readWorkflowJson(subDir)) {
+      collectFromDir(subDir);
+    }
   }
 
-  return summaries;
+  return result;
 }
 
 function resolveFlowDir(taskFlowsDir: string, flowId: string, workspaceName?: string): string {
