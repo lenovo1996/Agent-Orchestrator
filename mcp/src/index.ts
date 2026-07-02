@@ -48,16 +48,20 @@ Example:
   create_task: `Tool: create_task
 Description: Bootstraps a new workflow via the orchestrator.
 Parameters:
-  - jiraKey (string, optional): Jira ticket key. Required if customPrompt is missing.
-  - customPrompt (string, optional): Custom instructions for the task. Required if jiraKey is missing.
-  - workflowId (string, optional): Force a specific flow ID.
-  - workspaceName (string, optional): Specific workspace name.
-  - workspacePath (string, optional): Specific workspace path.
+  - jiraKey (string, required): Jira ticket key.
+  - customPrompt (string, required): Custom instructions for the task.
+  - workflowId (string, required): Specific flow ID.
+  - workspaceName (string, required): Specific workspace name.
+  - workspacePath (string, required): Specific workspace path.
+  - dependsOn (string[], required): List of task flow IDs that must complete before this task starts.
 Example:
   {
     "jiraKey": "PROJ-123",
     "customPrompt": "Fix the background color in the header",
-    "workspaceName": "my-workspace"
+    "workflowId": "workflow_123",
+    "workspaceName": "my-workspace",
+    "workspacePath": "./frontend",
+    "dependsOn": []
   }`,
   delete_task: `Tool: delete_task
 Description: Forcefully stops and deletes a task and its history.
@@ -713,22 +717,22 @@ class TaskServer {
           },
         },
         {
-          name: "create_task",
+                    name: "create_task",
           description: "Create/start a new task using the orchestrator",
           inputSchema: {
             type: "object",
             properties: {
               jiraKey: { type: "string" },
               customPrompt: { type: "string" },
-              workflowId: { type: "string", description: "Optional specific flow ID to use" },
+              workflowId: { type: "string" },
               workspaceName: { type: "string" },
               workspacePath: { type: "string" },
               dependsOn: {
                 type: "array",
-                items: { type: "string" },
-                description: "List of task flow IDs that must complete before this task starts"
+                items: { type: "string" }
               },
             },
+            required: ["jiraKey", "customPrompt", "workflowId", "workspaceName", "workspacePath", "dependsOn"]
           },
         },
         {
@@ -1078,24 +1082,22 @@ class TaskServer {
              };
           }
 
-          case "create_task": {
-            const { jiraKey = "", customPrompt = "", workflowId, workspaceName, workspacePath, dependsOn } = request.params.arguments || {};
-            if (!jiraKey && !customPrompt) throw new McpError(ErrorCode.InvalidParams, "Must provide jiraKey or customPrompt");
+                    case "create_task": {
+            const { jiraKey, customPrompt, workflowId, workspaceName, workspacePath, dependsOn } = request.params.arguments as any;
+
             const args = ["start"];
-            if (workflowId) args.push("--workflow", workflowId as string);
-            if (workspaceName) args.push("--workspace-name", workspaceName as string);
-            if (workspacePath) args.push("--workspace-dir", workspacePath as string);
+            if (workflowId) args.push("--workflow", workflowId);
+            if (workspaceName) args.push("--workspace-name", workspaceName);
+            if (workspacePath) args.push("--workspace-dir", workspacePath);
             if (dependsOn && Array.isArray(dependsOn) && dependsOn.length > 0) {
               args.push("--depends-on", dependsOn.join(','));
             }
             if (jiraKey && customPrompt) {
-              args.push(jiraKey as string, customPrompt as string);
+              args.push(jiraKey, customPrompt);
             } else if (jiraKey) {
-              args.push(jiraKey as string);
+              args.push(jiraKey);
             } else if (customPrompt) {
-              args.push("--prompt", customPrompt as string);
-            } else {
-              throw new McpError(ErrorCode.InvalidParams, "Must provide jiraKey or customPrompt");
+              args.push("--prompt", customPrompt);
             }
 
             const output = execFileSync(process.execPath, [path.join(SCRIPT_DIR, "orchestrator", "index.js"), ...args], {
