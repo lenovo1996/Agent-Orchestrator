@@ -103,12 +103,12 @@ Example:
     "steps": ["analyzer", "planner"]
   }`,
   update_workflow: `Tool: update_workflow
-Description: Updates an existing custom workflow definition. Omitted fields keep their current values.
+Description: Updates an existing custom workflow definition.
 Parameters:
   - workflowId (string, required): Workflow ID to update.
-  - name (string, optional): New display name.
+  - name (string, required): New display name.
   - description (string, optional): New description.
-  - steps (string[], optional): New ordered agent IDs.
+  - steps (string[], required): New ordered agent IDs.
 Example:
   {
     "workflowId": "analysis-only",
@@ -147,14 +147,14 @@ Example:
     "instructions": "Review the implementation and report findings."
   }`,
   update_agent: `Tool: update_agent
-Description: Updates an existing agent definition. Omitted fields keep their current values, then team.json/prompts are synced.
+Description: Updates an existing agent definition.
 Parameters:
   - agentId (string, required): Agent ID to update.
-  - role (string, optional): Agent role name.
-  - objective (string, optional): Agent objective.
-  - tools (string[], optional): Tool names available to the agent.
-  - outputs (string[], optional): Output file paths.
-  - instructions (string, optional): Prompt instructions written to prompts/<id>.md.
+  - role (string, required): Agent role name.
+  - objective (string, required): Agent objective.
+  - tools (string[], required): Tool names available to the agent.
+  - outputs (string[], required): Output file paths.
+  - instructions (string, required): Prompt instructions written to prompts/<id>.md.
   - model (string, optional): Model name.
   - thinking (string, optional): Reasoning level.
   - runtime (string, optional): Runtime name.
@@ -171,7 +171,105 @@ Parameters:
 Example:
   {
     "topic": "create_task"
-  }`
+  }`,
+
+  delete_agent: `Tool: delete_agent
+Description: Deletes an agent definition from workflows.db and removes its prompt file.
+Parameters:
+  - agentId (string, required): The ID of the agent to delete.
+Example:
+  {
+    "agentId": "reviewer"
+  }`,
+  delete_workflow: `Tool: delete_workflow
+Description: Deletes a custom workflow definition from workflows.db.
+Parameters:
+  - workflowId (string, required): The ID of the workflow to delete.
+Example:
+  {
+    "workflowId": "backend-review"
+  }`,
+  get_workspaces: `Tool: get_workspaces
+Description: Lists all workspaces.
+Parameters: None.
+Example: {}`,
+  create_workspace: `Tool: create_workspace
+Description: Creates a new workspace.
+Parameters:
+  - id (string, required): Unique workspace ID.
+  - name (string, required): Workspace name.
+  - path (string, required): Workspace path.
+Example:
+  {
+    "id": "ws-1",
+    "name": "Frontend",
+    "path": "./frontend"
+  }`,
+  update_workspace: `Tool: update_workspace
+Description: Updates an existing workspace.
+Parameters:
+  - workspaceId (string, required): Workspace ID to update.
+  - name (string, required): New workspace name.
+  - path (string, required): New workspace path.
+Example:
+  {
+    "workspaceId": "ws-1",
+    "name": "Frontend V2",
+    "path": "./frontend-v2"
+  }`,
+  delete_workspace: `Tool: delete_workspace
+Description: Deletes a workspace.
+Parameters:
+  - workspaceId (string, required): Workspace ID to delete.
+Example:
+  {
+    "workspaceId": "ws-1"
+  }`,
+  get_task_logs: `Tool: get_task_logs
+Description: Gets the recent logs for a specific step in a task.
+Parameters:
+  - flowId (string, required): The ID of the flow.
+  - step (string, required): The step to get logs for (e.g. 'implementer').
+  - workspaceName (string, optional): Specific workspace.
+Example:
+  {
+    "flowId": "flow_123",
+    "step": "implementer"
+  }`,
+  get_task_output: `Tool: get_task_output
+Description: Gets the markdown output and metadata for a specific step.
+Parameters:
+  - flowId (string, required): The ID of the flow.
+  - step (string, required): The step to get output for.
+  - workspaceName (string, optional): Specific workspace.
+Example:
+  {
+    "flowId": "flow_123",
+    "step": "implementer"
+  }`,
+  get_task_tokens: `Tool: get_task_tokens
+Description: Gets the token counts per step for a specific flow.
+Parameters:
+  - flowId (string, required): The ID of the flow.
+  - workspaceName (string, optional): Specific workspace.
+Example:
+  {
+    "flowId": "flow_123"
+  }`,
+  stop_task: `Tool: stop_task
+Description: Stops a running task workflow (kills agents and watchers).
+Parameters:
+  - flowId (string, required): The ID of the flow to stop.
+  - workspaceName (string, optional): Specific workspace.
+Example:
+  {
+    "flowId": "flow_123"
+  }`,
+  get_git_status: `Tool: get_git_status
+Description: Gets the git status for jinjer repositories.
+Parameters: None.
+Example: {}`
+
 };
 
 
@@ -300,6 +398,13 @@ async function ensureDbTables(db: any): Promise<void> {
       outputs TEXT NOT NULL,
       runtime TEXT,
       instructions TEXT NOT NULL
+    )
+  `);
+  await dbRun(db, `
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL
     )
   `);
   await initializeAgentsIfEmpty(db);
@@ -669,7 +774,7 @@ class TaskServer {
                 description: "Ordered agent IDs",
               },
             },
-            required: ["workflowId"],
+            required: ["workflowId", "name", "steps"],
           },
         },
         {
@@ -722,7 +827,7 @@ class TaskServer {
               runtime: { type: "string" },
               instructions: { type: "string" },
             },
-            required: ["agentId"],
+            required: ["agentId", "role", "objective", "tools", "outputs", "instructions"],
           },
         },
         {
@@ -746,6 +851,120 @@ class TaskServer {
             },
           },
         },
+        {
+          name: "delete_agent",
+          description: "Delete an agent definition",
+          inputSchema: {
+            type: "object",
+            properties: { agentId: { type: "string" } },
+            required: ["agentId"]
+          }
+        },
+        {
+          name: "delete_workflow",
+          description: "Delete a custom workflow definition",
+          inputSchema: {
+            type: "object",
+            properties: { workflowId: { type: "string" } },
+            required: ["workflowId"]
+          }
+        },
+        {
+          name: "get_workspaces",
+          description: "List all workspaces",
+          inputSchema: { type: "object", properties: {} }
+        },
+        {
+          name: "create_workspace",
+          description: "Create a new workspace",
+          inputSchema: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              path: { type: "string" }
+            },
+            required: ["id", "name", "path"]
+          }
+        },
+        {
+          name: "update_workspace",
+          description: "Update an existing workspace",
+          inputSchema: {
+            type: "object",
+            properties: {
+              workspaceId: { type: "string" },
+              name: { type: "string" },
+              path: { type: "string" }
+            },
+            required: ["workspaceId", "name", "path"]
+          }
+        },
+        {
+          name: "delete_workspace",
+          description: "Delete a workspace",
+          inputSchema: {
+            type: "object",
+            properties: { workspaceId: { type: "string" } },
+            required: ["workspaceId"]
+          }
+        },
+        {
+          name: "get_task_logs",
+          description: "Get recent logs for a specific step in a task",
+          inputSchema: {
+            type: "object",
+            properties: {
+              flowId: { type: "string" },
+              step: { type: "string" },
+              workspaceName: { type: "string", description: "Optional workspace name" }
+            },
+            required: ["flowId", "step"]
+          }
+        },
+        {
+          name: "get_task_output",
+          description: "Get output and metadata for a specific step",
+          inputSchema: {
+            type: "object",
+            properties: {
+              flowId: { type: "string" },
+              step: { type: "string" },
+              workspaceName: { type: "string", description: "Optional workspace name" }
+            },
+            required: ["flowId", "step"]
+          }
+        },
+        {
+          name: "get_task_tokens",
+          description: "Get token counts per step for a flow",
+          inputSchema: {
+            type: "object",
+            properties: {
+              flowId: { type: "string" },
+              workspaceName: { type: "string", description: "Optional workspace name" }
+            },
+            required: ["flowId"]
+          }
+        },
+        {
+          name: "stop_task",
+          description: "Stop a running task workflow",
+          inputSchema: {
+            type: "object",
+            properties: {
+              flowId: { type: "string" },
+              workspaceName: { type: "string", description: "Optional workspace name" }
+            },
+            required: ["flowId"]
+          }
+        },
+        {
+          name: "get_git_status",
+          description: "Get git status for jinjer repositories",
+          inputSchema: { type: "object", properties: {} }
+        },
+
         {
           name: "retry_step_with_prompt_update",
           description: "Retry a specific step in a task, with an optional new prompt",
@@ -929,17 +1148,17 @@ class TaskServer {
             };
           }
 
-          case "update_workflow": {
+                    case "update_workflow": {
             const { workflowId, name, description, steps } = (request.params.arguments || {}) as any;
             const id = requireString(workflowId, "workflowId");
+            const nextName = requireString(name, "name");
+            const nextSteps = requireStringArray(steps, "steps");
+            const nextDescription = description === undefined ? "" : String(description);
 
             const workflow = await withDb(async (db) => {
               const existing = await dbGet<any>(db, "SELECT * FROM workflows WHERE id = ?", [id]);
               if (!existing) throw new McpError(ErrorCode.InvalidParams, `Workflow not found: ${id}`);
 
-              const nextName = name === undefined ? existing.name : requireString(name, "name");
-              const nextDescription = description === undefined ? existing.description || "" : String(description);
-              const nextSteps = steps === undefined ? parseJsonArray(existing.steps) : requireStringArray(steps, "steps");
               await validateWorkflowSteps(db, nextSteps);
 
               await dbRun(
@@ -1022,7 +1241,7 @@ class TaskServer {
             };
           }
 
-          case "update_agent": {
+                    case "update_agent": {
             const {
               agentId,
               role,
@@ -1036,21 +1255,19 @@ class TaskServer {
             } = (request.params.arguments || {}) as any;
 
             const id = requireString(agentId, "agentId");
+            const nextRole = requireString(role, "role");
+            const nextObjective = requireString(objective, "objective");
+            const nextTools = requireStringArray(tools, "tools");
+            const nextOutputs = requireStringArray(outputs, "outputs");
+            const nextInstructions = requireString(instructions, "instructions");
 
             const agent = await withDb(async (db) => {
               const existing = await dbGet<any>(db, "SELECT * FROM agents WHERE id = ?", [id]);
               if (!existing) throw new McpError(ErrorCode.InvalidParams, `Agent not found: ${id}`);
 
-              const nextRole = role === undefined ? existing.role : requireString(role, "role");
-              const nextObjective = objective === undefined ? existing.objective : requireString(objective, "objective");
               const nextModel = model === undefined ? existing.model || "" : String(model);
               const nextThinking = thinking === undefined ? existing.thinking || "" : String(thinking);
-              const nextTools = tools === undefined ? parseJsonArray(existing.tools) : requireStringArray(tools, "tools");
-              const nextOutputs = outputs === undefined ? parseJsonArray(existing.outputs) : requireStringArray(outputs, "outputs");
               const nextRuntime = runtime === undefined ? existing.runtime || "" : String(runtime);
-              const nextInstructions = instructions === undefined
-                ? existing.instructions || ""
-                : requireString(instructions, "instructions");
 
               await dbRun(
                 db,
@@ -1136,6 +1353,267 @@ class TaskServer {
              return {
                content: [{ type: "text", text: `Successfully deleted task ${flowId}` }],
              };
+          }
+
+
+          case "delete_agent": {
+            const { agentId } = request.params.arguments as any;
+            if (!agentId) throw new McpError(ErrorCode.InvalidParams, "agentId is required");
+
+            await withDb(async (db) => {
+              const row = await dbGet<any>(db, "SELECT * FROM agents WHERE id = ?", [agentId]);
+              if (!row) throw new McpError(ErrorCode.InvalidParams, `Agent not found: ${agentId}`);
+
+              await dbRun(db, "DELETE FROM agents WHERE id = ?", [agentId]);
+
+              const promptPath = path.join(PROMPTS_DIR, `${agentId}.md`);
+              if (fs.existsSync(promptPath)) {
+                fs.unlinkSync(promptPath);
+              }
+              await syncAgentsToFileSystem(db);
+            });
+
+            return {
+              content: [{ type: "text", text: `Successfully deleted agent ${agentId}` }],
+            };
+          }
+
+          case "delete_workflow": {
+            const { workflowId } = request.params.arguments as any;
+            if (!workflowId) throw new McpError(ErrorCode.InvalidParams, "workflowId is required");
+
+            await withDb(async (db) => {
+              const row = await dbGet<any>(db, "SELECT * FROM workflows WHERE id = ?", [workflowId]);
+              if (!row) throw new McpError(ErrorCode.InvalidParams, `Workflow not found: ${workflowId}`);
+
+              await dbRun(db, "DELETE FROM workflows WHERE id = ?", [workflowId]);
+            });
+
+            return {
+              content: [{ type: "text", text: `Successfully deleted workflow ${workflowId}` }],
+            };
+          }
+
+          case "get_workspaces": {
+            const result = await withDb(async (db) => {
+              return await dbAll<any>(db, "SELECT * FROM workspaces");
+            });
+            return {
+              content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            };
+          }
+
+          case "create_workspace": {
+            const { id, name, path: wsPath } = request.params.arguments as any;
+            if (!id || !name || !wsPath) throw new McpError(ErrorCode.InvalidParams, "id, name, and path are required");
+
+            await withDb(async (db) => {
+              await dbRun(
+                db,
+                "INSERT INTO workspaces (id, name, path) VALUES (?, ?, ?)",
+                [id, name, wsPath]
+              );
+            });
+
+            return {
+              content: [{ type: "text", text: `Successfully created workspace ${id}` }],
+            };
+          }
+
+          case "update_workspace": {
+            const { workspaceId, name, path: wsPath } = request.params.arguments as any;
+            if (!workspaceId || !name || !wsPath) throw new McpError(ErrorCode.InvalidParams, "workspaceId, name, and path are required");
+
+            await withDb(async (db) => {
+              const res = await dbRun(
+                db,
+                "UPDATE workspaces SET name = ?, path = ? WHERE id = ?",
+                [name, wsPath, workspaceId]
+              );
+              if (res.changes === 0) throw new McpError(ErrorCode.InvalidParams, `Workspace not found: ${workspaceId}`);
+            });
+
+            return {
+              content: [{ type: "text", text: `Successfully updated workspace ${workspaceId}` }],
+            };
+          }
+
+          case "delete_workspace": {
+            const { workspaceId } = request.params.arguments as any;
+            if (!workspaceId) throw new McpError(ErrorCode.InvalidParams, "workspaceId is required");
+
+            await withDb(async (db) => {
+              const res = await dbRun(db, "DELETE FROM workspaces WHERE id = ?", [workspaceId]);
+              if (res.changes === 0) throw new McpError(ErrorCode.InvalidParams, `Workspace not found: ${workspaceId}`);
+            });
+
+            return {
+              content: [{ type: "text", text: `Successfully deleted workspace ${workspaceId}` }],
+            };
+          }
+
+          case "get_task_logs": {
+            const { flowId, step, workspaceName } = request.params.arguments as any;
+            if (!flowId || !step) throw new McpError(ErrorCode.InvalidParams, "flowId and step are required");
+
+            const workDir = this.resolveWorkDir(flowId, workspaceName);
+            const logPath = path.join(workDir, "logs", `${step}.log`);
+
+            let lines: string[] = [];
+            if (fs.existsSync(logPath)) {
+              const content = fs.readFileSync(logPath, 'utf8');
+              lines = content.split('\n');
+            }
+
+            return {
+              content: [{ type: "text", text: JSON.stringify({ lines: lines.slice(-3000) }, null, 2) }],
+            };
+          }
+
+          case "get_task_output": {
+            const { flowId, step, workspaceName } = request.params.arguments as any;
+            if (!flowId || !step) throw new McpError(ErrorCode.InvalidParams, "flowId and step are required");
+
+            // We need to resolve output filename. Using simplified logic.
+            const flowDir = this.resolveWorkDir(flowId, workspaceName);
+            let outputPath = path.join(flowDir, "output", `${step}.md`);
+            if (!fs.existsSync(outputPath)) {
+              // Try the mappings
+              const mappings: Record<string, string> = {
+                clarifier: 'clarify.md',
+                architect: 'architecture.md',
+                planner: 'plan.md',
+                implementer: 'implementation.md',
+                verifier: 'verification.md'
+              };
+              if (mappings[step]) {
+                outputPath = path.join(flowDir, "output", mappings[step]);
+              }
+            }
+
+            if (!fs.existsSync(outputPath)) {
+              return {
+                content: [{ type: "text", text: JSON.stringify({ exists: false, content: null }, null, 2) }],
+              };
+            }
+            const stat = fs.statSync(outputPath);
+            const content = fs.readFileSync(outputPath, 'utf8');
+
+            return {
+              content: [{ type: "text", text: JSON.stringify({ exists: true, content, metadata: { lastModified: stat.mtime.toISOString(), size: stat.size } }, null, 2) }],
+            };
+          }
+
+          case "get_task_tokens": {
+            const { flowId, workspaceName } = request.params.arguments as any;
+            if (!flowId) throw new McpError(ErrorCode.InvalidParams, "flowId is required");
+
+            const flowDir = this.resolveWorkDir(flowId, workspaceName);
+            if (!fs.existsSync(flowDir)) throw new McpError(ErrorCode.InvalidParams, `Flow not found: ${flowId}`);
+
+            const workflow = this.getWorkflowState(flowId, workspaceName);
+            const stepsToUse = workflow?.stepOrder || ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+
+            const tokens: Record<string, number> = {};
+            let total = 0;
+
+            const stripAnsi = (value: string) => value.replace(/\x1B(?:[@-Z\\-_]|\\[[0-?]*[ -/]*[@-~])/g, "");
+
+            for (const step of stepsToUse) {
+              const logPath = path.join(flowDir, "logs", `${step}.log`);
+              tokens[step] = 0;
+              if (fs.existsSync(logPath)) {
+                try {
+                  const content = fs.readFileSync(logPath, "utf8");
+                  const lines = content.split("\n");
+                  let stepTokens = 0;
+                  for (let i = 0; i < lines.length; i++) {
+                    const line = stripAnsi(lines[i]).trim();
+                    if (line === "tokens used" && i + 1 < lines.length) {
+                      const valStr = stripAnsi(lines[i+1]).trim().replace(/[,.\s]/g, "");
+                      const val = parseInt(valStr, 10) || 0;
+                      if (val > 0) stepTokens += val;
+                    }
+                  }
+                  tokens[step] = stepTokens;
+                  total += stepTokens;
+                } catch(e) {}
+              }
+            }
+
+            return {
+              content: [{ type: "text", text: JSON.stringify({ tokens, total }, null, 2) }],
+            };
+          }
+
+          case "stop_task": {
+            const { flowId, workspaceName } = request.params.arguments as any;
+            if (!flowId) throw new McpError(ErrorCode.InvalidParams, "flowId is required");
+
+            const args = ["stop", flowId];
+            if (workspaceName) {
+              args.push("--workspace-name", workspaceName);
+            }
+
+            try {
+              execFileSync(process.execPath, [path.join(SCRIPT_DIR, "orchestrator", "index.js"), ...args], {
+                cwd: SCRIPT_DIR,
+                encoding: "utf8",
+                timeout: 15000,
+              });
+              return {
+                content: [{ type: "text", text: `Stopped workflow ${flowId}` }],
+              };
+            } catch (err: any) {
+              throw new McpError(ErrorCode.InternalError, err.message);
+            }
+          }
+
+          case "get_git_status": {
+            try {
+              const entries = fs.readdirSync(REPO_ROOT, { withFileTypes: true });
+              const repos = entries
+                .filter((e) => e.isDirectory() && e.name.startsWith("jinjer_"))
+                .map((e) => e.name);
+
+              const results: any[] = [];
+              const { execSync } = require('child_process');
+
+              for (const repo of repos) {
+                const repoDir = path.join(REPO_ROOT, repo);
+                try {
+                  const branch = execSync("git branch --show-current", {
+                    cwd: repoDir,
+                    encoding: "utf8",
+                    timeout: 5000,
+                  }).trim();
+
+                  const output = execSync("git status --short", {
+                    cwd: repoDir,
+                    encoding: "utf8",
+                    timeout: 10000,
+                  });
+
+                  results.push({
+                    repo,
+                    branch,
+                    files: output.trim().split("\n").filter(Boolean),
+                  });
+                } catch (err: any) {
+                  results.push({
+                    repo,
+                    branch: "",
+                    files: [],
+                    error: err.message.split("\n")[0],
+                  });
+                }
+              }
+              return {
+                content: [{ type: "text", text: JSON.stringify({ repos: results }, null, 2) }],
+              };
+            } catch (err: any) {
+              throw new McpError(ErrorCode.InternalError, err.message);
+            }
           }
 
           case "retry_step_with_prompt_update": {
