@@ -24,6 +24,7 @@ export interface DashboardState {
   selectWorkspace: (workspaceId: string | null) => void;
   fetchWorkspaces: () => Promise<void>;
   createWorkspace: (name: string, path: string) => Promise<boolean>;
+  deleteWorkspace: (id: string, deleteDirectory: boolean) => Promise<boolean>;
 
   // Connection
   connected: boolean;
@@ -125,6 +126,25 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }
     } catch (err) {
       console.error('Failed to create workspace', err);
+    }
+    return false;
+  },
+  deleteWorkspace: async (id, deleteDirectory) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/workspaces/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteDirectory })
+      });
+      if (res.ok) {
+        if (get().selectedWorkspaceId === id) {
+          get().selectWorkspace(null);
+        }
+        get().fetchWorkspaces();
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to delete workspace', err);
     }
     return false;
   },

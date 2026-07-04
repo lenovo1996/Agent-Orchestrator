@@ -273,8 +273,8 @@ describe('flowsRouter', () => {
       const app = makeApp(config);
       const { status, body } = await request(app, 'GET', '/api/flows/flow_006/logs/architect');
       expect(status).toBe(200);
-      expect(body.lines).toHaveLength(2000);
-      expect(body.lines[0]).toBe('line-500');
+      expect(body.lines).toHaveLength(2500);
+      expect(body.lines[0]).toBe('line-0');
       expect(body.lines[body.lines.length - 1]).toBe('line-2499');
     });
   });

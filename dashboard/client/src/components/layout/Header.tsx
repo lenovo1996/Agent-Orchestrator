@@ -1,8 +1,9 @@
 import { useDashboardStore } from '../../store/use-dashboard-store';
-import { Moon, Sun, Plus, FolderGit2 } from 'lucide-react';
+import { Moon, Sun, Plus, FolderGit2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { NewWorkspaceDialog } from './NewWorkspaceDialog';
+import { DeleteWorkspaceDialog } from './DeleteWorkspaceDialog';
 
 interface HeaderProps {
   theme: 'light' | 'dark';
@@ -19,6 +20,7 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
   const fetchWorkspaces = useDashboardStore(s => s.fetchWorkspaces);
 
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteWorkspaceObj, setDeleteWorkspaceObj] = useState<{id: string, name: string} | null>(null);
   const flowCount = Object.keys(flows).length;
 
   useEffect(() => {
@@ -57,18 +59,34 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
               Default Workspace
             </button>
             {workspaces.map(w => (
-              <button
-                key={w.id}
-                onClick={() => selectWorkspace(w.id)}
-                className={cn(
-                  "px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap transition-colors",
-                  selectedWorkspaceId === w.id
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                )}
-              >
-                {w.name}
-              </button>
+              <div key={w.id} className="relative group flex items-center">
+                <button
+                  onClick={() => selectWorkspace(w.id)}
+                  className={cn(
+                    "px-3 py-1.5 pr-8 text-sm font-medium rounded-md whitespace-nowrap transition-colors",
+                    selectedWorkspaceId === w.id
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  {w.name}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteWorkspaceObj({ id: w.id, name: w.name });
+                  }}
+                  className={cn(
+                    "absolute right-1 p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity",
+                    selectedWorkspaceId === w.id
+                      ? "text-foreground hover:bg-background"
+                      : "text-muted-foreground hover:bg-muted/80 hover:text-foreground"
+                  )}
+                  title="Delete Workspace"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
             ))}
             <button
               onClick={() => setDialogOpen(true)}
@@ -104,6 +122,14 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
         </div>
       </div>
           <NewWorkspaceDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+          {deleteWorkspaceObj && (
+            <DeleteWorkspaceDialog
+              open={!!deleteWorkspaceObj}
+              onClose={() => setDeleteWorkspaceObj(null)}
+              workspaceId={deleteWorkspaceObj.id}
+              workspaceName={deleteWorkspaceObj.name}
+            />
+          )}
     </header>
   );
 }
