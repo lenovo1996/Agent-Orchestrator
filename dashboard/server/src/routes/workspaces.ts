@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { db } from '../db.js';
+import fs from 'fs';
 
 export function workspacesRouter() {
   const router = Router();
@@ -57,18 +58,35 @@ export function workspacesRouter() {
   // DELETE /api/workspaces/:id
   router.delete('/workspaces/:id', (req, res) => {
     const { id } = req.params;
+    const { deleteDirectory } = req.body;
 
-    const stmt = db.prepare('DELETE FROM workspaces WHERE id = ?');
-    stmt.run([id], function(err) {
+    db.get('SELECT path FROM workspaces WHERE id = ?', [id], (err, row: any) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
-      if (this.changes === 0) {
+      if (!row) {
         return res.status(404).json({ error: 'Workspace not found' });
       }
-      res.json({ success: true });
+
+      if (deleteDirectory && row.path) {
+        try {
+          fs.rmSync(row.path, { recursive: true, force: true });
+        } catch (rmErr: any) {
+          console.error(`Failed to delete directory ${row.path}:`, rmErr);
+          // Optional: you could return a 500 here if you want to fail the whole request
+          // but usually we proceed to delete the record in DB anyway.
+        }
+      }
+
+      const stmt = db.prepare('DELETE FROM workspaces WHERE id = ?');
+      stmt.run([id], function(deleteErr) {
+        if (deleteErr) {
+          return res.status(500).json({ error: deleteErr.message });
+        }
+        res.json({ success: true });
+      });
+      stmt.finalize();
     });
-    stmt.finalize();
   });
 
   return router;
