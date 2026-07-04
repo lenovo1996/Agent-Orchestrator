@@ -61,23 +61,32 @@ function getWorkflowState(flowId) {
     outputs[step] = fs.existsSync(outputFile);
 
     if (outputs[step]) {
-      statuses[step] = parseOutputStatus(outputFile);
+      statuses[step] = parseOutputStatus(outputFile, step);
     } else {
-      statuses[step] = null;
+      if (['developer', 'reviewer', 'qa'].includes(step) && workflow.steps && workflow.steps[step] === 'done') {
+        statuses[step] = 'NEEDS_FIX';
+      } else {
+        statuses[step] = null;
+      }
     }
   });
 
   return { workflow, outputs, statuses, workDir, lastRetryAt: workflow.lastRetryAt };
 }
 
-function parseOutputStatus(filePath) {
+function parseOutputStatus(filePath, step) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
 
     // Look for status markers in output
     const statusMatch = content.match(/##\s*Status\s*[:\n]\s*(DONE|NEEDS_FIX|FAILED|BLOCKED|IN[ _]PROGRESS|NOT[ _]STARTED)/i);
     if (statusMatch) {
-      return statusMatch[1].toUpperCase().replace(/ /g, '_');
+      let status = statusMatch[1].toUpperCase().replace(/ /g, '_');
+
+      if (status === 'DONE' && ['reviewer', 'qa'].includes(step) && content.toLowerCase().includes('need fix')) {
+         status = 'NEEDS_FIX';
+      }
+      return status;
     }
 
     // Check for common failure indicators

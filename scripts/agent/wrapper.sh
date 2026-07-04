@@ -158,7 +158,16 @@ if [ -f "$WORKFLOW_FILE" ]; then
     if (fs.existsSync(outputFile)) {
       const content = fs.readFileSync(outputFile, 'utf8');
       const match = content.match(/##\\s*Status\\s*[:\\n]\\s*(DONE|NEEDS_FIX|FAILED|BLOCKED)/i);
-      if (match) outputStatus = match[1].toUpperCase().replace(/ /g, '_');
+      if (match) {
+        outputStatus = match[1].toUpperCase().replace(/ /g, '_');
+        if (['reviewer', 'qa'].includes(step) && outputStatus === 'DONE' && content.toLowerCase().includes('need fix')) {
+          outputStatus = 'NEEDS_FIX';
+        }
+      }
+    } else {
+      if (['developer', 'reviewer', 'qa'].includes(step)) {
+        outputStatus = 'NEEDS_FIX';
+      }
     }
 
     // Determine step status
