@@ -108,7 +108,10 @@ async function main() {
   task += `## Context\n\n`;
   task += `- Jira ticket: ${jiraKey}\n`;
   task += `- Repo root: ${realRepoRoot}\n`;
-  if (workspaceDir) task += `- Workspace dir: ${workspaceDir}\n`;
+  // When worktreePath is set, developer should work in worktree, not main repo
+  const effectiveWorkspace = worktreePath || workspaceDir;
+  if (effectiveWorkspace) task += `- Workspace dir: ${effectiveWorkspace}\n`;
+  if (worktreePath && workspaceDir) task += `- Main repo: ${workspaceDir} (do NOT modify directly — use worktree)\n`;
   task += `- Work dir: ${workDir}\n`;
 
   // Inject active-context reference
@@ -131,24 +134,31 @@ async function main() {
     task += `\nPrefer active-context.md above. Only read these if you need full detail on a specific section.\n`;
   }
 
-  // Include feedback from verifier when re-running implementer
-  if (step === 'implementer') {
-    const feedbackFiles = ['feedback-from-verifier.md']
+  // Include feedback when re-running code implementation steps
+  if (step === 'implementer' || step === 'developer') {
+    const feedbackFiles = ['feedback-from-reviewer.md', 'feedback-from-qa.md', 'feedback-from-verifier.md']
       .map(name => path.join(workDir, 'output', name))
       .filter(file => fs.existsSync(file));
+    // Also check for retry context from previous failed run
+    const retryContextFile = path.join(workDir, 'output', step + '-retry-context.md');
+    if (fs.existsSync(retryContextFile)) {
+      feedbackFiles.push(retryContextFile);
+    }
     if (feedbackFiles.length > 0) {
       task += `\n## Fix Feedback\n\n`;
       feedbackFiles.forEach(f => {
         task += `- ${f}\n`;
       });
-      task += `\nYou are re-running because Verifier requested fixes. Read all feedback files and fix the code.\n`;
+      task += `\nYou are re-running because review/QA/verifier requested fixes, or a previous run exited without producing output. Read all feedback files first, treat them as required fix scope, then update the code.\n`;
     }
   }
 
   task += `\n## Your Output\n\n`;
   task += `Write your output to: ${workDir}/output/${member.outputs[0].replace('output/', '')}\n\n`;
   task += `Follow the prompt instructions exactly.`;
-  task = task.replace(/{{REPO_ROOT}}/g, realRepoRoot);
+  task = task.replace(/{{REPO_ROOT}}/g, effectiveWorkspace || realRepoRoot);
+  if (jiraKey) task = task.replace(/{{TASK_ID}}/g, jiraKey);
+  if (jiraKey) task = task.replace(/{{TASK_NAME}}/g, jiraKey);
 
 
   // Write prompt to file and run agent through Codex CLI for realtime streaming logs
@@ -193,14 +203,20 @@ async function main() {
   }
 
   const spawnArgs = [wrapperScript, flowId, step, workDir, promptFile];
-  if (workspaceDir) {
-    spawnArgs.push(workspaceDir);
-  } else if (worktreePath) {
+  // Pass worktreePath as arg[5] so wrapper.sh uses it as WORKTREE_PATH
+  // When worktreePath is set, developer runs in isolated worktree
+  // When not set, developer runs in workspaceDir (main repo)
+  if (worktreePath) {
     spawnArgs.push(worktreePath);
+  } else if (workspaceDir) {
+    spawnArgs.push(workspaceDir);
   }
 
-  const child = spawn('bash', spawnArgs, {
-    cwd: workspaceDir || worktreePath || repoRoot,
+  // Use worktreePath as cwd when set (isolated task execution)
+  // Fall back to workspaceDir, then repoRoot
+  const effectiveCwd = worktreePath || workspaceDir || repoRoot;
+  const child = spawn('/usr/bin/bash', spawnArgs, {
+    cwd: effectiveCwd,
     env: env,
     stdio: 'ignore',
     detached: true

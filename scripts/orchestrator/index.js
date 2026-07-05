@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const { prepareRetry } = require('../orchestrator/retry-flow');
 const { ParallelScheduler } = require('../worktree/parallel-scheduler');
 const { detectRepos } = require('../worktree/repo-detector');
+const { createWorktree, finalizeWorktree, mergeDependencyBranches } = require('../worktree/worktree-lifecycle');
 const { initTree } = require('../utils/memory-tree');
 
 const SKILL_DIR = path.resolve(__dirname, '..');
@@ -69,7 +70,7 @@ function sanitizeFlowSuffix(value) {
     .replace(/^-+|-+$/g, '');
 }
 
-function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspaceName = '', workspaceDir = '', dependsOn = []) {
+function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspaceName = '', workspaceDir = '', dependsOn = [], worktreePath = '') {
   const timestamp = formatTimestampYmdHis();
   const suffix = sanitizeFlowSuffix(jiraKey);
   const flowId = suffix ? `flow_${timestamp}_${suffix}` : `flow_${timestamp}`;
@@ -90,6 +91,7 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
     workflowId,
     workspaceName,
     workspaceDir,
+    worktreePath,
     dependsOn,
     status: isPendingDeps ? 'pending_dependencies' : 'running',
     currentStep: 'clarifier',
@@ -152,10 +154,50 @@ function startWorkflow(jiraKey = '', customPrompt = '', workflowId = '', workspa
     return flowId;
   }
 
+  // Create git worktree if worktreePath is specified
+  // DEFERRED: If workflow has dependencies, worktree creation is deferred until
+  // all dependencies complete (handled in tryResumeWorkflowIfDependenciesMet).
+  // This ensures dependent tasks branch from merged dependency branches, not master.
+  if (worktreePath && !isPendingDeps) {
+    // Extract task key from customPrompt (e.g. "TASK-001" from "Task: TASK-001 - ...")
+    const taskKeyMatch = (customPrompt || '').match(/TASK-\d+/i);
+    const taskKey = taskKeyMatch ? taskKeyMatch[0] : null;
+    // repoPath must be the actual project repo (where .git lives)
+    const repoPath = workspaceDir || workflow.workspacePath;
+    if (!repoPath) {
+      console.error('❌ Cannot create worktree: no repoPath (workspaceDir/workspacePath empty)');
+      workflow.status = 'failed';
+      workflow.error = 'Missing workspaceDir/workspacePath for worktree creation';
+      saveWorkflowAt(workDir, workflow);
+      return;
+    }
+    const wtResult = createWorktree({
+      repoPath,
+      worktreePath,
+      flowId,
+      step: workflow.currentStep,
+      taskKey
+    });
+    if (!wtResult.success) {
+      console.error(`❌ Failed to create worktree: ${wtResult.error}`);
+      workflow.status = 'failed';
+      workflow.error = wtResult.error;
+      saveWorkflowAt(workDir, workflow);
+      return;
+    }
+    workflow.worktreeBranch = wtResult.branch;
+    saveWorkflowAt(workDir, workflow);
+  } else if (worktreePath && isPendingDeps) {
+    console.log(`⏳ Worktree creation DEFERRED for ${flowId} — waiting for dependencies: ${dependsOn.join(', ')}`);
+    console.log(`   Worktree will be created from merged dependency branches when deps complete.`);
+  }
+
   // Auto-spawn first step via canonical path
   const spawnScript = path.join(__dirname, '../api/spawn.js');
   const firstStep = workflow.currentStep;
-  const child = spawn(process.execPath, [spawnScript, flowId, firstStep], {
+  const spawnArgs = [spawnScript, flowId, firstStep];
+  if (worktreePath) spawnArgs.push('--worktree-path', worktreePath);
+  const child = spawn(process.execPath, spawnArgs, {
     stdio: 'inherit'
   });
   child.on('exit', (code) => {
@@ -215,7 +257,12 @@ function tryResumeWorkflowIfDependenciesMet(flowId, getWorkflowState) {
     const allCompleted = workflow.dependsOn.every(depFlowId => {
       try {
         const depState = getWorkflowState(depFlowId);
-        return depState && depState.workflow && depState.workflow.status === 'completed';
+        if (!(depState && depState.workflow && depState.workflow.status === 'completed')) {
+          return false;
+        }
+
+        const { isWorkflowCompletionValid } = require('./workflow-manager');
+        return isWorkflowCompletionValid(depState.workflow, depState.statuses, depState.outputs).valid;
       } catch (e) {
         return false;
       }
@@ -223,11 +270,116 @@ function tryResumeWorkflowIfDependenciesMet(flowId, getWorkflowState) {
 
     if (allCompleted) {
       console.log(`\n🎉 Dependencies met for ${flowId}, resuming...`);
+
+      // OPTION B: Merge dependency branches before creating worktree
+      // This ensures the dependent task sees all dependency code
+      if (workflow.worktreePath && workflow.dependsOn.length > 0) {
+        const repoPath = workflow.workspaceDir || workflow.workspacePath;
+        if (repoPath) {
+          const taskKeyMatch = (workflow.customPrompt || '').match(/TASK-\d+/i);
+          const taskKey = taskKeyMatch ? taskKeyMatch[0] : flowId.replace(/^flow_\d+_/, '');
+
+          // Collect dependency branches from parent workflows
+          const depBranches = [];
+          let depError = null;
+
+          for (const depFlowId of workflow.dependsOn) {
+            try {
+              const depWorkflow = loadWorkflow(depFlowId);
+              if (depWorkflow.worktreeBranch) {
+                depBranches.push(depWorkflow.worktreeBranch);
+                console.log(`   📌 Dependency ${depFlowId} → branch: ${depWorkflow.worktreeBranch}`);
+              } else {
+                // Dependency has no worktree branch (e.g. ran without worktree)
+                // This means its changes are on the main branch
+                console.log(`   ⚠️  Dependency ${depFlowId} has no worktree branch, skipping (changes should be on main)`);
+              }
+            } catch (e) {
+              depError = `Cannot load dependency workflow ${depFlowId}: ${e.message}`;
+              break;
+            }
+          }
+
+          if (depError) {
+            console.error(`❌ ${depError}`);
+            workflow.status = 'failed';
+            workflow.error = depError;
+            saveWorkflow(flowId, workflow);
+            return;
+          }
+
+          // Merge dependency branches into a combined branch
+          const mergedBranchName = `merged-deps-for-${taskKey}`;
+          let baseBranch = null;
+
+          if (depBranches.length > 0) {
+            console.log(`\n🔀 Merging ${depBranches.length} dependency branch(es) for ${flowId}...`);
+
+            const mergeResult = mergeDependencyBranches({
+              repoPath,
+              dependencyBranches: depBranches,
+              mergedBranchName
+            });
+
+            if (!mergeResult.success) {
+              console.error(`❌ Failed to merge dependency branches: ${mergeResult.error}`);
+              workflow.status = 'blocked';
+              workflow.error = `Dependency merge conflict: ${mergeResult.error}`;
+              if (mergeResult.conflicts) {
+                workflow.conflictFiles = mergeResult.conflicts;
+              }
+              saveWorkflow(flowId, workflow);
+              console.error(`\n⚠️  ${flowId} is BLOCKED due to merge conflict.`);
+              console.error(`   Resolve conflicts manually, then run: orchestrator.js resume ${flowId} ${workflow.currentStep || getSteps(workflow)[0]}`);
+              return;
+            }
+
+            // Use the merged branch as base for the new worktree
+            baseBranch = mergeResult.mergedBranch;
+            console.log(`   ✅ Using merged branch as base: ${baseBranch}`);
+          } else {
+            // No dependency branches to merge (all deps ran without worktrees)
+            // Fall back to auto-detect (main branch)
+            console.log(`   ℹ️  No dependency branches to merge, using default base branch`);
+          }
+
+          // Now create the worktree with the resolved base branch
+          const wtResult = createWorktree({
+            repoPath,
+            worktreePath: workflow.worktreePath,
+            flowId,
+            step: workflow.currentStep || getSteps(workflow)[0],
+            taskKey,
+            baseBranch  // null = auto-detect (main branch)
+          });
+
+          if (!wtResult.success) {
+            console.error(`❌ Failed to create worktree: ${wtResult.error}`);
+            workflow.status = 'failed';
+            workflow.error = wtResult.error;
+            saveWorkflow(flowId, workflow);
+            return;
+          }
+
+          workflow.worktreeBranch = wtResult.branch;
+          workflow.mergedDepsBranch = baseBranch || null;  // Track for debugging
+          console.log(`   🌲 Worktree created: ${workflow.worktreePath} (branch: ${wtResult.branch})`);
+        } else {
+          console.error(`❌ Cannot create worktree: no repoPath`);
+          workflow.status = 'failed';
+          workflow.error = 'Missing workspaceDir/workspacePath for worktree creation';
+          saveWorkflow(flowId, workflow);
+          return;
+        }
+      }
+
       workflow.status = 'running';
       saveWorkflow(flowId, workflow);
       resumeWorkflow(flowId, workflow.currentStep || getSteps(workflow)[0]);
     }
-  } catch (e) {}
+  } catch (e) {
+    console.error(`❌ Error in tryResumeWorkflowIfDependenciesMet for ${flowId}: ${e.message}`);
+  }
 }
 
 
@@ -249,7 +401,9 @@ function retryStep(flowId, step, clearOutput = false) {
 
   // Spawn via canonical path — actually starts agent process
   const spawnScript = path.join(__dirname, '../api/spawn.js');
-  const child = spawn(process.execPath, [spawnScript, flowId, step], {
+  const spawnArgs = [spawnScript, flowId, step];
+  if (workflow.worktreePath) spawnArgs.push('--worktree-path', workflow.worktreePath);
+  const child = spawn(process.execPath, spawnArgs, {
     stdio: 'inherit'
   });
 
@@ -277,12 +431,44 @@ function resumeWorkflow(flowId, step) {
     throw new Error(`Flow ${flowId} uses old step structure (${workflowStepKeys.join(', ')}). Cannot resume — start a new flow instead.`);
   }
 
+  // Allow resuming blocked workflows (after manual conflict resolution)
+  if (workflow.status === 'blocked') {
+    console.log(`🔓 Unblocking workflow ${flowId} (was blocked by merge conflict)`);
+    // If worktree wasn't created yet (blocked during dep merge), try creating it now
+    if (workflow.worktreePath && !workflow.worktreeBranch) {
+      const repoPath = workflow.workspaceDir || workflow.workspacePath;
+      if (repoPath) {
+        const taskKeyMatch = (workflow.customPrompt || '').match(/TASK-\d+/i);
+        const taskKey = taskKeyMatch ? taskKeyMatch[0] : flowId.replace(/^flow_\d+_/, '');
+        const wtResult = createWorktree({
+          repoPath,
+          worktreePath: workflow.worktreePath,
+          flowId,
+          step,
+          taskKey
+        });
+        if (wtResult.success) {
+          workflow.worktreeBranch = wtResult.branch;
+          console.log(`   🌲 Worktree created: ${workflow.worktreePath} (branch: ${wtResult.branch})`);
+        } else {
+          console.error(`   ⚠️  Could not create worktree: ${wtResult.error}. Continuing without worktree.`);
+        }
+      }
+    }
+    workflow.status = 'running';
+    delete workflow.error;
+    delete workflow.conflictFiles;
+    saveWorkflow(flowId, workflow);
+  }
+
   console.log(`▶️  Resuming workflow: ${flowId}`);
   console.log(`📍 Step: ${step}`);
 
   // Spawn via canonical path
   const spawnScript = path.join(__dirname, '../api/spawn.js');
-  const child = spawn(process.execPath, [spawnScript, flowId, step], {
+  const spawnArgs = [spawnScript, flowId, step];
+  if (workflow.worktreePath) spawnArgs.push('--worktree-path', workflow.worktreePath);
+  const child = spawn(process.execPath, spawnArgs, {
     stdio: 'inherit'
   });
   child.on('exit', (code) => {
@@ -412,6 +598,24 @@ function stopWorkflow(flowId) {
     }
   });
   saveWorkflow(flowId, workflow);
+
+  // 6. Finalize worktree (commit + merge + preserve) if present
+  if (workflow.worktreePath && workflow.worktreeBranch) {
+    const mergeResult = finalizeWorktree({
+      repoPath: workflow.workspacePath,
+      worktreePath: workflow.worktreePath,
+      branch: workflow.worktreeBranch,
+      commitMsg: `feat: ${flowId} — stopped`
+    });
+    if (mergeResult.success) {
+      console.log(`✅ Worktree finalized (merged, preserved)`);
+    } else {
+      console.error(`⚠️ Worktree finalize failed: ${mergeResult.error}`);
+      if (mergeResult.conflicts && mergeResult.conflicts.length > 0) {
+        console.error(`   Conflicts: ${mergeResult.conflicts.join(', ')}`);
+      }
+    }
+  }
 
   console.log(`\n✅ Workflow stopped. Killed ${killedCount} process(es).`);
   return { killedCount };
@@ -579,6 +783,7 @@ if (require.main === module) {
       let i = 0;
       let workspaceName = '';
       let workspaceDir = '';
+      let worktreePath = '';
       let dependsOn = [];
       while (i < args.length && args[i].startsWith('--')) {
         if (args[i] === '--workflow') {
@@ -589,6 +794,9 @@ if (require.main === module) {
           i += 2;
         } else if (args[i] === '--workspace-dir') {
           workspaceDir = args[i+1];
+          i += 2;
+        } else if (args[i] === '--worktree-path') {
+          worktreePath = args[i+1];
           i += 2;
         } else if (args[i] === '--depends-on') {
           dependsOn = args[i+1].split(',').map(s => s.trim()).filter(Boolean);
@@ -611,7 +819,7 @@ if (require.main === module) {
         console.error('   or: orchestrator.js start [--workflow <id>] [--depends-on <id1,id2>] --prompt <custom-prompt>');
         process.exit(1);
       }
-      startWorkflow(jiraKey, customPrompt, workflowId, workspaceName, workspaceDir, dependsOn);
+      startWorkflow(jiraKey, customPrompt, workflowId, workspaceName, workspaceDir, dependsOn, worktreePath);
       break;
     }
 

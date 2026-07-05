@@ -14,7 +14,7 @@ const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 
-const { loadWorkflow, getSteps, resolveWorkDir } = require('../orchestrator/workflow-manager');
+const { loadWorkflow, getSteps, resolveWorkDir, getFixTargetStep, isWorkflowCompletionValid } = require('../orchestrator/workflow-manager');
 
 function _getSteps(flowId) {
   let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
@@ -25,8 +25,53 @@ function _getSteps(flowId) {
   return stepsToUse;
 }
 
-const MAX_RETRIES = 1; // Auto-retry once on failure
+const MAX_RETRIES = 3; // Auto-retry up to 3 times on failure
 const MAX_NEEDS_FIX = 5; // Max NEEDS_FIX iterations before blocking workflow
+
+/**
+ * Finalize git worktree when a flow completes:
+ * 1. Commit all changes in worktree
+ * 2. Merge branch back to main repo
+ * 3. Remove worktree
+ *
+ * If merge conflicts occur, worktree is preserved for manual resolution.
+ */
+function cleanupWorktree(workflow) {
+  const worktreePath = workflow.worktreePath;
+  if (!worktreePath) return;
+
+  const { finalizeWorktree } = require('../worktree/worktree-lifecycle');
+
+  if (!workflow.worktreeBranch) {
+    console.error('⚠️ No worktreeBranch set — skipping worktree finalize');
+    return;
+  }
+
+  const mergeResult = finalizeWorktree({
+    repoPath: workflow.workspacePath,
+    worktreePath,
+    branch: workflow.worktreeBranch,
+    commitMsg: `feat: ${workflow.flowId || workflow.jiraKey || 'task'} — completed`
+  });
+
+  if (mergeResult.success) {
+    console.log(`✅ Worktree finalized (merged, preserved): ${worktreePath}`);
+  } else {
+    console.error(`⚠️ Worktree finalize failed: ${mergeResult.error}`);
+    if (mergeResult.conflicts && mergeResult.conflicts.length > 0) {
+      console.error(`   ⚠️ Conflicts detected — worktree PRESERVED for manual resolution:`);
+      mergeResult.conflicts.forEach(f => console.error(`     - ${f}`));
+      // Write conflict report to output
+      const conflictReport = `# Merge Conflict Report\n\n## Branch\n${workflow.worktreeBranch}\n\n## Conflicts\n${mergeResult.conflicts.map(f => `- ${f}`).join('\n')}\n\n## Resolution\nManual merge required. Worktree preserved at:\n\`\`\`\n${worktreePath}\n\`\`\``;
+      try {
+        const outputDir = path.join(worktreePath, '..', 'output');
+        if (fs.existsSync(outputDir)) {
+          fs.writeFileSync(path.join(outputDir, 'merge-conflict.md'), conflictReport);
+        }
+      } catch (e) { /* best effort */ }
+    }
+  }
+}
 
 // --- PID file-based spawn guard ---
 // Each running step writes a .pid.<step> file in the flow directory.
@@ -162,30 +207,8 @@ function getWorkflowState(flowId) {
 }
 
 function parseOutputStatus(filePath) {
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
-
-    // Look for status markers in output
-    const statusMatch = content.match(/##\s*Status\s*[:\n]\s*(DONE|NEEDS_FIX|FAILED|BLOCKED|IN[ _]PROGRESS|NOT[ _]STARTED)/i);
-    if (statusMatch) {
-      return statusMatch[1].toUpperCase().replace(/ /g, '_');
-    }
-
-    // Check for common failure indicators
-    if (content.includes('NOT STARTED') || content.includes('failed due to')) {
-      return 'FAILED';
-    }
-
-    // If file has substantial content (>500 chars) and no explicit status, warn
-    if (content.length > 500) {
-      return 'UNKNOWN';
-    }
-
-    return 'UNKNOWN';
-  } catch (err) {
-    console.error(`⚠️  Error parsing ${filePath}:`, err.message);
-    return 'UNKNOWN';
-  }
+  const { parseOutputStatus: sharedParseOutputStatus } = require('../orchestrator/workflow-manager');
+  return sharedParseOutputStatus(filePath);
 }
 
 function getOutputSignature(filePath) {
@@ -215,6 +238,52 @@ function cleanupHandledNeedsFixOutput(flowId, step, outputFile) {
     fs.unlinkSync(outputFile);
     console.log(`🗑️  Cleared duplicate NEEDS_FIX output: ${TEAM_CONFIG.members[step].outputs[0]}`);
   }
+}
+
+function resetToFixTarget(flowId, workflow, sourceStep, workDir) {
+  const stepsToUse = _getSteps(flowId);
+  const fixTarget = getFixTargetStep(workflow);
+  if (!fixTarget) throw new Error(`No fix target step found for flow ${flowId}`);
+
+  const fixIndex = stepsToUse.indexOf(fixTarget);
+  if (fixIndex < 0) throw new Error(`Fix target step ${fixTarget} is not in workflow step order for flow ${flowId}`);
+
+  const currentOutput = path.join(workDir, TEAM_CONFIG.members[sourceStep].outputs[0]);
+  const feedbackFile = path.join(workDir, 'output', `feedback-from-${sourceStep}.md`);
+  if (fs.existsSync(currentOutput)) {
+    fs.copyFileSync(currentOutput, feedbackFile);
+    console.log(`📝 Saved feedback: feedback-from-${sourceStep}.md`);
+  }
+
+  const resetSteps = { currentStep: fixTarget, status: 'running' };
+  for (let i = fixIndex; i < stepsToUse.length; i++) {
+    const stepName = stepsToUse[i];
+    resetSteps[`steps.${stepName}`] = 'waiting';
+    const outRel = TEAM_CONFIG.members[stepName]?.outputs?.[0];
+    if (!outRel) continue;
+    const outFile = path.join(workDir, outRel);
+    if (fs.existsSync(outFile)) {
+      fs.unlinkSync(outFile);
+      console.log(`🗑️  Cleared output: ${outRel}`);
+    }
+  }
+  updateWorkflowState(flowId, resetSteps);
+
+  const fixPidFile = pidFilePath(flowId, fixTarget);
+  if (fs.existsSync(fixPidFile)) {
+    try {
+      const pidData = JSON.parse(fs.readFileSync(fixPidFile, 'utf8'));
+      if (isProcessAlive(pidData.pid)) {
+        console.log(`💀 Killing stale ${fixTarget} (PID ${pidData.pid}) before re-spawn`);
+        try { process.kill(pidData.pid, 'SIGTERM'); } catch (_) {}
+      }
+      fs.unlinkSync(fixPidFile);
+    } catch (e) {
+      try { fs.unlinkSync(fixPidFile); } catch (_) {}
+    }
+  }
+
+  return fixTarget;
 }
 
 function updateWorkflowState(flowId, updates) {
@@ -350,8 +419,15 @@ function watchWorkflow(flowId, interval = 5000) {
 
     // Check each step for status changes
     stepsToUse.forEach((step, idx) => {
-      const currentStatus = statuses[step];
+      let currentStatus = statuses[step];
       const lastStatus = lastStatuses[step];
+
+      // If no output file but workflow.json says step is failed, treat as FAILED
+      // This handles the case where agent exits 0 without producing output
+      if (!outputs[step] && workflow.steps && workflow.steps[step] === 'failed') {
+        currentStatus = 'FAILED';
+        statuses[step] = 'FAILED';
+      }
 
       // Skip if no change
       if (currentStatus === lastStatus) {
@@ -374,6 +450,44 @@ function watchWorkflow(flowId, interval = 5000) {
         console.log(`${statusIcon} ${step} status: ${currentStatus}`);
 
         if (currentStatus === 'DONE') {
+          // Recovery: if workflow was failed but step produced DONE output, recover
+          if (workflow.status === 'failed') {
+            console.log(`🔄 ${step} produced DONE after workflow was failed — recovering workflow`);
+            updateWorkflowState(flowId, {
+              status: 'running',
+              stoppedAt: null
+            });
+            workflow.status = 'running';
+          }
+
+          // Verify output file actually exists before accepting DONE
+          const doneOutputFile = path.join(workDir, TEAM_CONFIG.members[step].outputs[0]);
+          if (!fs.existsSync(doneOutputFile)) {
+            console.error(`⚠️  ${step} marked DONE but output file missing: ${doneOutputFile} → treating as FAILED`);
+            updateWorkflowState(flowId, {
+              [`steps.${step}`]: 'failed',
+              status: 'failed'
+            });
+            // Retry if under limit
+            const retryCount = getRetryCount(workflow, step);
+            if (retryCount < MAX_RETRIES) {
+              console.log(`⚠️  ${step} missing output, will retry (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+              updateWorkflowState(flowId, {
+                [`retries.${step}`]: retryCount + 1,
+                [`steps.${step}`]: 'retrying'
+              });
+              setTimeout(() => spawnStep(flowId, step, true), 3000);
+            } else {
+              console.error(`❌ ${step} missing output after ${MAX_RETRIES} retry(ies), stopping workflow`);
+              updateWorkflowState(flowId, {
+                [`steps.${step}`]: 'failed',
+                status: 'failed',
+                stoppedAt: new Date().toISOString()
+              });
+              clearInterval(checkInterval);
+            }
+            return;
+          }
           // Mark as done
           updateWorkflowState(flowId, {
             [`steps.${step}`]: 'done'
@@ -397,8 +511,8 @@ function watchWorkflow(flowId, interval = 5000) {
           stopStepProcess(flowId, step, 'output already DONE');
 
           // Clean up stale feedback files when implementer completes successfully
-          if (step === 'implementer') {
-            const feedbackFiles = ['feedback-from-verifier.md'];
+          if (step === getFixTargetStep(workflow)) {
+            const feedbackFiles = ['feedback-from-verifier.md', 'feedback-from-reviewer.md', 'feedback-from-qa.md'];
             feedbackFiles.forEach(name => {
               const fbPath = path.join(workDir, 'output', name);
               if (fs.existsSync(fbPath)) {
@@ -406,6 +520,12 @@ function watchWorkflow(flowId, interval = 5000) {
                 console.log(`🧹 Cleaned stale feedback: ${name}`);
               }
             });
+            // Also clean up retry context file
+            const retryCtxFile = path.join(workDir, 'output', step + '-retry-context.md');
+            if (fs.existsSync(retryCtxFile)) {
+              fs.unlinkSync(retryCtxFile);
+              console.log(`🧹 Cleaned retry context: ${step}-retry-context.md`);
+            }
           }
 
           // Spawn next step if exists
@@ -422,6 +542,13 @@ function watchWorkflow(flowId, interval = 5000) {
               setTimeout(() => spawnStep(flowId, nextStep), 2000);
             }
           } else if (!nextStep) {
+            const completionCheck = isWorkflowCompletionValid(workflow, statuses, outputs);
+            if (!completionCheck.valid) {
+              const fixTarget = resetToFixTarget(flowId, workflow, step, workDir);
+              console.log(`↩️  Workflow not truly complete (${completionCheck.reason}); routing back to ${fixTarget}`);
+              setTimeout(() => spawnStep(flowId, fixTarget), 3000);
+              return;
+            }
             console.log('');
             console.log('🎉 All steps completed!');
             // Mark workflow as completed
@@ -429,6 +556,9 @@ function watchWorkflow(flowId, interval = 5000) {
               status: 'completed',
               stoppedAt: new Date().toISOString()
             });
+
+            // Clean up worktree
+            cleanupWorktree(state.workflow);
 
             // Check if any workflows are waiting on this one
             try {
@@ -485,57 +615,9 @@ function watchWorkflow(flowId, interval = 5000) {
           console.log(`🔁 ${step} found issues, sending back to Implementer...`);
           stopStepProcess(flowId, step, 'output already NEEDS_FIX');
 
-          // Save current verifier findings as feedback
-          const feedbackFile = path.join(workDir, 'output', `feedback-from-${step}.md`);
-          if (fs.existsSync(currentOutput)) {
-            fs.copyFileSync(currentOutput, feedbackFile);
-            console.log(`📝 Saved feedback: feedback-from-${step}.md`);
-          }
-
-          // Clear implementer output to trigger re-run
-          const implOutput = path.join(workDir, TEAM_CONFIG.members.implementer.outputs[0]);
-          if (fs.existsSync(implOutput)) {
-            fs.unlinkSync(implOutput);
-            console.log(`🗑️  Cleared: implementation.md`);
-          }
-
-          // Reset downstream steps
-          const resetSteps = {};
-          const stepsToUse = _getSteps(flowId);
-          const implIndex = stepsToUse.indexOf('implementer');
-          if (implIndex >= 0) {
-            for (let i = implIndex; i < stepsToUse.length; i++) {
-              resetSteps[`steps.${stepsToUse[i]}`] = 'waiting';
-            }
-          }
-          updateWorkflowState(flowId, resetSteps);
-
-          // Clear verifier output so it can re-run after fix
-          if (step === 'verifier') {
-            const verifierOutput = path.join(workDir, TEAM_CONFIG.members.verifier.outputs[0]);
-            if (fs.existsSync(verifierOutput)) {
-              fs.unlinkSync(verifierOutput);
-              console.log(`🗑️  Cleared: verification.md`);
-            }
-          }
-
-          // Re-spawn implementer with feedback
-          // Kill stale implementer process if still running
-          const implPidFile = pidFilePath(flowId, 'implementer');
-          if (fs.existsSync(implPidFile)) {
-            try {
-              const pidData = JSON.parse(fs.readFileSync(implPidFile, 'utf8'));
-              if (isProcessAlive(pidData.pid)) {
-                console.log(`💀 Killing stale implementer (PID ${pidData.pid}) before re-spawn`);
-                try { process.kill(pidData.pid, 'SIGTERM'); } catch (_) {}
-              }
-              fs.unlinkSync(implPidFile);
-            } catch (e) {
-              try { fs.unlinkSync(implPidFile); } catch (_) {}
-            }
-          }
-          console.log('🚀 Re-spawning Implementer with feedback...');
-          setTimeout(() => spawnStep(flowId, 'implementer'), 3000);
+          const fixTarget = resetToFixTarget(flowId, workflow, step, workDir);
+          console.log(`🚀 Re-spawning ${fixTarget} with feedback...`);
+          setTimeout(() => spawnStep(flowId, fixTarget), 3000);
 
         } else if (currentStatus === 'BLOCKED') {
           // Blocked needs human/environment input; stop safely without retry
@@ -589,13 +671,14 @@ function watchWorkflow(flowId, interval = 5000) {
             // Retry after delay
             setTimeout(() => spawnStep(flowId, step, true), 3000);
           } else {
-            console.error(`❌ ${step} failed after ${MAX_RETRIES} retry(ies), stopping workflow`);
+            console.error(`❌ ${step} failed after ${MAX_RETRIES} retry(ies)`);
             updateWorkflowState(flowId, {
               [`steps.${step}`]: 'failed',
               status: 'failed',
               stoppedAt: new Date().toISOString()
             });
-            clearInterval(checkInterval);
+            // Don't stop polling — developer process may still be alive from last retry.
+            // If it produces output later, watcher will detect and continue.
           }
         }
       }
@@ -654,57 +737,9 @@ function handleNeedsFix(flowId, step) {
   console.log(`[${flowId}] 🔁 ${step} found issues, sending back to Implementer...`);
   stopStepProcess(flowId, step, 'output already NEEDS_FIX');
 
-  // Save current verifier findings as feedback
-  const feedbackFile = path.join(workDir, 'output', `feedback-from-${step}.md`);
-  if (fs.existsSync(currentOutput)) {
-    fs.copyFileSync(currentOutput, feedbackFile);
-    console.log(`[${flowId}] 📝 Saved feedback: feedback-from-${step}.md`);
-  }
-
-  // Clear implementer output to trigger re-run
-  const implOutput = path.join(workDir, TEAM_CONFIG.members.implementer.outputs[0]);
-  if (fs.existsSync(implOutput)) {
-    fs.unlinkSync(implOutput);
-    console.log(`[${flowId}] 🗑️  Cleared: implementation.md`);
-  }
-
-  // Reset downstream steps
-  const stepsToUse = _getSteps(flowId);
-  const resetSteps = {};
-  const implIndex = stepsToUse.indexOf('implementer');
-  if (implIndex >= 0) {
-    for (let i = implIndex; i < stepsToUse.length; i++) {
-      resetSteps[`steps.${stepsToUse[i]}`] = 'waiting';
-    }
-  }
-  updateWorkflowState(flowId, resetSteps);
-
-  // Clear verifier output so it can re-run after fix
-  if (step === 'verifier') {
-    const verifierOutput = path.join(workDir, TEAM_CONFIG.members.verifier.outputs[0]);
-    if (fs.existsSync(verifierOutput)) {
-      fs.unlinkSync(verifierOutput);
-      console.log(`[${flowId}] 🗑️  Cleared: verification.md`);
-    }
-  }
-
-  // Re-spawn implementer with feedback
-  // Kill stale implementer process if still running
-  const implPidFile = pidFilePath(flowId, 'implementer');
-  if (fs.existsSync(implPidFile)) {
-    try {
-      const pidData = JSON.parse(fs.readFileSync(implPidFile, 'utf8'));
-      if (isProcessAlive(pidData.pid)) {
-        console.log(`[${flowId}] 💀 Killing stale implementer (PID ${pidData.pid}) before re-spawn`);
-        try { process.kill(pidData.pid, 'SIGTERM'); } catch (_) {}
-      }
-      fs.unlinkSync(implPidFile);
-    } catch (e) {
-      try { fs.unlinkSync(implPidFile); } catch (_) {}
-    }
-  }
-  console.log(`[${flowId}] 🚀 Re-spawning Implementer with feedback...`);
-  setTimeout(() => spawnStep(flowId, 'implementer'), 3000);
+  const fixTarget = resetToFixTarget(flowId, workflow, step, workDir);
+  console.log(`[${flowId}] 🚀 Re-spawning ${fixTarget} with feedback...`);
+  setTimeout(() => spawnStep(flowId, fixTarget), 3000);
 }
 
 // --- Parallel monitoring ---
@@ -800,10 +835,10 @@ function watchParallel(interval = 5000) {
           }
 
           // Clean up stale feedback when implementer completes in parallel mode
-          if (currentStatus === 'DONE' && step === 'implementer') {
+          if (currentStatus === 'DONE' && step === getFixTargetStep(state.workflow)) {
             const flowState = getWorkflowState(flowId);
             if (flowState) {
-              const feedbackFiles = ['feedback-from-verifier.md'];
+              const feedbackFiles = ['feedback-from-verifier.md', 'feedback-from-reviewer.md', 'feedback-from-qa.md'];
               feedbackFiles.forEach(name => {
                 const fbPath = path.join(flowState.workDir, 'output', name);
                 if (fs.existsSync(fbPath)) {
@@ -811,6 +846,12 @@ function watchParallel(interval = 5000) {
                   console.log(`[${flowId}] 🧹 Cleaned stale feedback: ${name}`);
                 }
               });
+              // Also clean up retry context file
+              const retryCtxFile = path.join(flowState.workDir, 'output', step + '-retry-context.md');
+              if (fs.existsSync(retryCtxFile)) {
+                fs.unlinkSync(retryCtxFile);
+                console.log(`[${flowId}] 🧹 Cleaned retry context: ${step}-retry-context.md`);
+              }
             }
           }
         }
@@ -822,13 +863,16 @@ function watchParallel(interval = 5000) {
       const stepsToUseLocal = _getSteps(flowId);
       const lastStep = stepsToUseLocal[stepsToUseLocal.length - 1];
       const lastStepStatus = statuses[lastStep];
-      if (lastStepStatus === 'DONE' && !flowResults[flowId]) {
+      const completionCheck = isWorkflowCompletionValid(state.workflow, state.statuses, state.outputs);
+      if (lastStepStatus === 'DONE' && completionCheck.valid && !flowResults[flowId]) {
         flowResults[flowId] = { status: 'pass', elapsed: Date.now() - startTime };
         // Mark workflow.json as completed
         updateWorkflowState(flowId, {
           status: 'completed',
           stoppedAt: new Date().toISOString()
         });
+        // Clean up worktree
+        cleanupWorktree(state.workflow);
         // Check if any workflows are waiting on this one
         try {
           const orchestrator = require('../orchestrator/index.js');
@@ -836,6 +880,10 @@ function watchParallel(interval = 5000) {
             orchestrator.checkAndResumeDependentWorkflows();
           }
         } catch (e) {}
+      } else if (lastStepStatus === 'DONE' && !completionCheck.valid) {
+        const fixTarget = resetToFixTarget(flowId, state.workflow, lastStep, state.workDir);
+        console.log(`[${flowId}] ↩️  Completion invalid (${completionCheck.reason}); routing back to ${fixTarget}`);
+        setTimeout(() => spawnStep(flowId, fixTarget), 3000);
       } else if (lastStepStatus === 'FAILED' && !flowResults[flowId]) {
         flowResults[flowId] = { status: 'fail', elapsed: Date.now() - startTime };
         // Mark workflow.json as failed

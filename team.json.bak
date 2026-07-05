@@ -1,0 +1,117 @@
+{
+  "outputRoot": "task-flows",
+  "members": {
+    "architect": {
+      "role": "Game Architect",
+      "objective": "Thiết kế hệ thống game cho feature phức tạp",
+      "tools": [
+        "read",
+        "exec",
+        "grep"
+      ],
+      "outputs": [
+        "output/architecture.md"
+      ],
+      "runtime": "codex"
+    },
+    "clarifier": {
+      "role": "Spec Clarifier",
+      "objective": "Clarify spec, tìm open questions từ requirement",
+      "tools": [
+        "read",
+        "exec",
+        "web_search",
+        "web_fetch"
+      ],
+      "outputs": [
+        "output/clarify.md"
+      ],
+      "runtime": "codex"
+    },
+    "implementer": {
+      "role": "Godot Developer",
+      "objective": "Implement feature với GDScript code và Godot scenes",
+      "tools": [
+        "read",
+        "exec",
+        "edit",
+        "write",
+        "apply_patch"
+      ],
+      "outputs": [
+        "output/implementation.md"
+      ],
+      "runtime": "codex"
+    },
+    "planner": {
+      "role": "Task Planner",
+      "objective": "Break feature thành task nhỏ, lên implementation plan",
+      "tools": [
+        "read",
+        "exec"
+      ],
+      "outputs": [
+        "output/plan.md"
+      ],
+      "runtime": "codex"
+    },
+    "pm": {
+      "role": "PM",
+      "objective": "Nhận yêu cầu, phân tích, tạo requirement và tạo task với workflow phù hợp",
+      "model": "free",
+      "tools": [
+        "read",
+        "exec",
+        "web_search",
+        "web_fetch"
+      ],
+      "outputs": [
+        "output/requirement.md"
+      ],
+      "runtime": "codex"
+    },
+    "qa": {
+      "role": "QA Tester",
+      "objective": "Test feature, tạo test cases, báo cáo kết quả QA",
+      "tools": [
+        "read",
+        "exec"
+      ],
+      "outputs": [
+        "output/qa.md"
+      ],
+      "runtime": "codex"
+    },
+    "reviewer": {
+      "role": "Code Reviewer",
+      "objective": "Review code quality, correctness, Godot best practices",
+      "tools": [
+        "read",
+        "exec",
+        "grep"
+      ],
+      "outputs": [
+        "output/review.md"
+      ],
+      "runtime": "codex"
+    },
+    "test": {
+      "role": "test",
+      "objective": "test",
+      "tools": [],
+      "outputs": [],
+      "runtime": "codex"
+    },
+    "verifier": {
+      "role": "Verifier (Legacy)",
+      "objective": "Legacy agent, use reviewer or qa instead",
+      "tools": [
+        "read"
+      ],
+      "outputs": [
+        "output/legacy.md"
+      ],
+      "runtime": "codex"
+    }
+  }
+}

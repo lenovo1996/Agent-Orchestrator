@@ -727,6 +727,7 @@ class TaskServer {
               workflowId: { type: "string" },
               workspaceName: { type: "string" },
               workspacePath: { type: "string" },
+              worktreePath: { type: "string", description: "Optional git worktree path for isolated task execution" },
               dependsOn: {
                 type: "array",
                 items: { type: "string" }
@@ -1083,12 +1084,13 @@ class TaskServer {
           }
 
                     case "create_task": {
-            const { jiraKey, customPrompt, workflowId, workspaceName, workspacePath, dependsOn } = request.params.arguments as any;
+            const { jiraKey, customPrompt, workflowId, workspaceName, workspacePath, worktreePath, dependsOn } = request.params.arguments as any;
 
             const args = ["start"];
             if (workflowId) args.push("--workflow", workflowId);
             if (workspaceName) args.push("--workspace-name", workspaceName);
             if (workspacePath) args.push("--workspace-dir", workspacePath);
+            if (worktreePath) args.push("--worktree-path", worktreePath);
             if (dependsOn && Array.isArray(dependsOn) && dependsOn.length > 0) {
               args.push("--depends-on", dependsOn.join(','));
             }

@@ -1,0 +1,209 @@
+{
+  "outputRoot": "task-flows",
+  "members": {
+    "apk-analyzer": {
+      "role": "APK Analyst",
+      "objective": "Phân tích tự động một file APK/XAPK Android, trích xuất toàn bộ thông tin kỹ thuật: framework, tech stack, permissions, activities/screens, monetization, ad networks, assets, localization. Tạo summary document chi tiết phục vụ việc clone/rebuild app.",
+      "model": "free",
+      "thinking": "high",
+      "tools": [
+        "read",
+        "exec",
+        "write",
+        "edit",
+        "web_search",
+        "web_fetch"
+      ],
+      "outputs": [
+        "output/summary.md"
+      ],
+      "runtime": "codex"
+    },
+    "apk-architect": {
+      "role": "App Architect",
+      "objective": "Từ APK analysis summary, tạo clone-spec.md — tài liệu spec chi tiết nhất để developer có thể rebuild lại app từ đầu. Bao gồm: tech stack recommendation, screen architecture, feature specifications, data models, API design, monetization integration, localization strategy.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [
+        "read",
+        "exec",
+        "write",
+        "edit",
+        "web_search",
+        "web_fetch"
+      ],
+      "outputs": [
+        "output/clone-spec.md"
+      ],
+      "runtime": "codex"
+    },
+    "apk-bootstrapper": {
+      "role": "Project Bootstrapper",
+      "objective": "Clone Android boilerplate repo và tạo docs/tasks structure cho project clone",
+      "tools": [
+        "read",
+        "exec",
+        "write",
+        "edit"
+      ],
+      "outputs": [
+        "output/bootstrapper.md"
+      ],
+      "runtime": "codex"
+    },
+    "apk-planner": {
+      "role": "Task Planner",
+      "objective": "Từ clone-spec.md → tạo task-plan.md với effort estimate, dependencies, priority",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [
+        "read",
+        "write",
+        "edit"
+      ],
+      "outputs": [
+        "output/task-plan.md"
+      ],
+      "runtime": "codex"
+    },
+    "apk-workspace-setup": {
+      "role": "Workspace Setup Specialist",
+      "objective": "Tạo workspace trên DevTeam MCP và tạo INIT_PRJ task chạy workflow clarify",
+      "tools": [
+        "read",
+        "exec"
+      ],
+      "outputs": [
+        "output/workspace-setup.md"
+      ],
+      "runtime": "codex"
+    },
+    "backend-dev": {
+      "role": "Node.js/AdonisJS Developer",
+      "objective": "Implement Node.js API endpoints, models, actions, validators",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec",
+        "edit",
+        "write",
+        "apply_patch"
+      ],
+      "outputs": [
+        "output/backend.md"
+      ],
+      "runtime": "codex"
+    },
+    "clarifier": {
+      "role": "Spec Clarifier",
+      "objective": "Clarify spec, tìm open questions từ requirement và Jira ticket",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec",
+        "web_search",
+        "web_fetch"
+      ],
+      "outputs": [
+        "output/clarify.md"
+      ],
+      "runtime": "codex"
+    },
+    "developer": {
+      "role": "General Software Developer",
+      "objective": "Implement task từ docs/tasks hoặc custom prompt theo output/plan.md, sửa code thật trong workspace, chạy verification, và ghi output/developer.md",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec",
+        "edit",
+        "write",
+        "apply_patch",
+        "web_search",
+        "web_fetch"
+      ],
+      "outputs": [
+        "output/developer.md"
+      ],
+      "runtime": "codex"
+    },
+    "devteam-task-dispatcher": {
+      "role": "Task Dispatcher",
+      "objective": "Đọc task index từ docs/tasks, parse dependencies, tạo DevTeam MCP tasks theo đúng thứ tự dependency với worktreePath cho mỗi task",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [
+        "read",
+        "exec",
+        "write"
+      ],
+      "outputs": [
+        "output/task-dispatch.md"
+      ],
+      "runtime": "codex"
+    },
+    "frontend-dev": {
+      "role": "React/Next.js Developer",
+      "objective": "Implement React/Next.js frontend components và pages",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec",
+        "edit",
+        "write",
+        "apply_patch"
+      ],
+      "outputs": [
+        "output/frontend.md"
+      ],
+      "runtime": "codex"
+    },
+    "planner": {
+      "role": "Task Planner",
+      "objective": "Break feature thành task nhỏ, ước lượng effort, lên implementation plan chi tiết",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec"
+      ],
+      "outputs": [
+        "output/plan.md"
+      ],
+      "runtime": "codex"
+    },
+    "qa": {
+      "role": "QA Tester",
+      "objective": "Test feature, tạo test cases, kiểm tra end-to-end",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec"
+      ],
+      "outputs": [
+        "output/qa.md"
+      ],
+      "runtime": "codex"
+    },
+    "reviewer": {
+      "role": "Code Reviewer",
+      "objective": "Review code quality, correctness, security, và best practices",
+      "model": "free",
+      "thinking": "hidden",
+      "tools": [
+        "read",
+        "exec",
+        "grep"
+      ],
+      "outputs": [
+        "output/review.md"
+      ],
+      "runtime": "codex"
+    }
+  }
+}

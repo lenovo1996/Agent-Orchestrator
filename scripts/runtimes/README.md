@@ -33,6 +33,7 @@ Trong `team.json`:
 | `codex` | OpenAI Codex CLI | `tokens used\n<number>` | Default. Headless exec mode |
 | `claude` | Claude Code CLI | JSON `{"usage":{"input_tokens":N,"output_tokens":N}}` | Uses `-p` print mode |
 | `kiro` | Kiro CLI | `Token usage: <number>` | Headless mode |
+| `opencode` | OpenCode CLI (via Anthropic proxy) | Auto-detect | Uses anthropic-proxy.js → 9router |
 | `generic` | Custom command | Auto-detect | Requires `runtimeCommand` in config |
 
 ## Interface
