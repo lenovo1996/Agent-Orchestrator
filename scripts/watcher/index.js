@@ -366,7 +366,16 @@ function spawnStep(flowId, step, isRetry = false) {
   console.log(`\n🚀 ${isRetry ? 'Retrying' : 'Spawning'}: ${step}${retryLabel}`);
 
   const spawnScript = path.join(SKILL_DIR, 'api/spawn.js');
-  const child = spawn(process.execPath, [spawnScript, flowId, step], {
+  const spawnArgs = [spawnScript, flowId, step];
+  // Pass worktreePath so all steps (reviewer, qa, etc.) run in the correct worktree
+  const wfPath = path.join(resolveWorkDir(flowId), 'workflow.json');
+  if (fs.existsSync(wfPath)) {
+    try {
+      const wf = JSON.parse(fs.readFileSync(wfPath, 'utf8'));
+      if (wf.worktreePath) spawnArgs.push('--worktree-path', wf.worktreePath);
+    } catch (_) {}
+  }
+  const child = spawn(process.execPath, spawnArgs, {
     stdio: 'inherit'
   });
 
