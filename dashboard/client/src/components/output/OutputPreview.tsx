@@ -108,20 +108,20 @@ export function OutputPreview() {
     );
   }
 
-  // Placeholder: step not completed
-  if (stepStatus && stepStatus !== 'done') {
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
-        <FileText className="w-12 h-12 mb-3 opacity-40" />
-        <p className="text-sm">
-          {getStepDisplayName(selectedStep as AgentStep, agents)} has not completed yet
-        </p>
-        <p className="text-xs mt-1 opacity-60">
-          Output will be available once the step finishes
-        </p>
-      </div>
-    );
-  }
+  // // Placeholder: step not completed
+  // if (stepStatus && stepStatus !== 'done') {
+  //   return (
+  //     <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-8">
+  //       <FileText className="w-12 h-12 mb-3 opacity-40" />
+  //       <p className="text-sm">
+  //         {getStepDisplayName(selectedStep as AgentStep, agents)} has not completed yet
+  //       </p>
+  //       <p className="text-xs mt-1 opacity-60">
+  //         Output will be available once the step finishes
+  //       </p>
+  //     </div>
+  //   );
+  // }
 
   if (loading) {
     return (
