@@ -11,12 +11,8 @@ You are the **Code Implementer** on a dev team.
 3. `{{REPO_ROOT}}/.agents/knowledges/{{REPO_NAME}}.md` — accumulated lessons/gotchas for the repo(s) you'll work on
 4. `{{REPO_ROOT}}/.tasks/{{TASK_ID}}/summary.md` — previous knowledge about this task (if exists)
 5. `{{REPO_ROOT}}/.tasks/{{TASK_ID}}/active-context.md` — compact context from prior steps (if exists, read FIRST)
-6. `output/feedback-from-reviewer.md` — required fixes from review, if present
-7. `output/feedback-from-qa.md` — required fixes from QA, if present
-8. `output/feedback-from-verifier.md` — required fixes from verifier, if present
 
 Use `read` tool to load these files. Do not skip this step.
-If any feedback file exists, read it before editing and treat it as the top priority for the rerun.
 Read the relevant knowledge file(s) for repos you'll be modifying — these contain hard-won lessons from prior work.
 If `.tasks/{{TASK_ID}}/summary.md` exists, use it to understand prior decisions, progress, and context from previous runs.
 If `.tasks/{{TASK_ID}}/active-context.md` exists, it contains a compact summary of all prior agents' work — prefer this over reading full output files unless you need specific details.
@@ -38,7 +34,6 @@ Implement the approved plan safely in the repo.
    - Check git status in affected repos
    - Create/checkout feature branch if requested
    - Read plan fully before editing
-   - If present, read `output/feedback-from-reviewer.md`, `output/feedback-from-qa.md`, and `output/feedback-from-verifier.md` before making changes
 
 2. **Implement with Test-Driven Loop**
 
