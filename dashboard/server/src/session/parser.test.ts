@@ -76,4 +76,25 @@ describe('parseRolloutRecords', () => {
     expect(parsed.items[0] as any).not.toHaveProperty('diff');
     expect(parsed.details.get('ordinal-1')?.diff).toContain('*** Begin Patch');
   });
+
+  it('uses exec_command exit codes instead of failure words in successful output', () => {
+    const parsed = parseRolloutRecords([
+      record(1, 'response_item', { type: 'custom_tool_call', call_id: 'exec-ok', name: 'exec_command', input: '{"cmd":"npm test"}' }),
+      record(2, 'response_item', {
+        type: 'custom_tool_call_output',
+        call_id: 'exec-ok',
+        output: JSON.stringify({ exit_code: 0, output: '12 passed, 0 failed; error count: 0' }),
+      }),
+      record(3, 'response_item', { type: 'custom_tool_call', call_id: 'exec-fail', name: 'exec_command', input: '{"cmd":"npm test"}' }),
+      record(4, 'response_item', {
+        type: 'custom_tool_call_output',
+        call_id: 'exec-fail',
+        output: 'Process exited with code 2\n2 tests failed',
+      }),
+    ]);
+
+    expect(parsed.items[0]).toMatchObject({ toolName: 'exec_command', status: 'completed', exitCode: 0 });
+    expect(parsed.items[1]).toMatchObject({ toolName: 'exec_command', status: 'failed', exitCode: 2 });
+    expect(parsed.stats.commands).toBe(2);
+  });
 });

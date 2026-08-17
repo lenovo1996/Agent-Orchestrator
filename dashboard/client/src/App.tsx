@@ -47,7 +47,7 @@ export default function App() {
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [pipelineHeight, setPipelineHeight] = useState(300);
-  const [sessionWidthPercent, setSessionWidthPercent] = useState(58);
+  const [leftColumnWidthPercent, setLeftColumnWidthPercent] = useState(42);
   const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Record<PanelId, boolean>>({
     pipeline: false,
@@ -83,12 +83,12 @@ export default function App() {
     setExpandedPanel((current) => (current === panel ? null : panel));
   };
 
-  const { startPipelineResize, startSessionOutputResize } = usePanelResize({
+  const { startPipelineResize, startLeftSessionResize } = usePanelResize({
     collapsedPanels,
     expandedPanel,
     pipelineHeight,
     setPipelineHeight,
-    setSessionWidthPercent,
+    setLeftColumnWidthPercent,
   });
 
   const pipelinePanel = (
@@ -99,7 +99,6 @@ export default function App() {
       expanded={expandedPanel === 'pipeline'}
       onToggleCollapse={toggleCollapse}
       onToggleExpand={toggleExpand}
-      className="border-b border-border/50"
     >
       <div className="h-full overflow-auto p-3 md:p-4">
         <div className="space-y-3">
@@ -118,7 +117,7 @@ export default function App() {
       expanded={expandedPanel === 'session'}
       onToggleCollapse={toggleCollapse}
       onToggleExpand={toggleExpand}
-      className="border-r border-border/50"
+      className="border-l border-border/50"
     >
       <SessionViewer fullscreen={expandedPanel === 'session'} />
     </PanelFrame>
@@ -146,16 +145,22 @@ export default function App() {
       ? outputPanel
       : null;
 
+  const leftColumnStyle = collapsedPanels.session
+    ? { flex: '1 1 auto' }
+    : { flex: `0 0 ${leftColumnWidthPercent}%` };
+
   const sessionPaneStyle = collapsedPanels.session
     ? { flex: `0 0 ${COLLAPSED_PANEL_SIZE}px` }
+    : { flex: '1 1 auto' };
+
+  const pipelinePaneStyle = collapsedPanels.pipeline
+    ? { flex: `0 0 ${COLLAPSED_PANEL_SIZE}px` }
     : collapsedPanels.output
-    ? { flex: '1 1 auto' }
-    : { flex: `0 0 ${sessionWidthPercent}%` };
+      ? { flex: '1 1 auto' }
+      : { flex: `0 0 ${pipelineHeight}px` };
 
   const outputPaneStyle = collapsedPanels.output
     ? { flex: `0 0 ${COLLAPSED_PANEL_SIZE}px` }
-    : collapsedPanels.session
-    ? { flex: '1 1 auto' }
     : { flex: '1 1 auto' };
 
   return (
@@ -233,45 +238,41 @@ export default function App() {
                 {expandedContent}
               </div>
             ) : (
-              <>
-                <div
-                  className="shrink-0 overflow-hidden"
-                  style={{ height: collapsedPanels.pipeline ? COLLAPSED_PANEL_SIZE : pipelineHeight }}
-                >
-                  {pipelinePanel}
+              <div className="flex min-h-0 flex-1 overflow-hidden">
+                <div className="flex min-w-0 flex-col overflow-hidden" style={leftColumnStyle}>
+                  <div className="min-h-0 overflow-hidden" style={pipelinePaneStyle}>
+                    {pipelinePanel}
+                  </div>
+                  {!collapsedPanels.pipeline && !collapsedPanels.output && (
+                    <div
+                      role="separator"
+                      aria-orientation="horizontal"
+                      onPointerDown={startPipelineResize}
+                      className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-y border-border/50 bg-muted/30 transition-colors hover:bg-accent"
+                    >
+                      <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground" />
+                    </div>
+                  )}
+                  <div className="min-h-0 overflow-hidden" style={outputPaneStyle}>
+                    {outputPanel}
+                  </div>
                 </div>
-                {!collapsedPanels.pipeline && (
+
+                {!collapsedPanels.session && (
                   <div
                     role="separator"
-                    aria-orientation="horizontal"
-                    onPointerDown={startPipelineResize}
-                    className="group flex h-2 shrink-0 cursor-row-resize items-center justify-center border-b border-border/50 bg-muted/30 transition-colors hover:bg-accent"
+                    aria-orientation="vertical"
+                    onPointerDown={startLeftSessionResize}
+                    className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center border-r border-border/50 bg-muted/30 transition-colors hover:bg-accent"
                   >
-                    <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground" />
+                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground" />
                   </div>
                 )}
 
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <div className="flex h-full min-w-0 overflow-hidden">
-                    <div className="min-w-0 overflow-hidden" style={sessionPaneStyle}>
-                      {sessionPanel}
-                    </div>
-                    {!collapsedPanels.session && !collapsedPanels.output && (
-                      <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        onPointerDown={startSessionOutputResize}
-                        className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center border-r border-border/50 bg-muted/30 transition-colors hover:bg-accent"
-                      >
-                        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground" />
-                      </div>
-                    )}
-                    <div className="min-w-0 overflow-hidden" style={outputPaneStyle}>
-                      {outputPanel}
-                    </div>
-                  </div>
+                <div className="min-w-0 overflow-hidden" style={sessionPaneStyle}>
+                  {sessionPanel}
                 </div>
-              </>
+              </div>
             )
           ) : (
             <div className="flex flex-1 items-center justify-center p-6">

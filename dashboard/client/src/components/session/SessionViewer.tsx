@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BrainCircuit, ChevronDown, MessageSquareText, Radio, Wrench } from 'lucide-react';
+import { Radio } from 'lucide-react';
 import type {
   SessionAttemptSummary,
   SessionItemDetail,
@@ -33,30 +33,6 @@ function sortItems(items: SessionItemSummary[]): SessionItemSummary[] {
     if (b.ordinal !== null) return 1;
     return a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
   });
-}
-
-function AttemptSelector({ attempts, value, onChange }: {
-  attempts: SessionAttemptSummary[];
-  value: string;
-  onChange: (runId: string) => void;
-}) {
-  return (
-    <label className="relative inline-flex min-w-0 items-center">
-      <span className="sr-only">Attempt</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-8 max-w-56 appearance-none rounded-md border border-border bg-background pl-2 pr-7 text-xs font-medium outline-none focus:ring-1 focus:ring-ring"
-      >
-        {attempts.map((attempt, index) => (
-          <option key={attempt.runId} value={attempt.runId}>
-            Attempt {index + 1} · {attempt.status} · {new Date(attempt.startedAt).toLocaleTimeString()}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-muted-foreground" />
-    </label>
-  );
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
@@ -153,7 +129,7 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
           stats: {
             ...current.stats,
             turns: Math.max(current.stats.turns, items.filter((item) => item.kind === 'message' && item.role === 'user').length),
-            commands: items.filter((item) => item.kind === 'command').length,
+            commands: items.filter((item) => item.kind === 'command' || item.toolName === 'exec_command').length,
             patches: items.filter((item) => item.kind === 'patch').length,
             filesTouched: files.size,
           },
@@ -230,15 +206,20 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-        <AttemptSelector attempts={attempts} value={runId} onChange={(value) => { setManualAttempt(true); setRunId(value); }} />
-        <div className="ml-auto flex flex-wrap gap-1">
-          <button type="button" onClick={() => setShowCommentary((value) => !value)} className={`session-toggle ${showCommentary ? 'session-toggle-active' : ''}`}><MessageSquareText className="h-3 w-3" /> Commentary</button>
-          <button type="button" onClick={() => setShowTools((value) => !value)} className={`session-toggle ${showTools ? 'session-toggle-active' : ''}`}><Wrench className="h-3 w-3" /> Tools</button>
-          <button type="button" onClick={() => setShowReasoning((value) => !value)} className={`session-toggle ${showReasoning ? 'session-toggle-active' : ''}`}><BrainCircuit className="h-3 w-3" /> Reasoning</button>
-        </div>
-      </div>
-      <SessionHeader attempt={snapshot.attempt} header={snapshot.header} stats={snapshot.stats} />
+      <SessionHeader
+        attempt={snapshot.attempt}
+        attempts={attempts}
+        runId={runId}
+        onAttemptChange={(value) => { setManualAttempt(true); setRunId(value); }}
+        header={snapshot.header}
+        stats={snapshot.stats}
+        showCommentary={showCommentary}
+        showTools={showTools}
+        showReasoning={showReasoning}
+        onToggleCommentary={() => setShowCommentary((value) => !value)}
+        onToggleTools={() => setShowTools((value) => !value)}
+        onToggleReasoning={() => setShowReasoning((value) => !value)}
+      />
 
       {preThreadFailure ? (
         <EmptyState>

@@ -99,8 +99,12 @@ describe('SessionViewer', () => {
     expect(await screen.findByText('Newest final')).toBeTruthy();
     expect((screen.getByLabelText('Attempt') as HTMLSelectElement).value).toBe(latest.runId);
     expect(screen.queryByText('Hidden thought summary')).toBeNull();
+    expect(screen.queryByText(/Started /)).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Reasoning/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Session details' }));
+    expect(screen.getByText((_, element) => element?.tagName === 'SPAN' && element.textContent?.startsWith('Started ') === true)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /reasoning/i }));
     expect(await screen.findByText('Hidden thought summary')).toBeTruthy();
 
     const detailCallsBefore = (global.fetch as ReturnType<typeof vi.fn>).mock.calls
@@ -140,6 +144,24 @@ describe('SessionViewer', () => {
     socketMock.handlers['session:item-upsert'](payload);
     expect(await screen.findAllByText('Live update')).toHaveLength(1);
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('counts exec_command tool upserts as commands', async () => {
+    render(<SessionViewer />);
+    expect(await screen.findByText('Newest final')).toBeTruthy();
+
+    socketMock.handlers['session:item-upsert']({
+      workspaceName: null,
+      flowId: 'flow_001',
+      step: 'implementer',
+      runId: latest.runId,
+      item: {
+        id: 'exec-command-1', ordinal: 6, kind: 'tool', toolName: 'exec_command', title: 'exec_command',
+        timestamp: latest.startedAt, status: 'completed', hasDetail: true,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByTitle('Commands').textContent).toBe('1'));
   });
 
   it('renders the historical-flow state without falling back to raw logs', async () => {

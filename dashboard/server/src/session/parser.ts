@@ -98,6 +98,60 @@ function commandText(command: unknown): string {
   return stringify(command);
 }
 
+function nestedValue(value: JsonObject | null, keys: string[]): unknown {
+  let current: unknown = value;
+  for (const key of keys) {
+    if (!current || typeof current !== 'object') return undefined;
+    current = (current as JsonObject)[key];
+  }
+  return current;
+}
+
+function toolExitCode(payload: JsonObject, parsedOutput: JsonObject | null, output: string): number | null {
+  const candidates = [
+    payload.exit_code,
+    payload.exitCode,
+    nestedValue(payload, ['metadata', 'exit_code']),
+    parsedOutput?.exit_code,
+    parsedOutput?.exitCode,
+    nestedValue(parsedOutput, ['structuredContent', 'exit_code']),
+    nestedValue(parsedOutput, ['structuredContent', 'exitCode']),
+    nestedValue(parsedOutput, ['result', 'exit_code']),
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isInteger(candidate)) return candidate;
+    if (typeof candidate === 'string' && /^-?\d+$/.test(candidate.trim())) return Number(candidate);
+  }
+  const match = output.match(/\b(?:process\s+)?exit(?:ed)?(?:\s+with)?\s+code\s*[:=]?\s*(-?\d+)\b/i)
+    || output.match(/\bexit_code["']?\s*[:=]\s*(-?\d+)\b/i);
+  return match ? Number(match[1]) : null;
+}
+
+function toolResultStatus(payload: JsonObject, output: string, kind: SessionItemKind): { status: string; exitCode: number | null } {
+  const parsedOutput = parseJson(payload.output ?? payload.tools ?? payload.execution);
+  const explicitStatus = String(payload.status || parsedOutput?.status || '').toLowerCase();
+  const isError = payload.isError === true
+    || payload.is_error === true
+    || parsedOutput?.isError === true
+    || parsedOutput?.is_error === true;
+  const exitCode = toolExitCode(payload, parsedOutput, output);
+
+  if (isError || /^(?:failed|error|aborted)$/.test(explicitStatus)) return { status: 'failed', exitCode };
+  if (exitCode !== null) return { status: exitCode === 0 ? 'completed' : 'failed', exitCode };
+  if (payload.success === false || parsedOutput?.success === false) return { status: 'failed', exitCode };
+  if (/^(?:completed|success|succeeded)$/.test(explicitStatus) || payload.success === true || parsedOutput?.success === true) {
+    return { status: 'completed', exitCode };
+  }
+
+  // Plain tool output has no universal status schema. Only treat an explicit
+  // leading error as failure; successful command output can legitimately
+  // contain words such as "0 failed" or "error count: 0".
+  const failed = kind === 'patch'
+    ? /\b(?:failed|error)\b/i.test(output)
+    : /^\s*(?:error|failed|tool call failed)\b/i.test(output);
+  return { status: failed ? 'failed' : 'completed', exitCode };
+}
+
 export function parseRolloutRecords(records: JsonObject[]): ParsedSession {
   const items = new Map<string, SessionItemSummary>();
   const details = new Map<string, SessionItemDetail>();
@@ -277,9 +331,11 @@ export function parseRolloutRecords(records: JsonObject[]): ParsedSession {
       }
       const output = stringify(payload.output ?? payload.tools ?? payload.execution ?? '');
       const existing = items.get(id)!;
+      const result = toolResultStatus(payload, output, existing.kind);
       put({
         ...existing,
-        status: /(?:failed|error|isError"?:\s*true)/i.test(output) ? 'failed' : 'completed',
+        status: result.status,
+        exitCode: result.exitCode,
         outputPreview: preview(output),
         hasDetail: true,
       }, existing.kind === 'patch' ? { id, toolOutput: output } : { id, toolOutput: output });
@@ -301,7 +357,7 @@ export function parseRolloutRecords(records: JsonObject[]): ParsedSession {
     return a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
   });
   const files = new Set(sortedItems.flatMap((item) => item.filePaths || []));
-  const commands = sortedItems.filter((item) => item.kind === 'command').length;
+  const commands = sortedItems.filter((item) => item.kind === 'command' || item.toolName === 'exec_command').length;
   const patches = sortedItems.filter((item) => item.kind === 'patch').length;
   const totalTokens = usage ? usage.inputTokens + usage.outputTokens : 0;
   const startMs = Date.parse(startedAt);

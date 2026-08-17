@@ -32,9 +32,13 @@ export function PanelHeader({
     ? collapsed
       ? ChevronsDown
       : ChevronsUp
-    : panel === 'session'
-    ? ChevronsLeft
-    : ChevronsRight;
+    : panel === 'output'
+      ? collapsed
+        ? ChevronsUp
+        : ChevronsDown
+      : collapsed
+        ? ChevronsLeft
+        : ChevronsRight;
 
   return (
     <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/50 px-2.5">
@@ -86,20 +90,18 @@ export function PanelFrame({
   children,
   className,
 }: PanelFrameProps) {
-  if (collapsed && panel !== 'pipeline') {
-    const OpenIcon = panel === 'session' ? ChevronsRight : ChevronsLeft;
+  if (collapsed && panel === 'session') {
     return (
       <button
         type="button"
         title={`Open ${title}`}
         onClick={() => onToggleCollapse(panel)}
         className={cn(
-          'flex h-full w-full flex-col items-center justify-center gap-2 border-border/50 bg-card/50 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-          panel === 'session' ? 'border-r' : 'border-l',
+          'flex h-full w-full flex-col items-center justify-center gap-2 border-l border-border/50 bg-card/50 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
           className
         )}
       >
-        <OpenIcon className="h-4 w-4" />
+        <ChevronsLeft className="h-4 w-4" />
         <span className="text-[11px] font-semibold uppercase tracking-wide [writing-mode:vertical-rl]">
           {title}
         </span>

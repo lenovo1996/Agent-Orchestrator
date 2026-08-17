@@ -106,11 +106,33 @@
 }
 
 @layer components {
-  .session-toggle {
-    @apply inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+  .session-header {
+    container-type: inline-size;
+  }
+
+  .session-header-identity,
+  .session-header-metrics {
+    display: flex;
+  }
+
+  .session-icon-toggle {
+    @apply inline-flex h-7 items-center justify-center gap-1 rounded-md border border-transparent px-1.5 text-[10px] font-medium text-muted-foreground transition-colors hover:border-border hover:bg-accent hover:text-foreground;
   }
 
   .session-toggle-active {
     @apply border-primary/40 bg-primary/10 text-primary;
+  }
+
+  @container (max-width: 760px) {
+    .session-header-metrics,
+    .session-toggle-label {
+      display: none;
+    }
+  }
+
+  @container (max-width: 500px) {
+    .session-header-identity {
+      display: none;
+    }
   }
 }
