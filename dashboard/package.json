@@ -2,6 +2,9 @@
   "name": "devteam-dashboard",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.15.0"
+  },
   "workspaces": [
     "shared",
     "server",

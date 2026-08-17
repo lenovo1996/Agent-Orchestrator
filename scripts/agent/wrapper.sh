@@ -127,7 +127,7 @@ trap 'write_crash_sentinel $?' EXIT
 
 # Dispatch to runtime-specific script
 set +e
-bash "$RUNTIME_SCRIPT" "$PROMPT_FILE" "$LOG_FILE" "$WORK_DIR" "$CWD"
+bash "$RUNTIME_SCRIPT" "$PROMPT_FILE" "$LOG_FILE" "$WORK_DIR" "$CWD" "$FLOW_ID" "$STEP"
 EXIT_CODE=$?
 set -e
 

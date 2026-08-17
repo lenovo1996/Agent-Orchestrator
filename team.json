@@ -3,181 +3,161 @@
   "members": {
     "clarifier": {
       "role": "Spec Clarifier",
-      "objective": "Clarify spec, tìm open questions từ requirement và Jira ticket",
-      "model": "9router/free",
-      "thinking": "hidden",
+      "objective": "Read Jira ticket, linked issues, comments, Confluence specs, and produce clear requirements + open questions.",
+      "model": "gpt-5.6-sol",
+      "thinking": "xhigh",
       "tools": [
         "read",
         "exec",
-        "web_search",
-        "web_fetch"
+        "memory_search",
+        "memory_get"
       ],
       "outputs": [
         "output/clarify.md"
+      ]
+    },
+    "architect": {
+      "role": "Solution Architect",
+      "objective": "Inspect PHP8 repos, identify impacted modules, design safe implementation approach.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [
+        "read",
+        "exec"
       ],
-      "runtime": "opencode"
+      "outputs": [
+        "output/architecture.md"
+      ]
     },
     "planner": {
       "role": "Task Planner",
-      "objective": "Break feature thành task nhỏ, ước lượng effort, lên implementation plan chi tiết",
-      "model": "9router/free",
-      "thinking": "hidden",
+      "objective": "Break requirements and architecture into small, safe, independently verifiable tasks. Produce an ordered implementation plan with files, tests, risks, and rollback strategy.",
+      "model": "gpt-5.5",
+      "thinking": "high",
       "tools": [
         "read",
         "exec"
       ],
       "outputs": [
         "output/plan.md"
-      ],
-      "runtime": "opencode"
+      ]
     },
-    "frontend-dev": {
-      "role": "React/Next.js Developer",
-      "objective": "Implement React/Next.js frontend components và pages",
-      "model": "9router/free",
-      "thinking": "hidden",
+    "implementer": {
+      "role": "Code Implementer",
+      "objective": "Implement plan in code, keep commits small, run relevant tests, report changed files and commands.",
+      "model": "gpt-5.6-sol",
+      "thinking": "high",
       "tools": [
         "read",
-        "exec",
-        "edit",
         "write",
-        "apply_patch"
-      ],
-      "outputs": [
-        "output/frontend.md"
-      ],
-      "runtime": "opencode"
-    },
-    "backend-dev": {
-      "role": "Node.js/AdonisJS Developer",
-      "objective": "Implement Node.js API endpoints, models, actions, validators",
-      "model": "9router/free",
-      "thinking": "hidden",
-      "tools": [
-        "read",
-        "exec",
         "edit",
-        "write",
-        "apply_patch"
+        "exec"
       ],
       "outputs": [
-        "output/backend.md"
+        "output/implementation.md"
       ],
-      "runtime": "opencode"
+      "runtime": "codex"
     },
-    "reviewer": {
-      "role": "Code Reviewer",
-      "objective": "Review code quality, correctness, security, và best practices",
-      "model": "9router/free",
-      "thinking": "hidden",
-      "tools": [
-        "read",
-        "exec",
-        "grep"
-      ],
-      "outputs": [
-        "output/review.md"
-      ],
-      "runtime": "opencode"
-    },
-    "qa": {
-      "role": "QA Tester",
-      "objective": "Test feature, tạo test cases, kiểm tra end-to-end",
-      "model": "9router/free",
-      "thinking": "hidden",
+    "verifier": {
+      "role": "Code Verifier",
+      "objective": "Review diff for correctness, security, regressions, style. Create and execute QA test cases. Summarize verification and prepare Jira/Slack handoff.",
+      "model": "gpt-5.6-sol",
+      "thinking": "xhigh",
       "tools": [
         "read",
         "exec"
       ],
       "outputs": [
-        "output/qa.md"
-      ],
-      "runtime": "opencode"
+        "output/verification.md"
+      ]
     },
-    "apk-analyzer": {
-      "role": "APK Analyst",
-      "objective": "Phân tích tự động một file APK/XAPK Android, trích xuất toàn bộ thông tin kỹ thuật: framework, tech stack, permissions, activities/screens, monetization, ad networks, assets, localization. Tạo summary document chi tiết phục vụ việc clone/rebuild app.",
-      "model": "9router/free",
+    "researcher": {
+      "role": "Researcher Specialist",
+      "objective": "Research and validate information required for successful project execution.  Collect relevant technical knowledge, industry best practices, framework documentation, architectural patterns, implementation references, constraints, risks, and alternatives.  Provide evidence-based findings that help other agents make high-quality decisions.  Focus on accuracy, completeness, and source credibility. Never design solutions, write implementation code, or make final architectural decisions unless explicitly requested.",
+      "model": "gpt-5.5",
       "thinking": "high",
-      "tools": [
-        "read",
-        "exec",
-        "write",
-        "edit",
-        "web_search",
-        "web_fetch"
-      ],
+      "tools": [],
       "outputs": [
-        "output/summary.md"
+        "output/research.md"
       ],
-      "runtime": "opencode"
+      "runtime": "codex"
     },
-    "apk-architect": {
-      "role": "App Architect",
-      "objective": "Từ APK analysis summary, tạo clone-spec.md — tài liệu spec chi tiết nhất để developer có thể rebuild lại app từ đầu. Bao gồm: tech stack recommendation, screen architecture, feature specifications, data models, API design, monetization integration, localization strategy.",
-      "model": "9router/ocg/mimo-v2.5-pro",
+    "analyzer": {
+      "role": "Analyzer",
+      "objective": "Understand the existing codebase and identify refactoring opportunities.  Analyze architecture, dependencies, code quality issues, technical debt, maintainability concerns, and potential risks.  Produce an objective assessment of the current state without proposing implementation changes.",
+      "model": "gpt-5.5",
       "thinking": "high",
-      "tools": [
-        "read",
-        "exec",
-        "write",
-        "edit",
-        "web_search",
-        "web_fetch"
-      ],
+      "tools": [],
       "outputs": [
-        "output/clone-spec.md"
+        "output/analyzer.md"
       ],
-      "runtime": "opencode"
+      "runtime": "codex"
     },
-    "apk-planner": {
-      "role": "Task Planner",
-      "objective": "Từ clone-spec.md → tạo task-plan.md với effort estimate, dependencies, priority",
-      "model": "9router/ocg/mimo-v2.5-pro",
+    "refactor-planner": {
+      "role": "Refactor Planner",
+      "objective": "Create a safe, incremental refactoring plan that improves code quality while preserving existing behavior.  Break large refactoring efforts into small, reviewable steps.",
+      "model": "gpt-5.5",
+      "thinking": "medium",
+      "tools": [],
+      "outputs": [
+        "output/refactor-plan.md"
+      ],
+      "runtime": "codex"
+    },
+    "refactor-implementer": {
+      "role": "Refactor Implementer",
+      "objective": "Apply refactoring changes according to the approved plan while preserving behavior and minimizing code churn.",
+      "model": "gpt-5.5",
       "thinking": "high",
-      "tools": [
-        "read",
-        "write",
-        "edit"
-      ],
+      "tools": [],
       "outputs": [
-        "output/task-plan.md"
+        "output/implementation.md"
       ],
-      "runtime": "opencode"
+      "runtime": "codex"
     },
-    "developer": {
-      "role": "General Software Developer",
-      "objective": "Implement task từ docs/tasks hoặc custom prompt theo output/plan.md, sửa code thật trong workspace, chạy verification, và ghi output/developer.md",
-      "model": "9router/free",
-      "thinking": "hidden",
-      "tools": [
-        "read",
-        "exec",
-        "edit",
-        "write",
-        "apply_patch",
-        "web_search",
-        "web_fetch"
-      ],
-      "outputs": [
-        "output/developer.md"
-      ],
-      "runtime": "opencode"
-    },
-    "devteam-task-dispatcher": {
-      "role": "Task Dispatcher",
-      "objective": "Đọc task index từ docs/tasks, parse dependencies, tạo DevTeam MCP tasks theo đúng thứ tự dependency với worktreePath cho mỗi task",
-      "model": "9router/ocg/mimo-v2.5-pro",
+    "investigator": {
+      "role": "Investigator",
+      "objective": "Identify the true root cause of the reported issue through evidence-based investigation.  Determine:  - What is broken - How to reproduce it - Why it happens - Which components are involved  Do not propose fixes.  Focus on facts, evidence, and root cause analysis.",
+      "model": "gpt-5.5",
       "thinking": "high",
-      "tools": [
-        "read",
-        "exec",
-        "write"
-      ],
+      "tools": [],
       "outputs": [
-        "output/task-dispatch.md"
+        "output/investigation.md"
       ],
-      "runtime": "opencode"
+      "runtime": "codex"
+    },
+    "fix_planner": {
+      "role": "Fix Planner",
+      "objective": "Design the safest and smallest fix that resolves the root cause without introducing regressions.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [],
+      "outputs": [
+        "output/fix-plan.md"
+      ],
+      "runtime": "codex"
+    },
+    "fix_implementer": {
+      "role": "Fix Implementer",
+      "objective": "Implement the approved fix with minimal code changes while preserving all intended behavior.",
+      "model": "gpt-5.5",
+      "thinking": "high",
+      "tools": [],
+      "outputs": [
+        "output/implementation.md"
+      ],
+      "runtime": "codex"
+    },
+    "bug_verifier": {
+      "role": "Bug Verifier",
+      "objective": "Verify the reported issue is resolved and ensure no regressions were introduced.",
+      "model": "gpt-5.5",
+      "thinking": "xhigh",
+      "tools": [],
+      "outputs": [
+        "output/verification.md"
+      ],
+      "runtime": "codex"
     }
   }
 }

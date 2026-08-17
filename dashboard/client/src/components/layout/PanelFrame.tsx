@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type PanelId = 'pipeline' | 'logs' | 'output';
+export type PanelId = 'pipeline' | 'session' | 'output';
 
 interface PanelHeaderProps {
   title: string;
@@ -32,7 +32,7 @@ export function PanelHeader({
     ? collapsed
       ? ChevronsDown
       : ChevronsUp
-    : panel === 'logs'
+    : panel === 'session'
     ? ChevronsLeft
     : ChevronsRight;
 
@@ -87,7 +87,7 @@ export function PanelFrame({
   className,
 }: PanelFrameProps) {
   if (collapsed && panel !== 'pipeline') {
-    const OpenIcon = panel === 'logs' ? ChevronsRight : ChevronsLeft;
+    const OpenIcon = panel === 'session' ? ChevronsRight : ChevronsLeft;
     return (
       <button
         type="button"
@@ -95,7 +95,7 @@ export function PanelFrame({
         onClick={() => onToggleCollapse(panel)}
         className={cn(
           'flex h-full w-full flex-col items-center justify-center gap-2 border-border/50 bg-card/50 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
-          panel === 'logs' ? 'border-r' : 'border-l',
+          panel === 'session' ? 'border-r' : 'border-l',
           className
         )}
       >

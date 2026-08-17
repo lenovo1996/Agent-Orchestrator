@@ -104,3 +104,13 @@
     box-shadow: 0 0 15px -3px hsl(var(--primary) / 0.15);
   }
 }
+
+@layer components {
+  .session-toggle {
+    @apply inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+  }
+
+  .session-toggle-active {
+    @apply border-primary/40 bg-primary/10 text-primary;
+  }
+}

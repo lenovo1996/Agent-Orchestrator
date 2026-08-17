@@ -9,7 +9,7 @@ interface UsePanelResizeOptions {
   expandedPanel: string | null;
   pipelineHeight: number;
   setPipelineHeight: (height: number) => void;
-  setLogWidthPercent: (percent: number) => void;
+  setSessionWidthPercent: (percent: number) => void;
 }
 
 export function usePanelResize({
@@ -17,7 +17,7 @@ export function usePanelResize({
   expandedPanel,
   pipelineHeight,
   setPipelineHeight,
-  setLogWidthPercent,
+  setSessionWidthPercent,
 }: UsePanelResizeOptions) {
   const startPipelineResize = (event: PointerEvent<HTMLDivElement>) => {
     if (collapsedPanels.pipeline || expandedPanel) return;
@@ -42,8 +42,8 @@ export function usePanelResize({
     window.addEventListener('pointerup', stopResize);
   };
 
-  const startLogOutputResize = (event: PointerEvent<HTMLDivElement>) => {
-    if (collapsedPanels.logs || collapsedPanels.output || expandedPanel) return;
+  const startSessionOutputResize = (event: PointerEvent<HTMLDivElement>) => {
+    if (collapsedPanels.session || collapsedPanels.output || expandedPanel) return;
 
     event.preventDefault();
     const container = event.currentTarget.parentElement;
@@ -55,7 +55,7 @@ export function usePanelResize({
 
     const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
       const nextPercent = ((moveEvent.clientX - rect.left) / rect.width) * 100;
-      setLogWidthPercent(clamp(nextPercent, MIN_SPLIT_PERCENT, MAX_SPLIT_PERCENT));
+      setSessionWidthPercent(clamp(nextPercent, MIN_SPLIT_PERCENT, MAX_SPLIT_PERCENT));
     };
 
     const stopResize = () => {
@@ -67,5 +67,5 @@ export function usePanelResize({
     window.addEventListener('pointerup', stopResize);
   };
 
-  return { startPipelineResize, startLogOutputResize };
+  return { startPipelineResize, startSessionOutputResize };
 }

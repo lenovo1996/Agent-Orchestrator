@@ -7,7 +7,6 @@ export function useSocketEvents() {
     setConnected,
     initState,
     updateFlow,
-    appendLogLines,
   } = useDashboardStore();
 
   useEffect(() => {
@@ -20,10 +19,6 @@ export function useSocketEvents() {
 
     socket.on('flow:updated', ({ flowId, workflow }) => {
       updateFlow(flowId, workflow);
-    });
-
-    socket.on('log:append', ({ flowId, step, lines }) => {
-      appendLogLines(flowId, step, lines);
     });
 
     socket.on('output:created', (_payload) => {
@@ -44,7 +39,6 @@ export function useSocketEvents() {
       socket.off('disconnect');
       socket.off('state:init');
       socket.off('flow:updated');
-      socket.off('log:append');
       socket.off('output:created');
       socket.off('output:updated');
       socket.io.off('reconnect');

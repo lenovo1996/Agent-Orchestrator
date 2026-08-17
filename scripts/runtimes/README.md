@@ -30,7 +30,7 @@ Trong `team.json`:
 
 | Runtime | CLI | Token Format | Notes |
 |---------|-----|--------------|-------|
-| `codex` | OpenAI Codex CLI | `tokens used\n<number>` | Default. Headless exec mode |
+| `codex` | OpenAI Codex CLI | Structured attempt metadata | Default. `codex exec --json`, native rollout remains in `CODEX_HOME` |
 | `claude` | Claude Code CLI | JSON `{"usage":{"input_tokens":N,"output_tokens":N}}` | Uses `-p` print mode |
 | `kiro` | Kiro CLI | `Token usage: <number>` | Headless mode |
 | `opencode` | OpenCode CLI (via Anthropic proxy) | Auto-detect | Uses anthropic-proxy.js → 9router |
@@ -41,7 +41,7 @@ Trong `team.json`:
 Mỗi runtime script nhận cùng arguments:
 
 ```
-runtimes/<name>.sh <prompt-file> <log-file> <work-dir> <cwd>
+runtimes/<name>.sh <prompt-file> <log-file> <work-dir> <cwd> <flow-id> <step>
 ```
 
 Env vars được set bởi `agent-wrapper.sh`:
@@ -55,7 +55,7 @@ Env vars được set bởi `agent-wrapper.sh`:
 ## Token Tracking
 
 `token-tracker.js` tự động detect format từ log content:
-1. Codex format: `tokens used\n250,964`
+1. Codex: structured usage in `sessions/<step>/<runId>.json` (legacy log parsing remains compatible)
 2. Claude JSON: `{"usage":{"input_tokens":N,"output_tokens":N}}`
 3. Generic: `Total tokens: N` hoặc `Tokens: N`
 4. Kiro: `Token usage: N`

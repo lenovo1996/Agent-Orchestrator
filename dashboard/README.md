@@ -6,7 +6,7 @@ Real-time web dashboard để monitoring và quản lý dev-team workflows.
 
 - 📊 **Real-time monitoring**: Xem status của tất cả workflows, agents, và tasks
 - 🔄 **Live updates**: WebSocket-based real-time updates
-- 📝 **Log viewer**: Xem logs của từng agent step
+- 🧭 **Session Viewer**: Xem transcript Codex có cấu trúc, attempts, commands, patches, plans, tools và token stats
 - 📄 **Output preview**: Preview markdown output files với syntax highlighting
 - 🎯 **Task management**: Start, stop, retry workflows từ UI
 - 🔀 **Git integration**: Xem git status của các repositories
@@ -15,6 +15,8 @@ Real-time web dashboard để monitoring và quản lý dev-team workflows.
 - 🌙 **Dark theme**: Modern dark UI với shadcn/ui
 
 ## Quick Start
+
+Requires Node.js `>=22.15.0` so completed `.jsonl.zst` rollouts can be read with the built-in zstd stream.
 
 ### 1. Development Mode (Local)
 
@@ -82,7 +84,7 @@ dashboard/
 ## Architecture
 
 ### Frontend Stack
-- **React 18** + **TypeScript**
+- **React 19** + **TypeScript**
 - **Vite** (dev server & build tool)
 - **shadcn/ui** (UI components)
 - **TailwindCSS** (styling)
@@ -97,7 +99,7 @@ dashboard/
 
 ### Communication
 - **REST API**: HTTP endpoints cho actions (start, stop, retry)
-- **WebSocket**: Real-time updates cho flow status và logs
+- **WebSocket**: Real-time updates cho flow status và structured Codex sessions
 - **File watching**: Server watch workflow.json files và emit events
 
 ## API Endpoints
@@ -106,6 +108,9 @@ dashboard/
 - `GET /api/flows` - List all workflows
 - `GET /api/flows/:flowId` - Get workflow details
 - `GET /api/flows/:flowId/logs/:step` - Get step logs
+- `GET /api/flows/:flowId/sessions/:step` - List structured session attempts
+- `GET /api/flows/:flowId/sessions/:step/:runId` - Get sanitized session snapshot
+- `GET /api/flows/:flowId/sessions/:step/:runId/items/:itemId` - Get lazy item detail
 - `GET /api/flows/:flowId/output/:step` - Get step output
 - `GET /api/flows/:flowId/tokens` - Get token usage
 - `POST /api/flows/start` - Start new workflow
@@ -131,13 +136,13 @@ dashboard/
 
 ```bash
 # Server port (default: 3001)
-PORT=3001
+DASHBOARD_PORT=3001
 
-# Task flows directory (default: ../../task-flows relative to server)
-TASK_FLOWS_DIR=/path/to/task-flows
+# Native Codex home (default: CODEX_HOME, then ~/.codex)
+DASHBOARD_CODEX_HOME=/path/to/.codex
 
-# Log level (default: info)
-LOG_LEVEL=debug
+# Disable the viewer without restoring the legacy Logs panel
+DASHBOARD_SESSION_VIEWER_ENABLED=true
 ```
 
 ### .env.example

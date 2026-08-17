@@ -8,7 +8,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { FlowList } from './components/flow/FlowList';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { FlowActions } from './components/agent/FlowActions';
-import { LogViewer } from './components/log/LogViewer';
+import { SessionViewer } from './components/session/SessionViewer';
 import { OutputPreview } from './components/output/OutputPreview';
 import { NewTaskDialog } from './components/flow/NewTaskDialog';
 import { WorkflowsPage } from './components/workflows/WorkflowsPage';
@@ -47,11 +47,11 @@ export default function App() {
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
   const [pipelineHeight, setPipelineHeight] = useState(300);
-  const [logWidthPercent, setLogWidthPercent] = useState(58);
+  const [sessionWidthPercent, setSessionWidthPercent] = useState(58);
   const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Record<PanelId, boolean>>({
     pipeline: false,
-    logs: false,
+    session: false,
     output: false,
   });
 
@@ -64,7 +64,7 @@ export default function App() {
   useEffect(() => {
     if (selectedFlowId) {
       setExpandedPanel(null);
-      setCollapsedPanels((prev) => ({ ...prev, logs: false }));
+      setCollapsedPanels((prev) => ({ ...prev, session: false }));
     }
   }, [selectedFlowId]);
 
@@ -83,12 +83,12 @@ export default function App() {
     setExpandedPanel((current) => (current === panel ? null : panel));
   };
 
-  const { startPipelineResize, startLogOutputResize } = usePanelResize({
+  const { startPipelineResize, startSessionOutputResize } = usePanelResize({
     collapsedPanels,
     expandedPanel,
     pipelineHeight,
     setPipelineHeight,
-    setLogWidthPercent,
+    setSessionWidthPercent,
   });
 
   const pipelinePanel = (
@@ -110,17 +110,17 @@ export default function App() {
     </PanelFrame>
   );
 
-  const logsPanel = (
+  const sessionPanel = (
     <PanelFrame
-      title="Logs"
-      panel="logs"
-      collapsed={collapsedPanels.logs}
-      expanded={expandedPanel === 'logs'}
+      title="Session"
+      panel="session"
+      collapsed={collapsedPanels.session}
+      expanded={expandedPanel === 'session'}
       onToggleCollapse={toggleCollapse}
       onToggleExpand={toggleExpand}
       className="border-r border-border/50"
     >
-      <LogViewer />
+      <SessionViewer fullscreen={expandedPanel === 'session'} />
     </PanelFrame>
   );
 
@@ -140,21 +140,21 @@ export default function App() {
   const expandedContent =
     expandedPanel === 'pipeline'
       ? pipelinePanel
-      : expandedPanel === 'logs'
-      ? logsPanel
+      : expandedPanel === 'session'
+      ? sessionPanel
       : expandedPanel === 'output'
       ? outputPanel
       : null;
 
-  const logsPaneStyle = collapsedPanels.logs
+  const sessionPaneStyle = collapsedPanels.session
     ? { flex: `0 0 ${COLLAPSED_PANEL_SIZE}px` }
     : collapsedPanels.output
     ? { flex: '1 1 auto' }
-    : { flex: `0 0 ${logWidthPercent}%` };
+    : { flex: `0 0 ${sessionWidthPercent}%` };
 
   const outputPaneStyle = collapsedPanels.output
     ? { flex: `0 0 ${COLLAPSED_PANEL_SIZE}px` }
-    : collapsedPanels.logs
+    : collapsedPanels.session
     ? { flex: '1 1 auto' }
     : { flex: '1 1 auto' };
 
@@ -253,14 +253,14 @@ export default function App() {
 
                 <div className="min-h-0 flex-1 overflow-hidden">
                   <div className="flex h-full min-w-0 overflow-hidden">
-                    <div className="min-w-0 overflow-hidden" style={logsPaneStyle}>
-                      {logsPanel}
+                    <div className="min-w-0 overflow-hidden" style={sessionPaneStyle}>
+                      {sessionPanel}
                     </div>
-                    {!collapsedPanels.logs && !collapsedPanels.output && (
+                    {!collapsedPanels.session && !collapsedPanels.output && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
-                        onPointerDown={startLogOutputResize}
+                        onPointerDown={startSessionOutputResize}
                         className="group flex w-2 shrink-0 cursor-col-resize items-center justify-center border-r border-border/50 bg-muted/30 transition-colors hover:bg-accent"
                       >
                         <GripVertical className="h-3.5 w-3.5 text-muted-foreground/70 group-hover:text-foreground" />

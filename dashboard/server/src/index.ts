@@ -9,10 +9,13 @@ import { flowsRouter } from './routes/flows.js';
 import { workflowsRouter } from './routes/workflows.js';
 import { agentsRouter } from './routes/agents.js';
 import { workspacesRouter } from './routes/workspaces.js';
+import { sessionsRouter } from './routes/sessions.js';
+import { SessionService } from './session/service.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@devteam-dashboard/shared';
 
 // 1. Load configuration
 const config = loadConfig();
+const sessionService = new SessionService(config);
 
 // 2. Express app with CORS middleware
 const app = express();
@@ -24,6 +27,7 @@ app.use('/api', flowsRouter(config));
 app.use('/api', workflowsRouter());
 app.use('/api', agentsRouter());
 app.use('/api', workspacesRouter());
+app.use('/api', sessionsRouter(config, sessionService));
 
 // 4. Create HTTP server, then Socket.IO server on top
 const httpServer = createServer(app);
@@ -39,7 +43,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 const watcher = createWatcher(config.taskFlowsDir);
 
 // 6. Setup Socket.IO event handlers, wiring watcher events
-setupSocketEvents(io, config, watcher);
+setupSocketEvents(io, config, watcher, sessionService);
 
 // 7. In production: serve static files from client dist
 if (config.isProduction) {

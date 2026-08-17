@@ -1,6 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 
 export interface DashboardConfig {
   port: number;
@@ -11,6 +12,8 @@ export interface DashboardConfig {
   scriptDir: string;
   clientDistPath: string;
   isProduction: boolean;
+  codexHome: string;
+  sessionViewerEnabled: boolean;
 }
 
 /**
@@ -47,8 +50,8 @@ function findRepoRoot(): string {
  * - Loads env vars: DASHBOARD_PORT, DASHBOARD_HOST, DASHBOARD_CORS_ORIGIN.
  * - Creates task-flows directory if it doesn't exist, logs a warning.
  */
-export function loadConfig(): DashboardConfig {
-  const repoRoot = findRepoRoot();
+export function loadConfig(overrides: { repoRoot?: string } = {}): DashboardConfig {
+  const repoRoot = overrides.repoRoot ? path.resolve(overrides.repoRoot) : findRepoRoot();
 
   const teamConfigPath = path.join(repoRoot, 'team.json');
 
@@ -81,5 +84,9 @@ export function loadConfig(): DashboardConfig {
     scriptDir: path.join(repoRoot, 'scripts'),
     clientDistPath: path.resolve(__dirname, '../../client/dist'),
     isProduction: process.env.NODE_ENV === 'production',
+    codexHome: path.resolve(
+      process.env.DASHBOARD_CODEX_HOME || process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),
+    ),
+    sessionViewerEnabled: process.env.DASHBOARD_SESSION_VIEWER_ENABLED !== 'false',
   };
 }

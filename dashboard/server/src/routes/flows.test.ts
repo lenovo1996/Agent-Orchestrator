@@ -23,6 +23,8 @@ function createMockConfig(taskFlowsDir: string): DashboardConfig {
     scriptDir: path.join(taskFlowsDir, '..', 'scripts'),
     clientDistPath: '/tmp/client-dist',
     isProduction: false,
+    codexHome: path.join(taskFlowsDir, '..', '.codex'),
+    sessionViewerEnabled: true,
   };
 }
 
