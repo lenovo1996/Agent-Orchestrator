@@ -23,7 +23,7 @@ const path = require('path');
 const SCRIPT_DIR = path.resolve(__dirname, '..');
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
-const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
+const { loadWorkflow, getSteps, listFlowIds, resolveWorkDir } = require('./flow-state');
 
 function stripAnsi(str) {
   return String(str || '').replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
@@ -175,7 +175,13 @@ function extractTokensFromLog(content) {
  * Returns { entries: number[], total: number, lastEntry: number }
  */
 function parseStepTokens(flowId, step) {
-  const logFile = path.join(OUTPUT_ROOT, flowId, 'logs', `${step}.log`);
+  let flowDirectory;
+  try {
+    flowDirectory = resolveWorkDir(flowId);
+  } catch {
+    return { entries: [], total: 0, lastEntry: 0 };
+  }
+  const logFile = path.join(flowDirectory, 'logs', `${step}.log`);
 
   if (!fs.existsSync(logFile)) {
     return { entries: [], total: 0, lastEntry: 0 };
@@ -197,7 +203,6 @@ function getFlowTokens(flowId) {
   const steps = {};
   let flowTotal = 0;
 
-  const { loadWorkflow, getSteps } = require('../orchestrator/workflow-manager');
   let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
   try {
     const workflow = loadWorkflow(flowId);
@@ -279,13 +284,8 @@ if (require.main === module) {
     }
 
     case 'all': {
-      // List all flows and their totals
-      if (!fs.existsSync(OUTPUT_ROOT)) {
-        console.error('❌ No task-flows directory found');
-        process.exit(1);
-      }
-      const flows = fs.readdirSync(OUTPUT_ROOT)
-        .filter(d => d.startsWith('flow_') && fs.statSync(path.join(OUTPUT_ROOT, d)).isDirectory());
+      // SQLite is authoritative; artifact directories are never discovered.
+      const flows = listFlowIds();
 
       if (flows.length === 0) {
         console.log('No flows found.');

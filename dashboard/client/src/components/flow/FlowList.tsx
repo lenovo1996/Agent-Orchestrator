@@ -7,7 +7,7 @@ export function FlowList() {
   const selectFlow = useDashboardStore((s) => s.selectFlow);
 
   const sortedFlows = Object.values(flows).sort(
-    (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
 
   if (sortedFlows.length === 0) {

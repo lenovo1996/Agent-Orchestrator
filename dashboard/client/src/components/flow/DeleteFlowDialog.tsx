@@ -10,32 +10,26 @@ interface DeleteFlowDialogProps {
 }
 
 export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
-  const [deleteMemory, setDeleteMemory] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const deleteFlowLocally = useDashboardStore((s) => s.deleteFlowLocally);
-  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
-  const workspaceName = useDashboardStore(
-    (s) => s.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name
-  );
 
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
       const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deleteMemory, workspaceName }),
       });
 
       if (!res.ok) {
-        throw new Error('Failed to delete flow');
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete flow');
       }
 
       deleteFlowLocally(flow.flowId);
       onClose();
     } catch (err) {
       console.error(err);
-      alert('Failed to delete flow.');
+      alert(err instanceof Error ? err.message : 'Failed to delete flow.');
     } finally {
       setIsDeleting(false);
     }
@@ -56,21 +50,11 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 mt-4 bg-muted/50 p-3 rounded-lg border border-border/50">
-          <input
-            type="checkbox"
-            id="delete-memory"
-            checked={deleteMemory}
-            onChange={(e) => setDeleteMemory(e.target.checked)}
-            className="w-4 h-4 text-red-500 rounded border-input focus:ring-red-500 bg-background"
-          />
-          <label htmlFor="delete-memory" className="text-sm text-foreground cursor-pointer select-none">
-            Also delete memory context
-          </label>
-        </div>
-        <p className="text-[10px] text-muted-foreground/80 pl-6 -mt-2">
-          Checking this will remove all associated memory data for this flow (e.g. meta.json, tree.json).
-        </p>
+        {!['completed', 'failed', 'stopped', 'expired'].includes(flow.status) && (
+          <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-300">
+            Active flows must be stopped before deletion.
+          </p>
+        )}
 
         <div className="flex justify-end gap-2 pt-4">
           <button
@@ -82,7 +66,7 @@ export function DeleteFlowDialog({ flow, onClose }: DeleteFlowDialogProps) {
           </button>
           <button
             onClick={handleDelete}
-            disabled={isDeleting}
+            disabled={isDeleting || !['completed', 'failed', 'stopped', 'expired'].includes(flow.status)}
             className="px-4 py-2 text-xs font-medium bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
             {isDeleting ? 'Deleting...' : 'Delete Flow'}

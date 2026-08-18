@@ -9,11 +9,29 @@ function workflow(
 ): WorkflowState {
   return {
     flowId,
+    workspaceId: 'ws_1',
+    workspaceName: 'Workspace',
+    workflowId: 'wf_1',
     jiraKey: 'JH-001',
+    stepOrder: Object.keys(steps),
     status: 'running',
     currentStep,
+    generation: 1,
+    revision: 0,
+    useWorktree: false,
+    worktreeBranch: null,
+    blockedReason: null,
+    errorSummary: null,
+    createdAt: '2026-01-01T00:00:00Z',
     startedAt: '2026-01-01T00:00:00Z',
+    finishedAt: null,
     steps,
+    stepDetails: Object.entries(steps).map(([step, status], position) => ({
+      step, position, status, cycle: 1, technicalRetryCount: 0, needsFixCount: 0,
+      outputPath: `output/${step}.md`, startedAt: null, finishedAt: null,
+      updatedAt: '2026-01-01T00:00:00Z',
+    })),
+    dependencies: [],
   };
 }
 
@@ -48,7 +66,7 @@ describe('useDashboardStore selection', () => {
     expect(useDashboardStore.getState().selectedStep).toBeNull();
 
     const flow = workflow('flow_002', 'clarifier', {
-      clarifier: 'pending',
+      clarifier: 'queued',
       architect: 'waiting',
       planner: 'waiting',
       implementer: 'waiting',
@@ -83,5 +101,18 @@ describe('useDashboardStore selection', () => {
     useDashboardStore.getState().updateFlow(updated.flowId, updated);
 
     expect(useDashboardStore.getState().selectedStep).toBe('clarifier');
+  });
+
+  it('clears a deleted selection when a resync snapshot no longer contains it', () => {
+    const flow = workflow('flow_deleted', 'implementer', { implementer: 'done' });
+    useDashboardStore.setState({
+      flows: { [flow.flowId]: flow }, selectedFlowId: flow.flowId, selectedStep: 'implementer',
+    });
+
+    useDashboardStore.getState().initState({ flows: {}, cursor: 9 });
+
+    expect(useDashboardStore.getState()).toMatchObject({
+      flows: {}, selectedFlowId: null, selectedStep: null, domainCursor: 9,
+    });
   });
 });

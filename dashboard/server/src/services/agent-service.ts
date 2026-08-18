@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { db } from '../db.js';
+import type { OrchestrationDatabase } from '@devteam-dashboard/orchestration';
 
 const PROJECT_CONTEXT_MARKER = `## MANDATORY: Read Project Context First
 
@@ -45,13 +45,8 @@ FAILED
 
 Do not omit the status marker.`;
 
-export function syncAgentsToFileSystem(dbDir: string) {
-  db.all('SELECT * FROM agents', [], (err, rows: any[]) => {
-    if (err) {
-      console.error('Failed to sync agents to filesystem', err);
-      return;
-    }
-
+export function syncAgentsToFileSystem(dbDir: string, db: OrchestrationDatabase) {
+  const rows = db.all<any>('SELECT * FROM agents ORDER BY rowid');
     try {
       const teamJsonPath = path.join(dbDir, 'team.json');
       let teamConfig: any = { members: {} };
@@ -75,6 +70,7 @@ export function syncAgentsToFileSystem(dbDir: string) {
           tools: JSON.parse(row.tools),
           outputs: JSON.parse(row.outputs),
           runtime: row.runtime || undefined,
+          runtimeCommand: row.runtime_command || undefined,
         };
 
         let finalInstructions = row.instructions;
@@ -127,5 +123,4 @@ export function syncAgentsToFileSystem(dbDir: string) {
     } catch (e) {
       console.error('Error syncing agents', e);
     }
-  });
 }

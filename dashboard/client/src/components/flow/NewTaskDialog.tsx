@@ -13,10 +13,12 @@ interface NewTaskDialogProps {
 
 export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) {
   const selectedWorkspaceId = useDashboardStore(s => s.selectedWorkspaceId);
+  const orchestrationReady = useDashboardStore(s => s.orchestrationReady);
   const [jiraKey, setJiraKey] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [workflowId, setWorkflowId] = useState('');
   const [dependsOn, setDependsOn] = useState<string>('');
+  const [useWorktree, setUseWorktree] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
@@ -25,7 +27,10 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
     if (open) {
       fetch(`${API_BASE}/api/workflows`)
         .then(res => res.json())
-        .then(data => setWorkflows(data))
+        .then(data => {
+          setWorkflows(data);
+          setWorkflowId((current) => current || data[0]?.id || '');
+        })
         .catch(() => console.error('Failed to load workflows'));
     }
   }, [open]);
@@ -37,20 +42,25 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
       setError('Either Jira Key or Custom Prompt is required');
       return;
     }
+    if (!selectedWorkspaceId || !workflowId) {
+      setError('Workspace and workflow are required');
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/api/flows/start`, {
+      const res = await fetch(`${API_BASE}/api/flows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspaceId: selectedWorkspaceId,
           jiraKey,
-          customPrompt,
+          prompt: customPrompt,
           workflowId,
-          dependsOn: dependsOn.split(',').map(s => s.trim()).filter(Boolean)
+          dependsOn: dependsOn.split(',').map(s => s.trim()).filter(Boolean),
+          useWorktree,
         }),
       });
 
@@ -62,6 +72,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
         setCustomPrompt('');
         setWorkflowId('');
         setDependsOn('');
+        setUseWorktree(false);
         onClose();
       } else {
         setError(data.error || 'Failed to start workflow');
@@ -106,7 +117,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
           {/* Workflow Selection */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">
-              Workflow <span className="text-muted-foreground">(optional)</span>
+              Workflow
             </label>
             <select
               value={workflowId}
@@ -119,15 +130,24 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
                 'transition-colors'
               )}
             >
-              <option value="">Default (5 steps)</option>
+              <option value="" disabled>Select a workflow</option>
               {workflows.map(wf => (
                 <option key={wf.id} value={wf.id}>{wf.name} ({wf.steps.join(' → ')})</option>
               ))}
             </select>
             <p className="text-xs text-muted-foreground">
-              Select a custom workflow or use the default
+              The selected definition is snapshotted when the flow is queued
             </p>
           </div>
+
+          <label className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={useWorktree}
+              onChange={(event) => setUseWorktree(event.target.checked)}
+            />
+            Run in an isolated git worktree
+          </label>
 
           {/* Jira Key */}
           <div className="space-y-2">
@@ -235,7 +255,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
             </button>
             <button
               type="submit"
-              disabled={loading || (!jiraKey && !customPrompt.trim())}
+              disabled={loading || orchestrationReady === false || !selectedWorkspaceId || !workflowId || (!jiraKey && !customPrompt.trim())}
               className={cn(
                 'px-4 py-2 rounded-lg text-sm font-medium transition-all',
                 'bg-blue-500 text-white border border-blue-600',
@@ -250,7 +270,7 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               )}
-              {loading ? 'Starting...' : 'Start Workflow'}
+              {loading ? 'Queueing...' : orchestrationReady === false ? 'Orchestrator unavailable' : 'Queue Workflow'}
             </button>
           </div>
         </form>

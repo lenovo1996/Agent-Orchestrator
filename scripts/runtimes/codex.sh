@@ -28,7 +28,11 @@ cd "$CWD"
 RUN_ID="$(node "$CAPTURE_HELPER" init \
   --work-dir "$WORK_DIR" \
   --flow-id "$FLOW_ID" \
-  --step "$STEP")"
+  --step "$STEP" \
+  --run-id "${DEVTEAM_SESSION_RUN_ID:-$(node -e "process.stdout.write(require('node:crypto').randomUUID())")}" \
+  --attempt-id "${DEVTEAM_ATTEMPT_ID:-manual-${FLOW_ID}-${STEP}}" \
+  --inngest-run-id "${DEVTEAM_INNGEST_RUN_ID:-manual-${FLOW_ID}}" \
+  --inngest-attempt "${DEVTEAM_INNGEST_ATTEMPT:-0}")"
 STDERR_FILE="$(mktemp "${TMPDIR:-/tmp}/codex-session-stderr.XXXXXX")"
 cleanup_capture_file() {
   rm -f "$STDERR_FILE"

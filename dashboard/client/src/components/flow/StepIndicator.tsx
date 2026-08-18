@@ -10,14 +10,14 @@ interface StepIndicatorProps {
 
 const DOT_COLORS: Record<StepStatus, string> = {
   waiting: 'bg-gray-600',
-  pending: 'bg-gray-500',
+  queued: 'bg-sky-400 animate-pulse',
   running: 'bg-blue-400 animate-pulse shadow-sm shadow-blue-400/50',
+  needs_fix: 'bg-amber-400',
   done: 'bg-emerald-400',
   failed: 'bg-red-400',
   blocked: 'bg-purple-400',
   cancelled: 'bg-gray-600',
   retrying: 'bg-amber-400 animate-pulse',
-  unknown: 'bg-gray-500',
 };
 
 export function StepIndicator({ steps, stepOrder }: StepIndicatorProps) {

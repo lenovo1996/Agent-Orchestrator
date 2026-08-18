@@ -3,7 +3,9 @@ dist
 .env
 task-flows
 workflows.db
+workflows.db-shm
+workflows.db-wal
 team.json
 prompts
-parallel-status.json
 .tasks
+.worktrees

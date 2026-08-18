@@ -11,20 +11,20 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 /** Status → icon + color config */
 const STATUS_CONFIG: Record<StepStatus, { icon: string; color: string; bg: string }> = {
   waiting: { icon: '○', color: 'text-gray-500', bg: 'bg-gray-500/10' },
-  pending: { icon: '◌', color: 'text-gray-400', bg: 'bg-gray-400/10' },
+  queued: { icon: '◌', color: 'text-sky-400', bg: 'bg-sky-400/10' },
   running: { icon: '●', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  needs_fix: { icon: '↺', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   done: { icon: '✓', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
   failed: { icon: '✗', color: 'text-red-400', bg: 'bg-red-500/10' },
   blocked: { icon: '⚠', color: 'text-purple-400', bg: 'bg-purple-500/10' },
   cancelled: { icon: '—', color: 'text-gray-500', bg: 'bg-gray-500/10' },
   retrying: { icon: '↻', color: 'text-amber-400', bg: 'bg-amber-500/10' },
-  unknown: { icon: '?', color: 'text-gray-500', bg: 'bg-gray-500/10' },
 };
 
 /**
  * Fetch token counts and output completion times from backend.
  */
-function useFlowStepData(flowId: string | null, workspaceName?: string) {
+function useFlowStepData(flowId: string | null) {
   const [data, setData] = useState<{
     perStep: Record<string, number>;
     total: number;
@@ -42,9 +42,7 @@ function useFlowStepData(flowId: string | null, workspaceName?: string) {
     }
 
     const controller = new AbortController();
-    const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
-
-    fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}/tokens${query}`, { signal: controller.signal })
+    fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}/tokens`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`Failed to fetch step data: ${res.status}`);
@@ -66,7 +64,7 @@ function useFlowStepData(flowId: string | null, workspaceName?: string) {
       });
 
     return () => controller.abort();
-  }, [flowId, workspaceName]);
+  }, [flowId]);
 
   return data;
 }
@@ -80,16 +78,13 @@ function formatTime(iso: string | undefined): string {
 
 export function AgentPanel() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
-  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
-  const workspaces = useDashboardStore((s) => s.workspaces);
   const flows = useDashboardStore((s) => s.flows);
   const agents = useDashboardStore((s) => s.agents);
   const selectedStep = useDashboardStore((s) => s.selectedStep);
   const selectStep = useDashboardStore((s) => s.selectStep);
 
   const flow = selectedFlowId ? flows[selectedFlowId] : null;
-  const workspaceName = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name;
-  const { perStep, total, outputTimes } = useFlowStepData(selectedFlowId, workspaceName);
+  const { perStep, total, outputTimes } = useFlowStepData(selectedFlowId);
 
   if (!flow) {
     return (
@@ -115,10 +110,14 @@ export function AgentPanel() {
           <span className={cn(
             'px-2 py-0.5 rounded-full text-[10px] font-medium border',
             flow.status === 'running' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+            flow.status === 'queued' && 'bg-slate-500/10 text-slate-300 border-slate-500/20',
+            flow.status === 'pending_dependencies' && 'bg-sky-500/10 text-sky-400 border-sky-500/20',
             flow.status === 'completed' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
             flow.status === 'failed' && 'bg-red-500/10 text-red-400 border-red-500/20',
             flow.status === 'blocked' && 'bg-purple-500/10 text-purple-400 border-purple-500/20',
             flow.status === 'stopped' && 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+            flow.status === 'stopping' && 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+            flow.status === 'expired' && 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
           )}>
             {flow.status}
           </span>
@@ -151,10 +150,11 @@ export function AgentPanel() {
           </thead>
           <tbody className="text-xs">
             {(flow.stepOrder || AGENT_STEPS).map((step) => {
-              const status = flow.steps[step] || 'unknown';
+              const status = flow.steps[step] || 'waiting';
               const tokens = perStep[step] ?? 0;
-              const retryCount = flow.retries?.[step] ?? 0;
-              const needsFixCount = flow.needsFixCount?.[step] ?? 0;
+              const detail = flow.stepDetails.find((candidate) => candidate.step === step);
+              const retryCount = detail?.technicalRetryCount ?? 0;
+              const needsFixCount = detail?.needsFixCount ?? 0;
               const isSelected = selectedStep === step;
               const outputFile = getAgentOutputFilename(step, agents);
               const config = STATUS_CONFIG[status];
@@ -260,7 +260,7 @@ export function AgentPanel() {
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
           </svg>
           <span className="text-xs text-purple-300">
-            <span className="font-medium">Blocked:</span> {flow.blockedStep} — {flow.blockedReason}
+            <span className="font-medium">Blocked:</span> {flow.currentStep} — {flow.blockedReason}
           </span>
         </div>
       )}

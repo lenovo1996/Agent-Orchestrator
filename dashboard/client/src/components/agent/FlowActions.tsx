@@ -21,8 +21,7 @@ export function FlowActions() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const flows = useDashboardStore((s) => s.flows);
   const agents = useDashboardStore((s) => s.agents);
-  const workspaces = useDashboardStore((s) => s.workspaces);
-  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
+  const orchestrationReady = useDashboardStore((s) => s.orchestrationReady);
   const flow = selectedFlowId ? flows[selectedFlowId] : null;
 
   const [retryOpen, setRetryOpen] = useState(false);
@@ -57,14 +56,13 @@ export function FlowActions() {
 
     setLoading("stop");
     try {
-      const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/stop`, {
+      const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/actions/stop`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceName: workspaces.find(w => w.id === selectedWorkspaceId)?.name })
       });
       const data = await res.json();
       if (res.ok) {
-        showMessage("success", data.message);
+        showMessage("success", `Stop command ${data.commandId} queued`);
       } else {
         showMessage("error", data.error);
       }
@@ -91,22 +89,21 @@ export function FlowActions() {
     setPromptModalOpen(false);
     setRetryOpen(false);
     try {
-      const bodyPayload: any = {
+      const bodyPayload: { step: string; clearOutput: boolean; prompt?: string } = {
         step,
         clearOutput,
-        workspaceName: workspaces.find(w => w.id === selectedWorkspaceId)?.name
       };
       if (prompt !== undefined) {
         bodyPayload.prompt = prompt;
       }
-      const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/retry`, {
+      const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/actions/retry`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyPayload),
       });
       const data = await res.json();
       if (res.ok) {
-        showMessage("success", data.message);
+        showMessage("success", `Retry command ${data.commandId} queued`);
       } else {
         showMessage("error", data.error);
       }
@@ -116,6 +113,22 @@ export function FlowActions() {
       setLoading(null);
     }
   };
+
+  const handleResume = async () => {
+    setLoading("resume");
+    try {
+      const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/actions/resume`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok) showMessage("success", `Resume command ${data.commandId} queued`);
+      else showMessage("error", data.error);
+    } catch {
+      showMessage("error", "Failed to resume workflow");
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const flowIsActive = ["queued", "pending_dependencies", "running", "stopping"].includes(flow.status);
 
   const handleGitStatus = async () => {
     if (gitOpen) {
@@ -147,7 +160,7 @@ export function FlowActions() {
         <div className="relative">
           <button
             onClick={() => setRetryOpen(!retryOpen)}
-            disabled={loading !== null}
+            disabled={loading !== null || orchestrationReady === false || flowIsActive}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
               "bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20",
@@ -173,7 +186,7 @@ export function FlowActions() {
           {/* Retry dropdown — opens UPWARD */}
           {retryOpen && (
             <div className="absolute bottom-full left-0 mb-1 z-50 w-52 rounded-xl border border-border bg-card shadow-xl p-2 space-y-0.5">
-              {(flow.stepOrder || AGENT_STEPS).map((step) => (
+              {(flow.stepOrder.length ? flow.stepOrder : AGENT_STEPS).map((step) => (
                 <button
                   key={step}
                   onClick={() => openRetryPromptModal(step)}
@@ -208,7 +221,7 @@ export function FlowActions() {
         {/* Stop button */}
         <button
           onClick={handleStop}
-          disabled={loading !== null || flow.status !== "running"}
+          disabled={loading !== null || !["queued", "pending_dependencies", "running", "blocked"].includes(flow.status)}
           className={cn(
             "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
             "bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20",
@@ -229,6 +242,18 @@ export function FlowActions() {
             />
           </svg>
           Stop
+        </button>
+
+        <button
+          onClick={handleResume}
+          disabled={loading !== null || orchestrationReady === false || !["blocked", "expired"].includes(flow.status)}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+            "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
+        >
+          Resume
         </button>
 
         {/* Git status button */}

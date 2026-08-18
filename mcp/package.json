@@ -1,15 +1,17 @@
 {
   "name": "@devteam/mcp",
   "version": "1.0.0",
-  "description": "MCP Server cho việc kiểm tra và chỉnh sửa task",
+  "description": "MCP server for durable SQLite/Inngest flow commands",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "test": "npm run build && node --test test/**/*.test.js"
   },
   "dependencies": {
+    "@devteam-dashboard/orchestration": "file:../dashboard/orchestration",
     "@modelcontextprotocol/sdk": "^1.0.1"
   },
   "devDependencies": {

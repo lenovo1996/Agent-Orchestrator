@@ -29,9 +29,8 @@ const SCRIPT_DIR = path.resolve(__dirname);
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
-const OUTPUT_ROOT = path.resolve(REPO_ROOT, TEAM_CONFIG.outputRoot || 'task-flows');
 const { parseStepTokens, getFlowTokens, formatTokens, formatFlowSummary } = require('../utils/token-tracker');
-const { loadWorkflow, getSteps, resolveWorkDir } = require('../orchestrator/workflow-manager');
+const { loadWorkflow, getSteps, resolveWorkDir } = require('./flow-state');
 
 function _getSteps(flowId) {
   let stepsToUse = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
@@ -45,12 +44,13 @@ function _getSteps(flowId) {
 // --- Core Functions ---
 
 /**
- * Resolve task ID from flow. Uses jiraKey from workflow.json if available.
+ * Resolve task ID from the SQLite flow checkpoint.
  */
 function resolveTaskId(flowId) {
   try {
     const workflow = loadWorkflow(flowId);
-    return workflow.jiraKey || flowId;
+    const taskId = workflow.jiraKey || flowId;
+    return /^[A-Za-z0-9._-]+$/.test(taskId) ? taskId : flowId;
   } catch {
     return flowId;
   }
@@ -222,8 +222,8 @@ function initTree(flowId) {
   // Migrate legacy structure if present
   migrateLegacyIfNeeded(flowId);
 
-  // Read workflow for metadata
-  const workflow = JSON.parse(fs.readFileSync(path.join(workDir, 'workflow.json'), 'utf8'));
+  // Read immutable flow metadata from SQLite.
+  const workflow = loadWorkflow(flowId);
   const taskId = workflow.jiraKey || flowId;
 
   const tree = {
@@ -345,15 +345,20 @@ function updateTree(flowId, step) {
 
   const tree = JSON.parse(fs.readFileSync(treePath, 'utf8'));
   const workDir = resolveWorkDir(flowId);
-  const member = TEAM_CONFIG.members[step];
-
-  if (!member) {
-    console.error(`❌ Unknown step: ${step}`);
-    return null;
-  }
+  const workflow = loadWorkflow(flowId);
+  const member = workflow.agents?.[step] || TEAM_CONFIG.members[step] || {
+    role: step,
+    objective: '',
+    outputs: [],
+  };
 
   // Parse the output file
-  const outputFile = path.join(workDir, member.outputs[0]);
+  const outputPath = workflow.stepStates[step]?.outputPath || member.outputs[0];
+  if (!outputPath) {
+    console.error(`❌ No output configured for step: ${step}`);
+    return null;
+  }
+  const outputFile = path.join(workDir, outputPath);
   const parsed = parseOutputFile(outputFile);
 
   if (!parsed) {
@@ -550,8 +555,13 @@ function generateActiveContext(flowId, targetStep) {
 
   // Current step info
   md += `## Current Step: ${targetStep}\n\n`;
-  md += `You are the **${TEAM_CONFIG.members[targetStep].role}**.\n`;
-  md += `Objective: ${TEAM_CONFIG.members[targetStep].objective}\n\n`;
+  const workflow = loadWorkflow(flowId);
+  const member = workflow.agents?.[targetStep] || TEAM_CONFIG.members[targetStep] || {
+    role: targetStep,
+    objective: '',
+  };
+  md += `You are the **${member.role}**.\n`;
+  md += `Objective: ${member.objective}\n\n`;
 
   // Pipeline progress
   md += `## Pipeline Progress\n\n`;

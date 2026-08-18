@@ -68,8 +68,17 @@ describe('SessionViewer', () => {
     });
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() });
     const workflow: WorkflowState = {
-      flowId: 'flow_001', jiraKey: 'TEST-1', status: 'running', currentStep: 'implementer',
-      startedAt: latest.startedAt, steps: { implementer: 'running' },
+      flowId: 'flow_001', workspaceId: 'ws_1', workspaceName: 'Workspace', workflowId: 'wf_1',
+      jiraKey: 'TEST-1', stepOrder: ['implementer'], status: 'running', currentStep: 'implementer',
+      generation: 1, revision: 1, useWorktree: false, worktreeBranch: null,
+      blockedReason: null, errorSummary: null, createdAt: latest.startedAt,
+      startedAt: latest.startedAt, finishedAt: null, steps: { implementer: 'running' },
+      stepDetails: [{
+        step: 'implementer', position: 0, status: 'running', cycle: 1,
+        technicalRetryCount: 0, needsFixCount: 0, outputPath: 'output/implementation.md',
+        startedAt: latest.startedAt, finishedAt: null, updatedAt: latest.startedAt,
+      }],
+      dependencies: [],
     };
     useDashboardStore.setState({
       selectedFlowId: 'flow_001',
@@ -98,6 +107,10 @@ describe('SessionViewer', () => {
     render(<SessionViewer />);
     expect(await screen.findByText('Newest final')).toBeTruthy();
     expect((screen.getByLabelText('Attempt') as HTMLSelectElement).value).toBe(latest.runId);
+    expect(screen.queryByRole('status', { name: 'Working...' })).toBeNull();
+    expect(screen.queryByText('session.log')).toBeNull();
+    expect(screen.queryByText(/Jump to turn/i)).toBeNull();
+    expect(screen.getByLabelText('Session transcript').className).toContain('dark:bg-[#090b0f]');
     expect(screen.queryByText('Hidden thought summary')).toBeNull();
     expect(screen.queryByText(/Started /)).toBeNull();
 
@@ -118,6 +131,45 @@ describe('SessionViewer', () => {
     fireEvent.change(screen.getByLabelText('Attempt'), { target: { value: first.runId } });
     expect(await screen.findByText('Older final')).toBeTruthy();
     expect(screen.queryByText('Newest final')).toBeNull();
+  });
+
+  it('shows an animated working indicator for an active attempt and removes it when the attempt completes', async () => {
+    const runningAttempt = {
+      ...latest,
+      status: 'running' as const,
+      finishedAt: null,
+      exitCode: null,
+    };
+    const runningSnapshot: SessionSnapshot = {
+      ...snapshot,
+      attempt: runningAttempt,
+      header: { ...snapshot.header!, finishedAt: null, totalDurationMs: null },
+    };
+    global.fetch = vi.fn(async (input: string | URL | Request) => String(input).includes(`/${runningAttempt.runId}`)
+      ? new Response(JSON.stringify(runningSnapshot), { status: 200 })
+      : new Response(JSON.stringify({ enabled: true, attempts: [first, runningAttempt] }), { status: 200 })) as typeof fetch;
+
+    render(<SessionViewer />);
+
+    const working = await screen.findByRole('status', { name: 'Working...' });
+    expect(working.querySelectorAll('[data-working-dot]')).toHaveLength(3);
+    expect(working.querySelector('[data-working-dot]')?.className).toContain('animate-bounce');
+    expect(working.closest('[data-session-working-dock]')).toBeTruthy();
+    expect(screen.getByLabelText('Session transcript').contains(working)).toBe(false);
+
+    socketMock.handlers['session:attempt-updated']({
+      workspaceName: null,
+      flowId: 'flow_001',
+      step: 'implementer',
+      attempt: {
+        ...runningAttempt,
+        status: 'completed',
+        finishedAt: '2026-08-17T00:03:00.000Z',
+        exitCode: 0,
+      },
+    });
+
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Working...' })).toBeNull());
   });
 
   it('upserts stable item IDs without duplicates and stops auto-scroll after the user scrolls up', async () => {
@@ -144,6 +196,11 @@ describe('SessionViewer', () => {
     socketMock.handlers['session:item-upsert'](payload);
     expect(await screen.findAllByText('Live update')).toHaveLength(1);
     expect(scrollTo).not.toHaveBeenCalled();
+
+    const scrollButton = screen.getByRole('button', { name: 'Scroll to bottom' });
+    fireEvent.click(scrollButton);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1000, behavior: 'smooth' });
+    expect(screen.queryByRole('button', { name: 'Scroll to bottom' })).toBeNull();
   });
 
   it('counts exec_command tool upserts as commands', async () => {

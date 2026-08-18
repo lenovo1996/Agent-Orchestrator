@@ -17,8 +17,8 @@ export function useSocketEvents() {
       initState(payload);
     });
 
-    socket.on('flow:updated', ({ flowId, workflow }) => {
-      updateFlow(flowId, workflow);
+    socket.on('flow:updated', ({ sequence, flowId, workflow }) => {
+      updateFlow(flowId, workflow, sequence);
     });
 
     socket.on('output:created', (_payload) => {

@@ -1,52 +1,95 @@
 import { useEffect, useState } from 'react';
-import {
-  AlertTriangle,
-  BrainCircuit,
-  ChevronDown,
-  CircleUserRound,
-  FileDiff,
-  Globe2,
-  ListChecks,
-  MessageSquareText,
-  TerminalSquare,
-  Wrench,
-} from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { SessionItemDetail, SessionItemSummary } from '@devteam-dashboard/shared';
 
-const icons = {
-  message: MessageSquareText,
-  reasoning: BrainCircuit,
-  command: TerminalSquare,
-  patch: FileDiff,
-  plan: ListChecks,
-  search: Globe2,
-  tool: Wrench,
-  error: AlertTriangle,
-  unknown: AlertTriangle,
-};
+interface Presentation {
+  label: string;
+  marker: string;
+  tone: string;
+  row: string;
+}
 
-function statusColor(status?: string): string {
+function presentation(item: SessionItemSummary): Presentation {
+  if (item.kind === 'message' && item.role === 'user') {
+    return { label: 'YOU', marker: '›', tone: 'text-cyan-700 dark:text-cyan-300', row: 'bg-cyan-500/[0.04]' };
+  }
+  if (item.kind === 'message' && item.phase === 'final') {
+    return { label: 'FINAL', marker: '◆', tone: 'text-emerald-700 dark:text-emerald-300', row: 'bg-emerald-500/[0.035]' };
+  }
+  if (item.kind === 'message') {
+    return { label: 'ASSISTANT', marker: '·', tone: 'text-blue-700 dark:text-blue-300', row: '' };
+  }
+
+  const values: Record<SessionItemSummary['kind'], Presentation> = {
+    message: { label: 'ASSISTANT', marker: '·', tone: 'text-blue-700 dark:text-blue-300', row: '' },
+    reasoning: { label: 'THINK', marker: '∴', tone: 'text-violet-700 dark:text-violet-300', row: 'bg-violet-500/[0.035]' },
+    command: { label: 'COMMAND', marker: '$', tone: 'text-amber-700 dark:text-amber-300', row: '' },
+    patch: { label: 'PATCH', marker: '+', tone: 'text-emerald-700 dark:text-emerald-300', row: '' },
+    plan: { label: 'PLAN', marker: '≡', tone: 'text-sky-700 dark:text-sky-300', row: '' },
+    search: { label: 'SEARCH', marker: '?', tone: 'text-cyan-700 dark:text-cyan-300', row: '' },
+    tool: { label: 'TOOL', marker: '↳', tone: 'text-blue-700 dark:text-blue-300', row: '' },
+    error: { label: 'ERROR', marker: '!', tone: 'text-red-600 dark:text-red-400', row: 'bg-red-500/[0.045]' },
+    unknown: { label: 'EVENT', marker: '·', tone: 'text-muted-foreground', row: '' },
+  };
+  return values[item.kind];
+}
+
+function time(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '--:--:--';
+  return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function statusTone(status?: string): string {
   if (!status) return 'text-muted-foreground';
-  if (/fail|error|abort/i.test(status)) return 'text-red-500';
-  if (/complete|success/i.test(status)) return 'text-emerald-500';
-  return 'text-blue-500';
+  if (/fail|error|abort/i.test(status)) return 'text-red-600 dark:text-red-400';
+  if (/complete|success|done/i.test(status)) return 'text-emerald-700 dark:text-emerald-400';
+  if (/running|progress|start/i.test(status)) return 'text-blue-700 dark:text-blue-400';
+  return 'text-muted-foreground';
+}
+
+function planMarker(status: string): { marker: string; tone: string } {
+  if (/complete|success|done/i.test(status)) return { marker: '✓', tone: 'text-emerald-700 dark:text-emerald-400' };
+  if (/fail|error|abort/i.test(status)) return { marker: '×', tone: 'text-red-600 dark:text-red-400' };
+  if (/running|progress|start/i.test(status)) return { marker: '●', tone: 'text-blue-700 dark:text-blue-400' };
+  return { marker: '○', tone: 'text-muted-foreground' };
 }
 
 function DetailBody({ item, detail }: { item: SessionItemSummary; detail?: SessionItemDetail }) {
-  if (!detail) return <div className="p-3 text-xs text-muted-foreground">Loading detail…</div>;
+  if (!detail) {
+    return <div className="border-t border-border bg-muted/30 py-2 pl-[6.75rem] pr-3 font-mono text-[11px] text-muted-foreground">loading output…</div>;
+  }
   const value = item.kind === 'patch'
     ? detail.diff
     : detail.output || detail.toolOutput || [detail.stdout, detail.stderr].filter(Boolean).join('\n');
   const input = item.kind === 'tool' || item.kind === 'search' ? detail.toolInput : null;
+
   return (
-    <div className="border-t border-border/60 bg-zinc-950 text-zinc-100">
+    <div className="border-t border-border bg-muted/30 py-2 pl-[6.75rem] pr-3 font-mono text-[11px] leading-relaxed text-foreground">
       {input && (
-        <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-b border-zinc-800 p-3 text-[11px] leading-relaxed text-zinc-300">{input}</pre>
+        <div className="mb-2 border-l border-cyan-500/40 pl-3">
+          <div className="mb-1 text-[9px] font-semibold uppercase tracking-widest text-cyan-700/70 dark:text-cyan-400/70">input</div>
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-muted-foreground">{input}</pre>
+        </div>
       )}
-      <pre className="max-h-96 overflow-auto whitespace-pre-wrap p-3 text-[11px] leading-relaxed">{value || 'No detail output'}</pre>
+      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words border-l border-border pl-3">{value || 'no output'}</pre>
     </div>
+  );
+}
+
+function RowLead({ item, value }: { item: SessionItemSummary; value: Presentation }) {
+  return (
+    <>
+      <time className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">{time(item.timestamp)}</time>
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`w-3 shrink-0 text-center text-sm font-bold leading-none ${value.tone}`} aria-hidden="true">{value.marker}</span>
+          <span className={`text-[10px] font-bold tracking-[0.14em] ${value.tone}`}>{value.label}</span>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -61,7 +104,8 @@ export function SessionItem({
 }) {
   const autoOpen = item.kind === 'command' && Boolean(item.outputPreview) && (item.outputPreview?.length || 0) < 180;
   const [open, setOpen] = useState(autoOpen);
-  const Icon = item.role === 'user' ? CircleUserRound : icons[item.kind];
+  const value = presentation(item);
+  const compactAssistant = item.kind === 'message' && item.role !== 'user';
 
   useEffect(() => {
     if (open && item.hasDetail && !detail) loadDetail(item);
@@ -75,16 +119,19 @@ export function SessionItem({
 
   if (item.kind === 'message' || item.kind === 'reasoning') {
     return (
-      <article className={`rounded-xl border p-3 ${
-        item.role === 'user' ? 'border-blue-500/20 bg-blue-500/5' : item.kind === 'reasoning' ? 'border-violet-500/20 bg-violet-500/5' : 'border-border/70 bg-card/70'
-      }`}>
-        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-          <Icon className="h-3.5 w-3.5" />
-          <span>{item.role === 'user' ? 'User' : item.kind === 'reasoning' ? 'Reasoning' : item.phase === 'final' ? 'Final answer' : 'Commentary'}</span>
-          <time className="ml-auto font-normal normal-case">{new Date(item.timestamp).toLocaleTimeString()}</time>
-        </div>
-        <div className="prose prose-sm max-w-none break-words text-foreground dark:prose-invert prose-pre:overflow-auto prose-pre:text-xs">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ''}</ReactMarkdown>
+      <article
+        aria-label={`Session item: ${value.label}`}
+        className={`grid grid-cols-[4.25rem_minmax(0,1fr)] gap-2 px-3 py-2.5 font-mono ${value.row}`}
+      >
+        <time className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">{time(item.timestamp)}</time>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={`w-3 shrink-0 text-center text-sm font-bold leading-none ${value.tone}`} aria-hidden="true">{value.marker}</span>
+            <span className={`text-[10px] font-bold tracking-[0.14em] ${value.tone}`}>{value.label}</span>
+          </div>
+          <div className={`prose prose-sm mt-1 max-w-none break-words pl-5 text-foreground dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-foreground prose-p:my-1 prose-p:leading-relaxed prose-pre:my-2 prose-pre:border prose-pre:border-border prose-pre:bg-muted/60 prose-pre:text-xs prose-code:text-cyan-700 dark:prose-code:text-cyan-200 ${compactAssistant ? 'prose-headings:text-sm prose-li:text-xs prose-p:text-xs' : ''}`}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ''}</ReactMarkdown>
+          </div>
         </div>
       </article>
     );
@@ -92,19 +139,25 @@ export function SessionItem({
 
   if (item.kind === 'plan') {
     return (
-      <article className="rounded-xl border border-border/70 bg-card/70 p-3">
-        <div className="mb-2 flex items-center gap-2 text-xs font-semibold"><ListChecks className="h-4 w-4" /> Plan</div>
-        <ol className="space-y-1.5 text-xs">
-          {(item.plan || []).map((entry, index) => (
-            <li key={`${entry.step}-${index}`} className="flex gap-2">
-              <span className={statusColor(entry.status)}>●</span>
-              <span className="flex-1">{entry.step}</span>
-              <span className="text-muted-foreground">{entry.status.replace('_', ' ')}</span>
-            </li>
-          ))}
+      <article
+        aria-label="Session item: PLAN"
+        className="grid grid-cols-[4.25rem_minmax(0,1fr)] gap-2 px-3 py-2.5 font-mono"
+      >
+        <RowLead item={item} value={value} />
+        <ol className="col-start-2 ml-5 mt-1 space-y-1.5 text-[11px]">
+          {(item.plan || []).map((entry, index) => {
+            const state = planMarker(entry.status);
+            return (
+              <li key={`${entry.step}-${index}`} className="grid grid-cols-[0.75rem_minmax(0,1fr)_auto] gap-2">
+                <span className={state.tone}>{state.marker}</span>
+                <span className="text-foreground">{entry.step}</span>
+                <span className="text-muted-foreground/70">{entry.status.replaceAll('_', ' ')}</span>
+              </li>
+            );
+          })}
         </ol>
         {item.text && (item.plan || []).length === 0 && (
-          <div className="prose prose-sm mt-2 max-w-none text-foreground dark:prose-invert">
+          <div className="prose prose-sm col-start-2 ml-5 mt-1 max-w-none text-foreground dark:prose-invert">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
           </div>
         )}
@@ -113,25 +166,28 @@ export function SessionItem({
   }
 
   return (
-    <article className={`overflow-hidden rounded-xl border bg-card/70 ${item.kind === 'error' ? 'border-red-500/40' : 'border-border/70'}`}>
+    <article aria-label={`Session item: ${value.label}`} className={`font-mono ${value.row}`}>
       <button
         type="button"
-        className="flex w-full items-start gap-2 p-3 text-left"
-        onClick={() => item.hasDetail && setOpen((value) => !value)}
+        aria-expanded={item.hasDetail ? open : undefined}
+        className={`grid w-full grid-cols-[4.25rem_minmax(0,1fr)_auto] gap-2 px-3 py-2.5 text-left ${item.hasDetail ? 'cursor-pointer hover:bg-accent/40' : 'cursor-default'}`}
+        onClick={() => item.hasDetail && setOpen((current) => !current)}
       >
-        <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.kind === 'error' ? 'text-red-500' : 'text-muted-foreground'}`} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2 text-xs font-semibold">
-            <span className="truncate">{item.title || item.kind}</span>
-            {item.status && <span className={`font-mono text-[10px] ${statusColor(item.status)}`}>{item.status}</span>}
-            {item.exitCode !== undefined && item.exitCode !== null && <span className="text-[10px] text-muted-foreground">exit {item.exitCode}</span>}
-          </span>
-          {item.command && <code className="mt-1 block truncate text-[11px] text-muted-foreground">{item.command}</code>}
-          {item.text && <span className="mt-1 block text-xs text-muted-foreground">{item.text}</span>}
-          {item.filePaths?.length ? <span className="mt-1 block text-[11px] text-muted-foreground">{item.filePaths.join(', ')}</span> : null}
-          {item.outputPreview && !open && <span className="mt-1 block truncate text-[11px] text-muted-foreground">{item.outputPreview}</span>}
-        </span>
-        {item.hasDetail && <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />}
+        <time className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">{time(item.timestamp)}</time>
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className={`w-3 shrink-0 text-center text-sm font-bold leading-none ${value.tone}`} aria-hidden="true">{value.marker}</span>
+            <span className={`shrink-0 text-[10px] font-bold tracking-[0.14em] ${value.tone}`}>{value.label}</span>
+            <span className="truncate text-[11px] font-medium text-foreground/85">{item.title || item.kind}</span>
+            {item.status && <span className={`shrink-0 text-[10px] ${statusTone(item.status)}`}>[{item.status}]</span>}
+            {item.exitCode !== undefined && item.exitCode !== null && <span className="shrink-0 text-[10px] text-muted-foreground">[exit {item.exitCode}]</span>}
+          </div>
+          {item.command && <code className="mt-1 block truncate pl-5 text-[11px] text-amber-800 dark:text-amber-100">{item.command}</code>}
+          {item.text && <span className="mt-1 block pl-5 text-[11px] text-muted-foreground">{item.text}</span>}
+          {item.filePaths?.length ? <span className="mt-1 block truncate pl-5 text-[10px] text-muted-foreground/70">files: {item.filePaths.join(', ')}</span> : null}
+          {item.outputPreview && !open && <span className="mt-1 block truncate pl-5 text-[10px] text-muted-foreground">└─ {item.outputPreview}</span>}
+        </div>
+        {item.hasDetail && <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`} />}
       </button>
       {open && item.hasDetail && <DetailBody item={item} detail={detail} />}
     </article>

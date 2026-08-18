@@ -14,20 +14,21 @@ interface FlowCardProps {
 }
 
 const FLOW_STATUS_CONFIG: Record<FlowStatus, { bg: string; text: string; dot: string }> = {
+  queued: { bg: 'bg-slate-500/10', text: 'text-slate-300', dot: 'bg-slate-300 animate-pulse' },
   running: { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400 animate-pulse' },
   completed: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-400' },
   failed: { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
   blocked: { bg: 'bg-purple-500/10', text: 'text-purple-400', dot: 'bg-purple-400' },
   stopped: { bg: 'bg-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-400' },
+  stopping: { bg: 'bg-orange-500/10', text: 'text-orange-400', dot: 'bg-orange-400 animate-pulse' },
+  expired: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', dot: 'bg-zinc-400' },
   pending_dependencies: { bg: 'bg-sky-500/10', text: 'text-sky-400', dot: 'bg-sky-400 animate-pulse' },
 };
 
 export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
   const agents = useDashboardStore((s) => s.agents);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const totalNeedsFix = flow.needsFixCount
-    ? Object.values(flow.needsFixCount).reduce((sum, n) => sum + n, 0)
-    : 0;
+  const totalNeedsFix = flow.stepDetails.reduce((sum, step) => sum + step.needsFixCount, 0);
   const statusConfig = FLOW_STATUS_CONFIG[flow.status] ?? { bg: 'bg-slate-500/10', text: 'text-slate-400', dot: 'bg-slate-400' };
 
   return (
@@ -44,7 +45,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
       {/* Top row: Jira key + status */}
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <span className="text-sm font-semibold text-foreground">
-          {flow.jiraKey}
+          {flow.jiraKey || 'Custom task'}
         </span>
         <div className="flex items-center gap-2">
           <div className={cn(
@@ -73,7 +74,7 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
       {/* Current step */}
       <div className="flex items-center justify-between mb-2.5">
         <span className="text-xs text-muted-foreground">
-          {getStepDisplayName(flow.currentStep, agents)}
+          {flow.currentStep ? getStepDisplayName(flow.currentStep, agents) : 'Flow complete'}
         </span>
         <span className="text-[10px] font-mono text-muted-foreground/70" title={flow.flowId}>
           {flow.flowId.replace('flow_', '').slice(0, 14)}
@@ -91,10 +92,10 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          {flow.stoppedAt
-            ? formatElapsedTime(flow.startedAt, new Date(flow.stoppedAt))
-            : flow.status === 'running'
-              ? formatElapsedTime(flow.startedAt)
+          {flow.finishedAt
+            ? formatElapsedTime(flow.startedAt || flow.createdAt, new Date(flow.finishedAt))
+            : ['queued', 'pending_dependencies', 'running', 'stopping'].includes(flow.status)
+              ? formatElapsedTime(flow.startedAt || flow.createdAt)
               : '—'}
         </span>
         {totalNeedsFix > 0 && (

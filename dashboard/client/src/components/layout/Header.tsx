@@ -4,6 +4,9 @@ import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { NewWorkspaceDialog } from './NewWorkspaceDialog';
 import { DeleteWorkspaceDialog } from './DeleteWorkspaceDialog';
+import type { OrchestrationHealth } from '@devteam-dashboard/shared';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface HeaderProps {
   theme: 'light' | 'dark';
@@ -21,11 +24,24 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteWorkspaceObj, setDeleteWorkspaceObj] = useState<{id: string, name: string} | null>(null);
+  const orchestrationReady = useDashboardStore(s => s.orchestrationReady);
+  const setOrchestrationReady = useDashboardStore(s => s.setOrchestrationReady);
   const flowCount = Object.keys(flows).length;
 
   useEffect(() => {
     fetchWorkspaces();
   }, [fetchWorkspaces]);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => fetch(`${API_BASE}/api/orchestration/health`)
+      .then(async (response) => ({ response, body: await response.json() as OrchestrationHealth }))
+      .then(({ response, body }) => { if (active) setOrchestrationReady(response.ok && body.ready); })
+      .catch(() => { if (active) setOrchestrationReady(false); });
+    void refresh();
+    const timer = window.setInterval(refresh, 10_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [setOrchestrationReady]);
 
   return (
     <header className="relative flex items-center justify-between border-b border-border/50 px-4 md:px-6 py-3 bg-card/80 glass">
@@ -101,6 +117,11 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
 
       {/* Connection status */}
       <div className="flex items-center gap-2">
+        {orchestrationReady === false && (
+          <div className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-400">
+            Inngest/worker unavailable
+          </div>
+        )}
         <button
           type="button"
           onClick={onThemeToggle}

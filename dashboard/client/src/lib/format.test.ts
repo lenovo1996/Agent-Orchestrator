@@ -159,8 +159,8 @@ describe('calculateProgress', () => {
 describe('statusToIndicatorClass', () => {
   it('maps all known statuses to non-empty classes', () => {
     const statuses: StepStatus[] = [
-      'waiting', 'pending', 'running', 'done', 'failed',
-      'blocked', 'cancelled', 'retrying', 'unknown',
+      'waiting', 'queued', 'running', 'done', 'needs_fix', 'failed',
+      'blocked', 'cancelled', 'retrying',
     ];
     for (const status of statuses) {
       const cls = statusToIndicatorClass(status);

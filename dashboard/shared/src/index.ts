@@ -2,7 +2,29 @@
 
 export type AgentStep = string;
 
-export type StepStatus = 'waiting' | 'pending' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled' | 'retrying' | 'unknown';
+export type FlowStatus =
+  | 'queued'
+  | 'pending_dependencies'
+  | 'running'
+  | 'blocked'
+  | 'completed'
+  | 'failed'
+  | 'stopping'
+  | 'stopped'
+  | 'expired';
+
+export type StepStatus =
+  | 'waiting'
+  | 'queued'
+  | 'running'
+  | 'retrying'
+  | 'done'
+  | 'needs_fix'
+  | 'blocked'
+  | 'failed'
+  | 'cancelled';
+
+export type AttemptStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export interface CustomWorkflow {
   id: string;
@@ -20,41 +42,100 @@ export interface AgentConfig {
   tools: string[];
   outputs: string[];
   runtime?: string;
+  runtimeCommand?: string;
   instructions: string;
 }
 
-export type FlowStatus = 'running' | 'stopped' | 'failed' | 'blocked' | 'completed' | 'pending_dependencies';
+export interface FlowStepState {
+  step: AgentStep;
+  position: number;
+  status: StepStatus;
+  cycle: number;
+  technicalRetryCount: number;
+  needsFixCount: number;
+  outputPath: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  updatedAt: string;
+}
 
 export interface WorkflowState {
   flowId: string;
-  jiraKey: string;
+  workspaceId: string;
+  workspaceName: string;
+  workflowId: string;
+  jiraKey: string | null;
   customPrompt?: string;
-  workflowId?: string;
-  stepOrder?: string[];
+  stepOrder: string[];
   status: FlowStatus;
-  currentStep: AgentStep;
-  startedAt: string;          // ISO 8601
-  stoppedAt?: string;
+  currentStep: AgentStep | null;
+  generation: number;
+  revision: number;
+  useWorktree: boolean;
+  worktreeBranch: string | null;
+  blockedReason: string | null;
+  errorSummary: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
   steps: Record<AgentStep, StepStatus>;
-  retries?: Record<AgentStep, number>;
-  needsFixCount?: Record<AgentStep, number>;
-  blockedStep?: AgentStep;
-  blockedReason?: string;
+  stepDetails: FlowStepState[];
+  dependencies: string[];
 }
 
 export interface FlowSummary {
   flowId: string;
-  jiraKey: string;
+  workspaceId: string;
+  workflowId: string;
+  jiraKey: string | null;
   status: FlowStatus;
-  currentStep: AgentStep;
-  startedAt: string;
+  currentStep: AgentStep | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
   completedSteps: number;
   totalSteps: number;
+  generation: number;
+  revision: number;
+}
+
+export interface CreateFlowRequest {
+  jiraKey?: string;
+  prompt?: string;
+  workflowId: string;
+  workspaceId: string;
+  dependsOn?: string[];
+  useWorktree?: boolean;
+}
+
+export interface RetryFlowRequest {
+  step: string;
+  clearOutput?: boolean;
+  prompt?: string;
+}
+
+export interface FlowCommandResponse {
+  flowId: string;
+  commandId: string;
+  status: 'queued';
+}
+
+export interface OrchestrationHealth {
+  ready: boolean;
+  inngest: { ready: boolean; url: string; error?: string };
+  worker: {
+    ready: boolean;
+    runnerId: string | null;
+    connectionStatus: string | null;
+    capacity: number;
+    lastHeartbeat: string | null;
+  };
 }
 
 // === Socket.IO Event Payloads ===
 
 export interface FlowUpdatedPayload {
+  sequence: number;
   flowId: string;
   workflow: WorkflowState;
 }
@@ -85,6 +166,7 @@ export interface FileMetadata {
 
 export interface StateInitPayload {
   flows: Record<string, WorkflowState>;
+  cursor: number;
 }
 
 // === Structured Codex sessions ===
@@ -102,8 +184,11 @@ export interface SessionErrorSummary {
 }
 
 export interface SessionAttemptSummary {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   runId: string;
+  attemptId?: string;
+  inngestRunId?: string;
+  inngestAttempt?: number;
   flowId: string;
   step: string;
   threadId: string | null;
@@ -216,7 +301,7 @@ export interface ServerToClientEvents {
 
 export interface ClientToServerEvents {
   'state:resync': () => void;
-  'workspace:select': (payload: { workspaceName: string | null }) => void;
+  'workspace:select': (payload: { workspaceId: string | null }) => void;
   'log:subscribe': (payload: { flowId: string; step: AgentStep }) => void;
   'log:unsubscribe': (payload: { flowId: string; step: AgentStep }) => void;
   'session:subscribe': (payload: SessionSubscription) => void;

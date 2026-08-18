@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Radio } from 'lucide-react';
+import { ArrowDownToLine, Radio } from 'lucide-react';
 import type {
   SessionAttemptSummary,
   SessionItemDetail,
@@ -39,7 +39,39 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">{children}</div>;
 }
 
-export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) {
+function WorkingIndicator() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      aria-label="Working..."
+      className="grid grid-cols-[4.25rem_minmax(0,1fr)] gap-2 bg-blue-500/5 px-3 py-3 font-mono"
+    >
+      <span className="select-none text-[10px] font-semibold tracking-widest text-blue-600/60 dark:text-blue-400/60">LIVE</span>
+      <span className="flex items-center gap-2 text-[11px] text-blue-700 dark:text-blue-300">
+        <span className="relative flex h-2 w-2" aria-hidden="true">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60 motion-reduce:animate-none" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+        </span>
+        <span className="font-semibold tracking-wide">Working</span>
+        <span className="flex items-end gap-0.5" aria-hidden="true">
+          {[0, 150, 300].map((delay) => (
+            <span
+              key={delay}
+              data-working-dot
+              className="inline-block animate-bounce font-bold leading-none motion-reduce:animate-none"
+              style={{ animationDelay: `${delay}ms` }}
+            >
+              .
+            </span>
+          ))}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+export function SessionViewer(_props: { fullscreen?: boolean }) {
   const selectedFlowId = useDashboardStore((state) => state.selectedFlowId);
   const selectedStep = useDashboardStore((state) => state.selectedStep);
   const selectedWorkspaceId = useDashboardStore((state) => state.selectedWorkspaceId);
@@ -58,6 +90,7 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
   const [showCommentary, setShowCommentary] = useState(true);
   const [showTools, setShowTools] = useState(true);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const nearBottom = useRef(true);
 
@@ -67,6 +100,8 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
     setRunId('');
     setSnapshot(null);
     setError('');
+    nearBottom.current = true;
+    setShowScrollToBottom(false);
   }, [selectedFlowId, selectedStep, workspaceName]);
 
   useEffect(() => {
@@ -96,7 +131,7 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [manualAttempt, selectedFlow?.retries, selectedFlow?.steps, selectedFlowId, selectedStep, workspaceName]);
+  }, [manualAttempt, selectedFlow?.revision, selectedFlowId, selectedStep, workspaceName]);
 
   useEffect(() => {
     if (!selectedFlowId || !selectedStep || !runId) return;
@@ -152,6 +187,8 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
       } : current);
     };
 
+    nearBottom.current = true;
+    setShowScrollToBottom(false);
     setSnapshot(null);
     socket.on('session:item-upsert', upsert);
     socket.on('session:attempt-updated', updateAttempt);
@@ -176,10 +213,15 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
   useEffect(() => {
     if (!nearBottom.current || !scrollRef.current) return;
     scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [visibleItems]);
+  }, [snapshot?.attempt.status, visibleItems]);
 
-  const turns = useMemo(() => visibleItems.filter((item) => item.kind === 'message' && item.role === 'user'), [visibleItems]);
-  const goToTurn = (id: string) => document.getElementById(`session-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const scrollToBottom = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    nearBottom.current = true;
+    setShowScrollToBottom(false);
+    element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
+  }, []);
 
   const loadDetail = useCallback((item: SessionItemSummary) => {
     const cacheKey = `${runId}:${item.id}`;
@@ -203,6 +245,7 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
 
   const preThreadFailure = snapshot.attempt.status === 'failed' && !snapshot.attempt.threadId;
   const unavailable = snapshot.attempt.threadId && !snapshot.rolloutAvailable;
+  const isWorking = snapshot.attempt.status === 'starting' || snapshot.attempt.status === 'running';
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -230,55 +273,59 @@ export function SessionViewer({ fullscreen = false }: { fullscreen?: boolean }) 
         <EmptyState>Rollout no longer available.</EmptyState>
       ) : (
         <div className="flex min-h-0 flex-1">
-          {fullscreen && turns.length > 0 && (
-            <nav className="hidden w-52 shrink-0 overflow-auto border-r border-border/60 p-2 lg:block">
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Turns</div>
-              {turns.map((turn, index) => (
-                <button key={turn.id} type="button" onClick={() => goToTurn(turn.id)} className="block w-full truncate rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
-                  {index + 1}. {(turn.text || 'User message').replace(/\s+/g, ' ')}
-                </button>
-              ))}
-            </nav>
-          )}
-          <div className="flex min-w-0 flex-1 flex-col">
-            {turns.length > 0 && (
-              <div className={`${fullscreen ? 'lg:hidden' : ''} border-b border-border/50 px-3 py-2`}>
-                <select onChange={(event) => goToTurn(event.target.value)} defaultValue="" className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs">
-                  <option value="" disabled>Jump to turn…</option>
-                  {turns.map((turn, index) => <option key={turn.id} value={turn.id}>Turn {index + 1}: {(turn.text || '').replace(/\s+/g, ' ').slice(0, 80)}</option>)}
-                </select>
-              </div>
-            )}
+          <div className="relative flex min-w-0 flex-1 flex-col">
             <div
               ref={scrollRef}
               aria-label="Session transcript"
               onScroll={(event) => {
                 const element = event.currentTarget;
-                nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+                const isNearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+                nearBottom.current = isNearBottom;
+                setShowScrollToBottom(!isNearBottom);
               }}
-              className="min-h-0 flex-1 overflow-y-auto p-3"
+              className="min-h-0 flex-1 overflow-y-auto bg-zinc-100 text-foreground dark:bg-[#090b0f]"
             >
-              {visibleItems.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">No visible session items.</div>
-              ) : (
-                <div className="mx-auto max-w-5xl space-y-3">
-                  {visibleItems.map((item, index) => {
-                    const previous = visibleItems[index - 1];
-                    const gap = previous ? Date.parse(item.timestamp) - Date.parse(previous.timestamp) : 0;
-                    return (
-                      <div key={item.id} id={`session-${item.id}`} className="scroll-mt-3">
-                        {gap >= INACTIVITY_MS && (
-                          <div className="my-3 flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-                            <span className="h-px flex-1 bg-border" /><Radio className="h-3 w-3" /> inactive {Math.round(gap / 60_000)} min<span className="h-px flex-1 bg-border" />
-                          </div>
-                        )}
-                        <SessionItem item={item} detail={details[`${runId}:${item.id}`]} loadDetail={loadDetail} />
-                      </div>
-                    );
-                  })}
+              <div className="mx-auto min-h-full max-w-6xl border-x border-border bg-background shadow-inner shadow-black/5 dark:shadow-black/30">
+                <div className="divide-y divide-border">
+                  {visibleItems.length === 0 && !isWorking ? (
+                    <div className="py-10 text-center font-mono text-[11px] text-muted-foreground">no visible session items</div>
+                  ) : (
+                    visibleItems.map((item, index) => {
+                      const previous = visibleItems[index - 1];
+                      const gap = previous ? Date.parse(item.timestamp) - Date.parse(previous.timestamp) : 0;
+                      return (
+                        <div key={item.id} id={`session-${item.id}`} className="scroll-mt-10">
+                          {gap >= INACTIVITY_MS && (
+                            <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/70">
+                              <span className="h-px flex-1 bg-border" /><Radio className="h-3 w-3" /> idle {Math.round(gap / 60_000)}m<span className="h-px flex-1 bg-border" />
+                            </div>
+                          )}
+                          <SessionItem item={item} detail={details[`${runId}:${item.id}`]} loadDetail={loadDetail} />
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
-              )}
+              </div>
             </div>
+            {showScrollToBottom && (
+              <button
+                type="button"
+                aria-label="Scroll to bottom"
+                title="Scroll to bottom"
+                onClick={scrollToBottom}
+                className={`absolute right-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isWorking ? 'bottom-14' : 'bottom-3'}`}
+              >
+                <ArrowDownToLine className="h-4 w-4" />
+              </button>
+            )}
+            {isWorking && (
+              <div data-session-working-dock className="shrink-0 border-t border-border bg-background/95 backdrop-blur">
+                <div className="mx-auto max-w-6xl border-x border-border">
+                  <WorkingIndicator />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

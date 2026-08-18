@@ -1,8 +1,7 @@
-import type { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Server, Socket } from 'socket.io';
-import { listAllFlows } from './flow-reader.js';
+import type { OrchestrationService } from '@devteam-dashboard/orchestration';
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
@@ -11,10 +10,7 @@ import type {
 } from '@devteam-dashboard/shared';
 import { SessionService } from './session/service.js';
 import { JsonlTailer } from './session/tailer.js';
-
-export interface EventsConfig {
-  taskFlowsDir: string;
-}
+import type { ArtifactWatcher } from './watcher.js';
 
 export function sessionRoom(subscription: SessionSubscription): string {
   return ['session', subscription.workspaceName || '', subscription.flowId, subscription.step, subscription.runId]
@@ -25,10 +21,11 @@ export function sessionRoom(subscription: SessionSubscription): string {
 /**
  * Build the full state payload for state:init and state:resync.
  */
-function buildStatePayload(config: EventsConfig, workspaceName?: string): StateInitPayload {
-  const dir = workspaceName ? path.join(config.taskFlowsDir, workspaceName) : config.taskFlowsDir;
-  const flows = listAllFlows(dir);
-  return { flows };
+function buildStatePayload(service: OrchestrationService, workspaceId?: string): StateInitPayload {
+  return {
+    flows: workspaceId ? service.listFlowStates(workspaceId) : {},
+    cursor: service.latestDomainCursor(),
+  };
 }
 
 /**
@@ -42,10 +39,10 @@ function buildStatePayload(config: EventsConfig, workspaceName?: string): StateI
  */
 export function setupSocketEvents(
   io: Server<ClientToServerEvents, ServerToClientEvents>,
-  config: EventsConfig,
-  watcher?: EventEmitter,
+  service: OrchestrationService,
+  watcher?: ArtifactWatcher,
   sessionService?: SessionService,
-): void {
+): () => void {
   interface SessionTracker {
     subscription: SessionSubscription;
     subscribers: number;
@@ -167,27 +164,32 @@ export function setupSocketEvents(
   // --- Connection handling ---
   io.on('connection', (socket: Socket<any, any>) => {
     // Send initial state to the newly connected client
-    const payload = buildStatePayload(config);
+    const payload = buildStatePayload(service);
     socket.emit('state:init', payload);
 
     // Track workspace per socket
-    let currentWorkspaceName = '';
+    let currentWorkspaceId = '';
     const socketSessions = new Map<string, SessionSubscription>();
 
-    socket.on('workspace:select', ({ workspaceName }: { workspaceName: string | null }) => {
-       currentWorkspaceName = workspaceName || '';
-       const payload = buildStatePayload(config, currentWorkspaceName);
+    socket.on('workspace:select', ({ workspaceId }: { workspaceId: string | null }) => {
+       if (currentWorkspaceId) socket.leave(`workspace:${currentWorkspaceId}`);
+       currentWorkspaceId = workspaceId || '';
+       if (currentWorkspaceId) socket.join(`workspace:${currentWorkspaceId}`);
+       const payload = buildStatePayload(service, currentWorkspaceId);
        socket.emit('state:init', payload);
     });
 
     // Handle resync request (client reconnected and needs full state)
     socket.on('state:resync', () => {
-      const resyncPayload = buildStatePayload(config, currentWorkspaceName);
+      const resyncPayload = buildStatePayload(service, currentWorkspaceId);
       socket.emit('state:init', resyncPayload);
     });
 
     // Handle log subscription — join a room for targeted log streaming
     socket.on('log:subscribe', ({ flowId, step }: { flowId: string, step: string }) => {
+      try {
+        if (!currentWorkspaceId || service.getFlow(flowId).workspaceId !== currentWorkspaceId) return;
+      } catch { return; }
       const room = `log:${flowId}:${step}`;
       socket.join(room);
     });
@@ -199,6 +201,9 @@ export function setupSocketEvents(
     });
 
     socket.on('session:subscribe', (subscription: SessionSubscription) => {
+      try {
+        if (!currentWorkspaceId || service.getFlow(subscription.flowId).workspaceId !== currentWorkspaceId) return;
+      } catch { return; }
       const normalized = { ...subscription, workspaceName: subscription.workspaceName || null };
       const room = sessionRoom(normalized);
       if (socketSessions.has(room)) return;
@@ -238,24 +243,56 @@ export function setupSocketEvents(
     });
   });
 
-  // --- Wire watcher events → Socket.IO broadcast ---
+  // Artifact changes remain local Socket.IO events. Flow state comes only from SQLite domain events.
   if (watcher) {
-    watcher.on('workflow-changed', (flowId: string, workflow) => {
-      io.emit('flow:updated', { flowId, workflow });
-    });
-
     watcher.on('log-appended', (flowId: string, step, lines: string[]) => {
-      // Broadcast to all clients subscribed to this specific log room
       const room = `log:${flowId}:${step}`;
       io.to(room).emit('log:append', { flowId, step, lines });
     });
 
     watcher.on('output-created', (flowId: string, step, filePath: string) => {
-      io.emit('output:created', { flowId, step, filePath });
+      try {
+        io.to(`workspace:${service.getFlow(flowId).workspaceId}`).emit('output:created', { flowId, step, filePath });
+      } catch { /* flow was deleted */ }
     });
 
     watcher.on('output-updated', (flowId: string, step, content: string, metadata) => {
-      io.emit('output:updated', { flowId, step, content, metadata });
+      try {
+        io.to(`workspace:${service.getFlow(flowId).workspaceId}`).emit('output:updated', { flowId, step, content, metadata });
+      } catch { /* flow was deleted */ }
     });
   }
+
+  let cursor = service.latestDomainCursor();
+  let polling = false;
+  const domainPoller = setInterval(() => {
+    if (polling) return;
+    polling = true;
+    try {
+      const events = service.domainEventsAfter(cursor);
+      for (const event of events) {
+        cursor = Math.max(cursor, event.sequence);
+        if (!event.flowId || !event.workspaceId) continue;
+        const room = `workspace:${event.workspaceId}`;
+        if (event.eventType === 'flow.deleted') {
+          watcher?.removeFlow(event.flowId);
+          io.to(room).emit('state:init', buildStatePayload(service, event.workspaceId));
+          continue;
+        }
+        try {
+          const flow = service.getFlow(event.flowId);
+          const { workspacePath: _workspacePath, worktreePath: _worktreePath, ...workflow } = flow;
+          watcher?.addFlow(event.flowId);
+          io.to(room).emit('flow:updated', { sequence: event.sequence, flowId: event.flowId, workflow });
+        } catch { /* deleted between event read and projection */ }
+      }
+    } finally {
+      polling = false;
+    }
+  }, 250);
+  domainPoller.unref();
+  return () => {
+    clearInterval(domainPoller);
+    for (const room of [...trackers.keys()]) closeTracker(room);
+  };
 }

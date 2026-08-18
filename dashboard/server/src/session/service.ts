@@ -1,10 +1,12 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import type { OrchestrationService, StepAttemptRecord } from '@devteam-dashboard/orchestration';
 import type {
   SessionAttemptSummary,
   SessionItemDetail,
   SessionSnapshot,
 } from '@devteam-dashboard/shared';
-import { getAttemptPath, listAttempts, readAttempt } from './registry.js';
+import { readAttempt } from './registry.js';
 import { readRollout, type ParsedSession } from './parser.js';
 import { SessionResolver, type ResolvedRollout } from './resolver.js';
 
@@ -38,7 +40,10 @@ export class SessionService {
   private readonly resolver: SessionResolver;
   private readonly cache = new Map<string, CacheEntry>();
 
-  constructor(private readonly config: SessionServiceConfig) {
+  constructor(
+    private readonly config: SessionServiceConfig,
+    private readonly orchestration: OrchestrationService,
+  ) {
     this.resolver = new SessionResolver(config.codexHome);
   }
 
@@ -81,17 +86,60 @@ export class SessionService {
     return { ...parsed, items, details };
   }
 
+  private validateWorkspace(flowId: string, workspaceName?: string | null): void {
+    const flow = this.orchestration.getFlow(flowId);
+    if (workspaceName && flow.workspaceId !== workspaceName && flow.workspaceName !== workspaceName) {
+      throw new Error('Flow not found in selected workspace');
+    }
+  }
+
+  private summary(attempt: StepAttemptRecord): SessionAttemptSummary {
+    const fromFile = readAttempt(this.attemptPath(
+      attempt.flowId, attempt.step, attempt.sessionRunId,
+    ));
+    if (fromFile?.attemptId === attempt.id || (fromFile?.schemaVersion === 1 && fromFile.runId === attempt.sessionRunId)) {
+      return fromFile;
+    }
+    return {
+      schemaVersion: 2,
+      runId: attempt.sessionRunId,
+      attemptId: attempt.id,
+      inngestRunId: attempt.inngestRunId,
+      inngestAttempt: attempt.inngestAttempt,
+      flowId: attempt.flowId,
+      step: attempt.step,
+      threadId: null,
+      status: attempt.status === 'queued' ? 'starting' : attempt.status === 'running' ? 'running'
+        : attempt.status === 'completed' ? 'completed' : 'failed',
+      startedAt: attempt.startedAt || attempt.createdAt,
+      finishedAt: attempt.finishedAt,
+      exitCode: attempt.exitCode,
+      usage: null,
+      errorSummary: attempt.error ? {
+        stage: attempt.error.stage === 'process' ? 'process' : 'before_thread',
+        message: attempt.error.message,
+      } : null,
+    };
+  }
+
   list(flowId: string, step: string, workspaceName?: string | null): SessionAttemptSummary[] {
-    return listAttempts(this.config.taskFlowsDir, flowId, step, workspaceName);
+    this.validateWorkspace(flowId, workspaceName);
+    return this.orchestration.listAttempts(flowId, step).map((attempt) => this.summary(attempt));
   }
 
   attemptPath(flowId: string, step: string, runId: string, workspaceName?: string | null): string {
-    return getAttemptPath(this.config.taskFlowsDir, flowId, step, runId, workspaceName);
+    this.validateWorkspace(flowId, workspaceName);
+    const attempt = this.orchestration.listAttempts(flowId, step)
+      .find((candidate) => candidate.sessionRunId === runId);
+    if (!attempt) throw new Error('Session attempt not found');
+    return path.join(this.orchestration.artifactDirectory(flowId), 'sessions', step, `${runId}.json`);
   }
 
   getAttempt(flowId: string, step: string, runId: string, workspaceName?: string | null): SessionAttemptSummary | null {
-    const attempt = readAttempt(this.attemptPath(flowId, step, runId, workspaceName));
-    return attempt?.flowId === flowId && attempt.step === step && attempt.runId === runId ? attempt : null;
+    this.validateWorkspace(flowId, workspaceName);
+    const attempt = this.orchestration.listAttempts(flowId, step)
+      .find((candidate) => candidate.sessionRunId === runId);
+    return attempt ? this.summary(attempt) : null;
   }
 
   resolve(attempt: SessionAttemptSummary): ResolvedRollout | null {

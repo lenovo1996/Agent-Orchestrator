@@ -23,7 +23,10 @@ describe('session-capture', () => {
   test('init, stream and finalize create one atomic attempt registry entry', () => {
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'session-capture-'));
     try {
-      const initialized = run(['init', '--work-dir', workDir, '--flow-id', 'flow_001', '--step', 'implementer']);
+      const initialized = run([
+        'init', '--work-dir', workDir, '--flow-id', 'flow_001', '--step', 'implementer',
+        '--attempt-id', 'attempt_001', '--inngest-run-id', 'inngest_run_001', '--inngest-attempt', '2',
+      ]);
       assert.equal(initialized.status, 0, initialized.stderr);
       const runId = initialized.stdout;
       assert.match(runId, /^[0-9a-f-]{36}$/);
@@ -51,6 +54,10 @@ describe('session-capture', () => {
       const registryDir = path.join(workDir, 'sessions', 'implementer');
       assert.deepEqual(fs.readdirSync(registryDir), [`${runId}.json`]);
       const attempt = JSON.parse(fs.readFileSync(path.join(registryDir, `${runId}.json`), 'utf8'));
+      assert.equal(attempt.schemaVersion, 2);
+      assert.equal(attempt.attemptId, 'attempt_001');
+      assert.equal(attempt.inngestRunId, 'inngest_run_001');
+      assert.equal(attempt.inngestAttempt, 2);
       assert.equal(attempt.threadId, '019fffff-1111-7222-8333-444444444444');
       assert.equal(attempt.status, 'completed');
       assert.equal(attempt.exitCode, 0);

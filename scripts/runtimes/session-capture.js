@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const readline = require('node:readline');
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const MAX_ERROR_LENGTH = 500;
 
 function parseArgs(argv) {
@@ -111,11 +111,17 @@ function init(values) {
   const workDir = path.resolve(requireValue(values, 'work-dir'));
   const flowId = requireValue(values, 'flow-id');
   const step = validateSegment(requireValue(values, 'step'), 'step');
-  const runId = crypto.randomUUID();
+  const runId = validateSegment(values['run-id'] || crypto.randomUUID(), 'run ID');
+  const attemptId = validateSegment(values['attempt-id'] || runId, 'attempt ID');
+  const inngestRunId = validateSegment(values['inngest-run-id'] || runId, 'Inngest run ID');
+  const inngestAttempt = Number.parseInt(values['inngest-attempt'] || '0', 10);
   const filePath = path.join(workDir, 'sessions', step, `${runId}.json`);
   const metadata = {
     schemaVersion: SCHEMA_VERSION,
     runId,
+    attemptId,
+    inngestRunId,
+    inngestAttempt: Number.isFinite(inngestAttempt) ? inngestAttempt : 0,
     flowId,
     step,
     threadId: null,

@@ -24,11 +24,14 @@ export interface DashboardState {
   // Connection
   connected: boolean;
   setConnected: (v: boolean) => void;
+  orchestrationReady: boolean | null;
+  setOrchestrationReady: (ready: boolean | null) => void;
 
   // Flows
   flows: Record<string, WorkflowState>;
+  domainCursor: number;
   setFlows: (flows: Record<string, WorkflowState>) => void;
-  updateFlow: (flowId: string, workflow: WorkflowState) => void;
+  updateFlow: (flowId: string, workflow: WorkflowState, sequence?: number) => void;
   deleteFlowLocally: (flowId: string) => void;
   fetchFlow: (flowId: string) => Promise<WorkflowState | null>;
 
@@ -50,7 +53,7 @@ export interface DashboardState {
 function getLatestAgentStep(flow: WorkflowState | undefined): AgentStep | null {
   if (!flow) return null;
 
-  const stepsToUse = flow.stepOrder || AGENT_STEPS;
+  const stepsToUse = flow.stepOrder.length ? flow.stepOrder : AGENT_STEPS;
   for (let i = stepsToUse.length - 1; i >= 0; i--) {
     const step = stepsToUse[i];
     const status = flow.steps[step];
@@ -73,8 +76,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     } else {
       window.localStorage.removeItem('dashboard-workspace-id');
     }
-    const ws = get().workspaces.find(w => w.id === workspaceId);
-    socket.emit('workspace:select', { workspaceName: ws ? ws.name : null });
+    socket.emit('workspace:select', { workspaceId });
   },
   fetchWorkspaces: async () => {
     try {
@@ -137,14 +139,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
   connected: false,
   setConnected: (v) => set({ connected: v }),
+  orchestrationReady: null,
+  setOrchestrationReady: (orchestrationReady) => set({ orchestrationReady }),
 
   flows: {},
+  domainCursor: 0,
   setFlows: (flows) => set({ flows }),
-  updateFlow: (flowId, workflow) =>
+  updateFlow: (flowId, workflow, sequence) =>
     set((state) => {
+      if (sequence !== undefined && sequence <= state.domainCursor) return state;
       const shouldSelectStep = state.selectedFlowId === flowId && !state.selectedStep;
       return {
         flows: { ...state.flows, [flowId]: workflow },
+        domainCursor: sequence ?? state.domainCursor,
         selectedStep: shouldSelectStep ? getLatestAgentStep(workflow) : state.selectedStep,
       };
     }),
@@ -158,8 +165,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       };
     }),
   fetchFlow: async (flowId) => {
-    const workspace = get().workspaces.find(w => w.id === get().selectedWorkspaceId);
-    const qs = workspace ? `?workspaceName=${encodeURIComponent(workspace.name)}` : '';
+    const workspaceId = get().selectedWorkspaceId;
+    const qs = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : '';
     const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}${qs}`);
     if (!res.ok) return null;
 
@@ -201,11 +208,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   selectStep: (step) => set({ selectedStep: step }),
 
   initState: (payload) =>
-    set((state) => ({
-      flows: payload.flows,
-      selectedStep:
-        state.selectedFlowId && !state.selectedStep
-          ? getLatestAgentStep(payload.flows[state.selectedFlowId])
-          : state.selectedStep,
-    })),
+    set((state) => {
+      const selectedFlowId = state.selectedFlowId && payload.flows[state.selectedFlowId]
+        ? state.selectedFlowId
+        : null;
+      return {
+        flows: payload.flows,
+        domainCursor: payload.cursor,
+        selectedFlowId,
+        selectedStep: !selectedFlowId
+          ? null
+          : !state.selectedStep
+            ? getLatestAgentStep(payload.flows[selectedFlowId])
+            : state.selectedStep,
+      };
+    }),
 }));

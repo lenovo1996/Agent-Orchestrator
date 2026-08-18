@@ -38,12 +38,12 @@ export function getAgentOutputFilename(step: AgentStep, agents: Record<string, A
  */
 export const STATUS_COLORS: Record<StepStatus, string> = {
   waiting: 'bg-gray-500',
-  pending: 'bg-gray-400',
+  queued: 'bg-sky-400 animate-pulse',
   running: 'bg-blue-500 animate-pulse',
+  needs_fix: 'bg-amber-500',
   done: 'bg-green-500',
   failed: 'bg-red-500',
   blocked: 'bg-purple-500',
   cancelled: 'bg-gray-600',
   retrying: 'bg-yellow-500 animate-pulse',
-  unknown: 'bg-gray-400',
 };

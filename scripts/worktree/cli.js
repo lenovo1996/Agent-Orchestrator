@@ -6,13 +6,11 @@
  *   list              List all tracked worktrees
  *   cleanup           Remove completed/failed worktrees
  *   merge <flow-id>   Merge a completed flow's branch
- *   status            Show parallel scheduler status
  *
  * Usage:
  *   node worktree-cli.js list
  *   node worktree-cli.js cleanup
  *   node worktree-cli.js merge <flow-id> [--target <branch>] [--dry-run]
- *   node worktree-cli.js status
  */
 
 'use strict';
@@ -20,7 +18,6 @@
 const path = require('path');
 const fs = require('fs');
 const { WorktreeManager } = require('./worktree-manager');
-const { ParallelScheduler } = require('./parallel-scheduler');
 
 /**
  * Parse CLI arguments into command and options.
@@ -75,7 +72,6 @@ Commands:
   list                          List all tracked worktrees
   cleanup                       Remove completed/failed worktrees
   merge <flow-id> [options]     Merge a completed flow's branch
-  status                        Show parallel scheduler status
   help                          Show this help message
 
 Merge Options:
@@ -208,48 +204,13 @@ function cmdMerge(manager, flowId, options) {
 }
 
 /**
- * Execute the `status` command.
- * @param {ParallelScheduler} scheduler
- */
-function cmdStatus(scheduler) {
-  const status = scheduler.getStatus();
-
-  console.log('Parallel Scheduler Status:');
-  console.log(`  Max Concurrency: ${status.maxConcurrency}`);
-  console.log(`  Running:         ${status.running.length}`);
-  console.log(`  Queued:          ${status.queue.length}`);
-  console.log(`  Completed:       ${status.completed.length}`);
-  console.log(`  Last Updated:    ${status.lastUpdated}`);
-
-  if (status.running.length > 0) {
-    console.log('\nRunning:');
-    for (const task of status.running) {
-      console.log(`  - ${task.flowId} [${task.step}] repo=${task.repo} started=${task.startedAt || 'N/A'}`);
-    }
-  }
-
-  if (status.queue.length > 0) {
-    console.log('\nQueued:');
-    for (const task of status.queue) {
-      console.log(`  - ${task.flowId} [${task.step}] repo=${task.repo} queued=${task.queuedAt || 'N/A'}`);
-    }
-  }
-
-  if (status.completed.length > 0) {
-    const doneCount = status.completed.filter(t => t.status === 'done').length;
-    const failedCount = status.completed.filter(t => t.status === 'failed').length;
-    console.log(`\nCompleted summary: ${doneCount} done, ${failedCount} failed`);
-  }
-}
-
-/**
  * Main CLI entry point.
  * @param {string[]} argv - process.argv.slice(2)
  */
 function main(argv) {
   const { command, args, options } = parseArgs(argv);
 
-  // Load config and initialize manager/scheduler
+  // Load config and initialize the retained worktree utility.
   const config = loadConfig();
   const worktreeConfig = config.worktree || {};
 
@@ -257,13 +218,6 @@ function main(argv) {
     baseDir: worktreeConfig.baseDir || './.dev-team-worktrees',
     repos: worktreeConfig.repos || {}
   });
-
-  const statusFile = path.resolve(__dirname, '..', 'parallel-status.json');
-  const scheduler = new ParallelScheduler({
-    maxConcurrency: worktreeConfig.maxConcurrency || 3,
-    statusFile
-  });
-  scheduler.recover();
 
   switch (command) {
     case 'list':
@@ -280,10 +234,6 @@ function main(argv) {
         process.exit(1);
       }
       cmdMerge(manager, args[0], options);
-      break;
-
-    case 'status':
-      cmdStatus(scheduler);
       break;
 
     case 'help':

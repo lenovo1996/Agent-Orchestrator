@@ -66,7 +66,7 @@ export function calculateProgress(steps: Record<AgentStep, StepStatus>): {
   total: number;
   percentage: number;
 } {
-  const allSteps: AgentStep[] = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
+  const allSteps = Object.keys(steps);
   const completed = allSteps.filter(s => steps[s] === 'done').length;
   const total = allSteps.length;
   return { completed, total, percentage: Math.round((completed / total) * 100) };
@@ -78,14 +78,14 @@ export function calculateProgress(steps: Record<AgentStep, StepStatus>): {
 export function statusToIndicatorClass(status: StepStatus): string {
   const map: Record<StepStatus, string> = {
     waiting: 'bg-gray-500',
-    pending: 'bg-gray-400',
+    queued: 'bg-sky-400 animate-pulse',
     running: 'bg-blue-500 animate-pulse',
+    needs_fix: 'bg-amber-500',
     done: 'bg-green-500',
     failed: 'bg-red-500',
     blocked: 'bg-purple-500',
     cancelled: 'bg-gray-600',
     retrying: 'bg-yellow-500 animate-pulse',
-    unknown: 'bg-gray-400',
   };
   return map[status] || 'bg-gray-400';
 }

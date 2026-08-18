@@ -5,6 +5,7 @@ import path from 'node:path';
 import { setupSocketEvents, sessionRoom } from '../events.js';
 import { SessionService } from './service.js';
 import type { SessionSubscription } from '@devteam-dashboard/shared';
+import { createTestOrchestration, insertTestAttempt } from '../test-helpers.js';
 
 function waitFor(assertion: () => void, timeout = 2000): Promise<void> {
   const started = Date.now();
@@ -44,7 +45,8 @@ describe('session realtime lifecycle', () => {
     fs.mkdirSync(rolloutDir, { recursive: true });
     fs.mkdirSync(path.join(codexHome, 'archived_sessions'), { recursive: true });
     fs.writeFileSync(path.join(attemptDir, `${runId}.json`), JSON.stringify({
-      schemaVersion: 1, runId, flowId: 'flow_001', step: 'implementer', threadId,
+      schemaVersion: 2, runId, attemptId: 'attempt-realtime', inngestRunId: 'inngest-realtime', inngestAttempt: 0,
+      flowId: 'flow_001', step: 'implementer', threadId,
       status: 'running', startedAt: '2026-08-17T00:00:00.000Z', finishedAt: null,
       exitCode: null, usage: null, errorSummary: null,
     }));
@@ -70,9 +72,17 @@ describe('session realtime lifecycle', () => {
         emit: (event: string, payload: any) => roomEvents.push({ room, event, payload }),
       })),
     };
-    const service = new SessionService({ taskFlowsDir, codexHome });
-    setupSocketEvents(io as any, { taskFlowsDir }, undefined, service);
+    const orchestration = createTestOrchestration(root, taskFlowsDir, [
+      { flowId: 'flow_001', workspaceId: 'workspace-a' },
+    ]);
+    insertTestAttempt(orchestration.database, {
+      attemptId: 'attempt-realtime', flowId: 'flow_001', runId,
+      startedAt: '2026-08-17T00:00:00.000Z', status: 'running',
+    });
+    const service = new SessionService({ taskFlowsDir, codexHome }, orchestration.service);
+    const closeEvents = setupSocketEvents(io as any, orchestration.service, undefined, service);
     connection!(socket);
+    handlers['workspace:select']({ workspaceId: 'workspace-a' });
     handlers['session:subscribe'](subscription);
     await waitFor(() => expect(socket.join).toHaveBeenCalledWith(sessionRoom(subscription)));
 
@@ -92,5 +102,7 @@ describe('session realtime lifecycle', () => {
 
     handlers['session:unsubscribe'](subscription);
     expect(socket.leave).toHaveBeenCalledWith(sessionRoom(subscription));
+    closeEvents();
+    orchestration.database.close();
   });
 });

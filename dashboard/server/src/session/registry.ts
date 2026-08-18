@@ -1,42 +1,7 @@
 import fs from 'node:fs';
-import path from 'node:path';
 import type { SessionAttemptSummary } from '@devteam-dashboard/shared';
 
-const SAFE_SEGMENT = /^[A-Za-z0-9._-]+$/;
 const RUN_ID = /^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
-
-function safeSegment(value: string, label: string): string {
-  if (!SAFE_SEGMENT.test(value) || value === '.' || value === '..') {
-    throw new Error(`Invalid ${label}`);
-  }
-  return value;
-}
-
-export function resolveFlowDirectory(
-  taskFlowsDir: string,
-  flowId: string,
-  workspaceName?: string | null,
-): string {
-  const safeFlowId = safeSegment(flowId, 'flow ID');
-  const root = path.resolve(taskFlowsDir);
-  if (workspaceName) {
-    return path.join(root, safeSegment(workspaceName, 'workspace name'), safeFlowId);
-  }
-
-  const direct = path.join(root, safeFlowId);
-  if (fs.existsSync(direct)) return direct;
-
-  try {
-    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !SAFE_SEGMENT.test(entry.name)) continue;
-      const candidate = path.join(root, entry.name, safeFlowId);
-      if (fs.existsSync(candidate)) return candidate;
-    }
-  } catch {
-    // The caller will return an empty registry or a normal not-found response.
-  }
-  return direct;
-}
 
 function isUsage(value: unknown): value is SessionAttemptSummary['usage'] {
   if (!value || typeof value !== 'object') return value === null;
@@ -49,7 +14,7 @@ export function sanitizeAttempt(value: unknown): SessionAttemptSummary | null {
   if (!value || typeof value !== 'object') return null;
   const attempt = value as Record<string, unknown>;
   if (
-    attempt.schemaVersion !== 1 ||
+    ![1, 2].includes(Number(attempt.schemaVersion)) ||
     typeof attempt.runId !== 'string' ||
     !RUN_ID.test(attempt.runId) ||
     typeof attempt.flowId !== 'string' ||
@@ -72,9 +37,20 @@ export function sanitizeAttempt(value: unknown): SessionAttemptSummary | null {
       }
     : null;
 
+  if (attempt.schemaVersion === 2 && (
+    typeof attempt.attemptId !== 'string'
+    || typeof attempt.inngestRunId !== 'string'
+    || !Number.isInteger(attempt.inngestAttempt)
+  )) return null;
+
   return {
-    schemaVersion: 1,
+    schemaVersion: attempt.schemaVersion as 1 | 2,
     runId: attempt.runId,
+    ...(attempt.schemaVersion === 2 ? {
+      attemptId: attempt.attemptId as string,
+      inngestRunId: attempt.inngestRunId as string,
+      inngestAttempt: attempt.inngestAttempt as number,
+    } : {}),
     flowId: attempt.flowId,
     step: attempt.step,
     threadId: attempt.threadId as string | null,
@@ -87,49 +63,10 @@ export function sanitizeAttempt(value: unknown): SessionAttemptSummary | null {
   };
 }
 
-export function getAttemptPath(
-  taskFlowsDir: string,
-  flowId: string,
-  step: string,
-  runId: string,
-  workspaceName?: string | null,
-): string {
-  const flowDir = resolveFlowDirectory(taskFlowsDir, flowId, workspaceName);
-  return path.join(
-    flowDir,
-    'sessions',
-    safeSegment(step, 'step'),
-    `${safeSegment(runId, 'run ID')}.json`,
-  );
-}
-
 export function readAttempt(filePath: string): SessionAttemptSummary | null {
   try {
     return sanitizeAttempt(JSON.parse(fs.readFileSync(filePath, 'utf8')));
   } catch {
     return null;
   }
-}
-
-export function listAttempts(
-  taskFlowsDir: string,
-  flowId: string,
-  step: string,
-  workspaceName?: string | null,
-): SessionAttemptSummary[] {
-  const flowDir = resolveFlowDirectory(taskFlowsDir, flowId, workspaceName);
-  const registryDir = path.join(flowDir, 'sessions', safeSegment(step, 'step'));
-  let names: string[];
-  try {
-    names = fs.readdirSync(registryDir).filter((name) => name.endsWith('.json'));
-  } catch {
-    return [];
-  }
-
-  return names
-    .map((name) => readAttempt(path.join(registryDir, name)))
-    .filter((attempt): attempt is SessionAttemptSummary => Boolean(
-      attempt && attempt.flowId === flowId && attempt.step === step,
-    ))
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 }

@@ -1,134 +1,97 @@
-import chokidar from 'chokidar';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import fs from 'node:fs';
-import { readWorkflowJson, readOutputContent } from './flow-reader.js';
+import chokidar, { type FSWatcher } from 'chokidar';
+import type { AgentStep, FileMetadata } from '@devteam-dashboard/shared';
+import type { OrchestrationService } from '@devteam-dashboard/orchestration';
 import { readNewLogLines } from './log-tailer.js';
-import type { WorkflowState, AgentStep, FileMetadata } from '@devteam-dashboard/shared';
+import { readOutputContent } from './flow-reader.js';
 
-export interface WatcherEvents {
-  'workflow-changed': (flowId: string, workflow: WorkflowState) => void;
+export class ArtifactWatcher extends EventEmitter {
+  private readonly watcher: FSWatcher;
+  private readonly logOffsets = new Map<string, number>();
+  private readonly roots = new Map<string, string>();
+
+  constructor(private readonly service: OrchestrationService) {
+    super();
+    this.watcher = chokidar.watch([], {
+      persistent: true,
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+    });
+    this.watcher.on('change', (filePath) => this.changed(filePath));
+    this.watcher.on('add', (filePath) => this.added(filePath));
+    this.watcher.on('error', (error) => this.emit('error', error));
+    for (const flow of service.listFlows()) this.addFlow(flow.flowId);
+  }
+
+  addFlow(flowId: string): void {
+    try {
+      const root = this.service.artifactDirectory(flowId);
+      this.roots.set(flowId, root);
+      this.watcher.add([path.join(root, 'logs'), path.join(root, 'output')]);
+    } catch {
+      // The flow can be deleted before the watcher observes its domain event.
+    }
+  }
+
+  removeFlow(flowId: string): void {
+    const root = this.roots.get(flowId);
+    if (!root) return;
+    this.roots.delete(flowId);
+    this.watcher.unwatch([path.join(root, 'logs'), path.join(root, 'output')]);
+    for (const key of this.logOffsets.keys()) {
+      if (key.startsWith(`${root}${path.sep}`)) this.logOffsets.delete(key);
+    }
+  }
+
+  private identity(filePath: string): { flowId: string; relative: string } | null {
+    for (const [flowId, root] of this.roots) {
+      const relative = path.relative(root, filePath);
+      if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return { flowId, relative };
+    }
+    return null;
+  }
+
+  private outputStep(flowId: string, relative: string): AgentStep | null {
+    const normalized = relative.split(path.sep).join('/');
+    return this.service.getFlow(flowId).stepDetails.find((step) => step.outputPath === normalized)?.step || null;
+  }
+
+  private changed(filePath: string): void {
+    const identity = this.identity(filePath);
+    if (!identity) return;
+    const parts = identity.relative.split(path.sep);
+    if (parts[0] === 'logs' && parts[1]?.endsWith('.log')) {
+      const step = parts[1].slice(0, -4);
+      const lines = readNewLogLines(filePath, this.logOffsets);
+      if (lines.length) this.emit('log-appended', identity.flowId, step, lines);
+      return;
+    }
+    if (parts[0] === 'output') {
+      const step = this.outputStep(identity.flowId, identity.relative);
+      const output = step ? readOutputContent(filePath) : null;
+      if (step && output) this.emit('output-updated', identity.flowId, step, output.content, output.metadata);
+    }
+  }
+
+  private added(filePath: string): void {
+    const identity = this.identity(filePath);
+    if (!identity || !identity.relative.startsWith(`output${path.sep}`)) return;
+    const step = this.outputStep(identity.flowId, identity.relative);
+    if (step) this.emit('output-created', identity.flowId, step, identity.relative);
+  }
+
+  close(): Promise<void> {
+    return this.watcher.close();
+  }
+}
+
+export interface ArtifactWatcherEvents {
   'log-appended': (flowId: string, step: AgentStep, lines: string[]) => void;
-  'output-created': (flowId: string, step: AgentStep, filePath: string) => void;
+  'output-created': (flowId: string, step: AgentStep, relativePath: string) => void;
   'output-updated': (flowId: string, step: AgentStep, content: string, metadata: FileMetadata) => void;
 }
 
-/**
- * Map output filenames to AgentStep values.
- */
-function mapOutputFileToStep(filename: string): AgentStep | null {
-  const map: Record<string, AgentStep> = {
-    'clarify.md': 'clarifier',
-    'architecture.md': 'architect',
-    'plan.md': 'planner',
-    'implementation.md': 'implementer',
-    'verification.md': 'verifier',
-  };
-  return map[filename] || null;
-}
-
-/**
- * Create a filesystem watcher that monitors the task-flows directory
- * for changes, emitting typed events.
- *
- * Events emitted:
- * - `workflow-changed` — when a flow's workflow.json is modified
- * - `log-appended` — when new lines are appended to a step log file
- * - `output-created` — when a new output .md file appears
- * - `output-updated` — when an existing output .md file is modified
- */
-export function createWatcher(taskFlowsDir: string): EventEmitter {
-  const emitter = new EventEmitter();
-  const logOffsets = new Map<string, number>();
-
-  const watcher = chokidar.watch([taskFlowsDir], {
-    persistent: true,
-    ignoreInitial: true,
-    awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
-  });
-
-  watcher.on('change', (filePath: string) => {
-    const relative = path.relative(taskFlowsDir, filePath);
-    const parts = relative.split(path.sep);
-    if (parts.length < 2) return;
-
-    let workspaceName = '';
-    let flowId = '';
-    let restParts = [];
-
-    // Check if it's a workspace path (e.g. workspaceName/flowId/...)
-    if (parts.length >= 3 && parts[0] && parts[0].length > 0 && parts[1].startsWith('flow_')) {
-      workspaceName = parts[0];
-      flowId = parts[1];
-      restParts = parts.slice(2);
-    } else {
-      flowId = parts[0];
-      restParts = parts.slice(1);
-    }
-
-    // workflow.json changed
-    if (restParts[0] === 'workflow.json') {
-      const dirPath = workspaceName ? path.join(taskFlowsDir, workspaceName, flowId) : path.join(taskFlowsDir, flowId);
-      const workflow = readWorkflowJson(dirPath);
-      if (workflow) {
-        emitter.emit('workflow-changed', flowId, workflow);
-      }
-      return;
-    }
-
-    // logs/{step}.log changed
-    if (restParts[0] === 'logs' && restParts[1]?.endsWith('.log')) {
-      const step = restParts[1].replace('.log', '') as AgentStep;
-      const newLines = readNewLogLines(filePath, logOffsets);
-      if (newLines.length > 0) {
-        emitter.emit('log-appended', flowId, step, newLines);
-      }
-      return;
-    }
-
-    // output/{filename}.md changed
-    if (restParts[0] === 'output' && restParts[1]?.endsWith('.md')) {
-      const step = mapOutputFileToStep(restParts[1]);
-      if (step) {
-        const result = readOutputContent(filePath);
-        if (result) {
-          emitter.emit('output-updated', flowId, step, result.content, result.metadata);
-        }
-      }
-      return;
-    }
-  });
-
-  watcher.on('add', (filePath: string) => {
-    const relative = path.relative(taskFlowsDir, filePath);
-    const parts = relative.split(path.sep);
-
-    let workspaceName = '';
-    let flowId = '';
-    let restParts = [];
-
-    if (parts.length >= 3 && parts[0] && parts[0].length > 0 && parts[1].startsWith('flow_')) {
-      workspaceName = parts[0];
-      flowId = parts[1];
-      restParts = parts.slice(2);
-    } else {
-      flowId = parts[0];
-      restParts = parts.slice(1);
-    }
-
-    // New output file created
-    if (restParts.length >= 2 && restParts[0] === 'output' && restParts[1].endsWith('.md')) {
-      const step = mapOutputFileToStep(restParts[1]);
-      if (step) {
-        emitter.emit('output-created', flowId, step, filePath);
-      }
-    }
-  });
-
-  watcher.on('error', (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error('[watcher] Chokidar error:', message);
-  });
-
-  return emitter;
+export function createArtifactWatcher(service: OrchestrationService): ArtifactWatcher {
+  return new ArtifactWatcher(service);
 }

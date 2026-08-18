@@ -30,8 +30,6 @@ function formatLastModified(iso: string): string {
 export function OutputPreview() {
   const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
   const selectedStep = useDashboardStore((s) => s.selectedStep);
-  const selectedWorkspaceId = useDashboardStore((s) => s.selectedWorkspaceId);
-  const workspaces = useDashboardStore((s) => s.workspaces);
   const flows = useDashboardStore((s) => s.flows);
   const agents = useDashboardStore((s) => s.agents);
 
@@ -50,10 +48,8 @@ export function OutputPreview() {
     setError(null);
 
     try {
-      const workspaceName = workspaces.find((workspace) => workspace.id === selectedWorkspaceId)?.name;
-      const query = workspaceName ? `?workspaceName=${encodeURIComponent(workspaceName)}` : '';
       const res = await fetch(
-        `${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/output/${encodeURIComponent(selectedStep)}${query}`
+        `${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/output/${encodeURIComponent(selectedStep)}`
       );
       if (!res.ok) {
         throw new Error(`Failed to fetch output: ${res.status}`);
@@ -66,7 +62,7 @@ export function OutputPreview() {
     } finally {
       setLoading(false);
     }
-  }, [selectedFlowId, selectedStep, selectedWorkspaceId, workspaces]);
+  }, [selectedFlowId, selectedStep]);
 
   // Fetch output when selected step changes
   useEffect(() => {

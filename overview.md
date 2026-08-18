@@ -1,101 +1,75 @@
-# Agent-Orchestrator — Project Overview
+# Agent Orchestrator — Inngest architecture
 
-## Tổng quan
+## Overview
 
-Agent-Orchestrator là hệ thống **multi-agent AI orchestration** tự động hóa quy trình phát triển phần mềm bằng cách phối hợp nhiều AI agent (Codex, Claude, Kiro) làm việc theo pipeline.
+The orchestrator runs each development flow as an Inngest durable function. SQLite
+`workflows.db` is the business source of truth; Inngest owns durable execution
+checkpoints. Flow artifact directories contain prompts, outputs, logs, native Codex
+session metadata, and rollouts only.
 
-**Repo:** `git@github.com:lenovo1996/Agent-Orchestrator.git`
+There is no legacy watcher or file-backed state machine. Existing artifact-only flows
+are intentionally not imported.
 
-## Kiến trúc
+## Runtime components
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Dashboard Frontend                        │
-│          React + Vite + Zustand + TailwindCSS               │
-│                   (port 5173 dev)                            │
-└──────────────────────┬──────────────────────────────────────┘
-                       │ Socket.IO + REST API
-┌──────────────────────▼──────────────────────────────────────┐
-│                    Dashboard Backend                         │
-│              Express.js + Socket.IO + SQLite                 │
-│                   (port 3001)                                │
-├─────────────┬─────────────┬─────────────┬───────────────────┤
-│  Flows API  │ Workflows   │  Agents API │  Workspaces API   │
-│   /api/flows│  /api/wf    │ /api/agents │ /api/workspaces   │
-└──────┬──────┴──────┬──────┴──────┬──────┴───────────────────┘
-       │             │             │
-       ▼             ▼             ▼
-┌──────────┐  ┌───────────┐  ┌──────────────┐   ┌────────────┐
-│ task-flows│  │workflows.db│  │  team.json   │   │  prompts/  │
-│  (files)  │  │  (SQLite) │  │  (agents)    │   │  (*.md)    │
-└─────┬─────┘  └───────────┘  └──────────────┘   └────────────┘
-      │
-      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Scripts Engine                             │
-│  orchestrator/ │ watcher/ │ worktree/ │ api/ │ utils/ │ agent│
-└──────────────────────┬──────────────────────────────────────┘
-                       │
-      ┌────────────────┼────────────────┐
-      ▼                ▼                ▼
-┌──────────┐   ┌──────────┐   ┌──────────────┐
-│  Codex   │   │  Claude  │   │  Kiro CLI    │
-│  CLI     │   │  Code    │   │              │
-└──────────┘   └──────────┘   └──────────────┘
+```text
+React dashboard ── REST / Socket.IO ── Express server
+                                          │
+                                          ├── workflows.db (business state + outbox)
+                                          └── task-flows (artifacts only)
 
-┌─────────────────────────────────────────────────────────────┐
-│                    MCP Server                                │
-│         Model Context Protocol (stdio) — 12 tools           │
-│    Dùng cho tích hợp AI IDE (Cursor, Claude Desktop)        │
-└─────────────────────────────────────────────────────────────┘
+CLI / MCP ───────── shared command service ───────┘
+                                                   │
+Inngest start :8288/:8289 ◀── Connect worker ─────┤
+                               │                   │
+                               └── foreground agent wrapper / process groups
 ```
 
-## Components chính
+- `dashboard/orchestration`: migrations, repositories, state transitions, Inngest
+  functions, worker, process supervisor, outbox, CLI, and worktree coordination.
+- `dashboard/server`: query/action API, monotonic domain-event broadcasting, artifact
+  tailing, and native Codex Session Viewer APIs. It never launches agents.
+- `mcp`: seven flow tools backed by the same command/query service as REST and CLI.
+- `scripts/agent` and `scripts/runtimes`: execute one foreground attempt, capture the
+  native session, and return an exit code. They never project flow state.
 
-| Component | Path | Tech | Mô tả |
-|-----------|------|------|-------|
-| **Dashboard Frontend** | `dashboard/client/` | React, Vite, Zustand, TailwindCSS, shadcn/ui | Web UI quản lý & monitor |
-| **Dashboard Backend** | `dashboard/server/` | Express.js, Socket.IO, SQLite, Chokidar | REST API + real-time events |
-| **Shared Types** | `dashboard/shared/` | TypeScript | Type definitions chung |
-| **MCP Server** | `mcp/` | TypeScript, MCP SDK | 12 tools cho AI IDE integration |
-| **Scripts Engine** | `scripts/` | Node.js (CommonJS) | Core orchestration logic |
-| **Prompts** | `prompts/` | Markdown | Agent instruction files |
-| **Team Config** | `team.json` | JSON | Agent definitions + output config |
-
-## Default Agent Pipeline (5 bước)
-
-```
-Clarifier → Architect → Planner → Implementer → Verifier
-  (Phân tích)  (Thiết kế)  (Kế hoạch)  (Triển khai)  (Kiểm tra)
-```
-
-Mỗi agent chạy như một process riêng, đọc output của agent trước, viết output của mình, và watcher tự động spawn agent tiếp theo khi hoàn thành.
-
-## Tech Stack
-
-- **Runtime:** Node.js v24.16.0 (arm64)
-- **Frontend:** React 19, Vite, TypeScript, Zustand, TailwindCSS, Socket.IO Client
-- **Backend:** Express.js, Socket.IO, SQLite3, Chokidar (fs watcher)
-- **MCP:** @modelcontextprotocol/sdk (stdio transport)
-- **Agent Runtimes:** Codex CLI, Claude Code, Kiro CLI, generic shell
-- **Database:** SQLite (`workflows.db`) cho workflows, agents, workspaces
-- **Process Management:** PID-based spawn guards, process group signaling
-
-## Quick Start
+## Start locally
 
 ```bash
-# Build MCP server
-cd mcp && npm run build
+cp .env.example .env
+# Replace both Inngest keys with values from: openssl rand -hex 32
+set -a; source .env; set +a
 
-# Build & run Dashboard (production)
-cd dashboard && npm run build && NODE_ENV=production node server/dist/index.js
-
-# Dev mode
-cd dashboard && npm run dev  # Frontend:5173 + Backend:3001
-
-# Start a workflow via CLI
-node scripts/orchestrator/index.js start "Fix header color" --prompt "Change bg to blue"
-
-# Start with Jira key
-node scripts/orchestrator/index.js start JH-12345
+cd dashboard
+npm install
+npm run build
+npm run dev:inngest
 ```
+
+In separate terminals using the same environment:
+
+```bash
+cd dashboard && npm run dev:worker
+cd dashboard && npm run dev
+```
+
+Production uses `npm start` for the dashboard and `npm run start:worker` for the
+Connect worker. Readiness is exposed at `GET /api/orchestration/health` and requires
+both Inngest and a fresh connected worker heartbeat.
+
+## Flow commands
+
+```bash
+cd dashboard
+npm run flow -- start --workflow default --workspace main --prompt "Fix the issue"
+npm run flow -- list --workspace main
+npm run flow -- get <flow-id>
+npm run flow -- retry <flow-id> --step implementer
+npm run flow -- resume <flow-id>
+npm run flow -- stop <flow-id>
+npm run flow -- delete <flow-id>
+```
+
+Start, retry, resume, stop, and delete are durable commands. Clients receive an
+accepted/queued response and observe state changes through SQLite-backed snapshots
+and monotonic Socket.IO events.

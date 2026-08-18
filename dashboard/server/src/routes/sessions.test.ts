@@ -6,7 +6,9 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import type { DashboardConfig } from '../config.js';
 import { SessionService } from '../session/service.js';
+import { createTestOrchestration, insertTestAttempt } from '../test-helpers.js';
 import { sessionsRouter } from './sessions.js';
+import type { OrchestrationDatabase } from '@devteam-dashboard/orchestration';
 
 const threadA = '019fffff-1111-7222-8333-444444444444';
 const threadB = '019fffff-1111-7222-8333-555555555555';
@@ -47,6 +49,7 @@ describe('session routes', () => {
   let codexHome: string;
   let config: DashboardConfig;
   let app: express.Express;
+  let database: OrchestrationDatabase;
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'session-routes-'));
@@ -67,17 +70,37 @@ describe('session routes', () => {
       codexHome,
       sessionViewerEnabled: true,
     };
-    const service = new SessionService(config);
+    const orchestration = createTestOrchestration(root, taskFlowsDir, [
+      { flowId: 'flow_001', workspaceId: 'workspace-a' },
+      { flowId: 'flow_002', workspaceId: 'workspace-b' },
+    ]);
+    database = orchestration.database;
+    const service = new SessionService(config, orchestration.service);
     app = express();
     app.use('/api', sessionsRouter(config, service));
   });
 
-  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+  afterEach(() => {
+    database.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
-  function writeAttempt(workspace: string, value: ReturnType<typeof attempt>) {
-    const directory = path.join(taskFlowsDir, workspace, 'flow_001', 'sessions', 'implementer');
+  function writeAttempt(workspace: string, value: ReturnType<typeof attempt>, flowId = 'flow_001', ordinal?: number) {
+    const technicalAttempt = ordinal ?? Number(database.get<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM step_attempts WHERE flow_id = ? AND step = ?', flowId, 'implementer',
+    )?.count || 0);
+    const normalized = { ...value, schemaVersion: 2, flowId, attemptId: `attempt-${value.runId}`, inngestRunId: `inngest-attempt-${value.runId}`, inngestAttempt: technicalAttempt };
+    const directory = path.join(taskFlowsDir, workspace, flowId, 'sessions', 'implementer');
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, `${value.runId}.json`), JSON.stringify(value));
+    fs.writeFileSync(path.join(directory, `${value.runId}.json`), JSON.stringify(normalized));
+    insertTestAttempt(database, {
+      attemptId: normalized.attemptId,
+      flowId,
+      runId: value.runId,
+      startedAt: value.startedAt,
+      status: value.status === 'completed' ? 'completed' : 'running',
+      ordinal: technicalAttempt,
+    });
   }
 
   function writeRollout(threadId: string, records: object[], compressed = false) {
@@ -88,12 +111,12 @@ describe('session routes', () => {
   }
 
   it('returns attempts in ascending order and isolates workspaces with the same flow ID', async () => {
-    writeAttempt('workspace-a', attempt(runB, threadB, '2026-08-17T00:02:00.000Z'));
-    writeAttempt('workspace-a', attempt(runA, threadA, '2026-08-17T00:00:00.000Z'));
-    writeAttempt('workspace-b', { ...attempt('cccccccc-1111-4222-8333-444444444444', threadB, '2026-08-17T00:03:00.000Z'), flowId: 'flow_001' });
+    writeAttempt('workspace-a', attempt(runB, threadB, '2026-08-17T00:02:00.000Z'), 'flow_001', 1);
+    writeAttempt('workspace-a', attempt(runA, threadA, '2026-08-17T00:00:00.000Z'), 'flow_001', 0);
+    writeAttempt('workspace-b', attempt('cccccccc-1111-4222-8333-444444444444', threadB, '2026-08-17T00:03:00.000Z'), 'flow_002', 0);
 
     const first = await request(app, '/api/flows/flow_001/sessions/implementer?workspaceName=workspace-a');
-    const second = await request(app, '/api/flows/flow_001/sessions/implementer?workspaceName=workspace-b');
+    const second = await request(app, '/api/flows/flow_002/sessions/implementer?workspaceName=workspace-b');
     expect(first.status).toBe(200);
     expect(first.cacheControl).toBe('no-store');
     expect(first.body.attempts.map((entry: any) => entry.runId)).toEqual([runA, runB]);
@@ -131,7 +154,7 @@ describe('session routes', () => {
 
   it('returns an empty registry for historical flows and parses completed zstd rollouts', async () => {
     const historical = await request(app, '/api/flows/old_flow/sessions/clarifier');
-    expect(historical.body.attempts).toEqual([]);
+    expect(historical.status).toBe(400);
 
     writeAttempt('workspace-a', attempt(runA, threadA, '2026-08-17T00:00:00.000Z'));
     writeRollout(threadA, [
