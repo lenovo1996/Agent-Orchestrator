@@ -1,11 +1,12 @@
-import type { WorkflowState, FlowStatus } from '@devteam-dashboard/shared';
-import { StepIndicator } from './StepIndicator';
+import { useState } from 'react';
+import { AlertTriangle, Clock3, Trash2, Wrench } from 'lucide-react';
+import type { FlowStatus, WorkflowState } from '@devteam-dashboard/shared';
 import { formatElapsedTime } from '@/lib/format';
 import { getStepDisplayName } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { useDashboardStore } from '@/store/use-dashboard-store';
-import { useState } from 'react';
 import { DeleteFlowDialog } from './DeleteFlowDialog';
+import { StepIndicator } from './StepIndicator';
 
 interface FlowCardProps {
   flow: WorkflowState;
@@ -13,114 +14,103 @@ interface FlowCardProps {
   onSelect: (flowId: string) => void;
 }
 
-const FLOW_STATUS_CONFIG: Record<FlowStatus, { bg: string; text: string; dot: string }> = {
-  queued: { bg: 'bg-slate-500/10', text: 'text-slate-300', dot: 'bg-slate-300 animate-pulse' },
-  running: { bg: 'bg-blue-500/10', text: 'text-blue-400', dot: 'bg-blue-400 animate-pulse' },
-  completed: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', dot: 'bg-emerald-400' },
-  failed: { bg: 'bg-red-500/10', text: 'text-red-400', dot: 'bg-red-400' },
-  blocked: { bg: 'bg-purple-500/10', text: 'text-purple-400', dot: 'bg-purple-400' },
-  stopped: { bg: 'bg-amber-500/10', text: 'text-amber-400', dot: 'bg-amber-400' },
-  stopping: { bg: 'bg-orange-500/10', text: 'text-orange-400', dot: 'bg-orange-400 animate-pulse' },
-  expired: { bg: 'bg-zinc-500/10', text: 'text-zinc-400', dot: 'bg-zinc-400' },
-  pending_dependencies: { bg: 'bg-sky-500/10', text: 'text-sky-400', dot: 'bg-sky-400 animate-pulse' },
+const FLOW_STATUS_CONFIG: Record<FlowStatus, { text: string; dot: string }> = {
+  queued: { text: 'text-slate-600 dark:text-slate-300', dot: 'bg-slate-400 animate-pulse motion-reduce:animate-none' },
+  pending_dependencies: { text: 'text-sky-700 dark:text-sky-300', dot: 'bg-sky-500 animate-pulse motion-reduce:animate-none' },
+  running: { text: 'text-blue-700 dark:text-blue-300', dot: 'bg-blue-500 animate-pulse motion-reduce:animate-none' },
+  blocked: { text: 'text-purple-700 dark:text-purple-300', dot: 'bg-purple-500' },
+  completed: { text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
+  failed: { text: 'text-red-700 dark:text-red-300', dot: 'bg-red-500' },
+  stopping: { text: 'text-orange-700 dark:text-orange-300', dot: 'bg-orange-500 animate-pulse motion-reduce:animate-none' },
+  stopped: { text: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500' },
+  expired: { text: 'text-zinc-600 dark:text-zinc-400', dot: 'bg-zinc-500' },
 };
 
+function flowLabel(flow: WorkflowState): string {
+  return flow.jiraKey || flow.customPrompt?.trim() || 'Custom task';
+}
+
+function flowStepLabel(flow: WorkflowState, agents: ReturnType<typeof useDashboardStore.getState>['agents']): string {
+  if (flow.status === 'completed') return 'All steps completed';
+  if (flow.currentStep) return getStepDisplayName(flow.currentStep, agents);
+  if (flow.status === 'pending_dependencies') return 'Waiting for dependencies';
+  if (flow.status === 'queued') return 'Waiting to start';
+  return 'No active step';
+}
+
+function flowDuration(flow: WorkflowState): string {
+  const startedAt = flow.startedAt || flow.createdAt;
+  const elapsed = flow.finishedAt
+    ? formatElapsedTime(startedAt, new Date(flow.finishedAt))
+    : ['queued', 'pending_dependencies', 'running', 'stopping'].includes(flow.status)
+      ? formatElapsedTime(startedAt)
+      : '—';
+  return elapsed.replace(/^(\d+h \d+m) \d+s$/, '$1');
+}
+
 export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
-  const agents = useDashboardStore((s) => s.agents);
+  const agents = useDashboardStore((state) => state.agents);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const totalNeedsFix = flow.stepDetails.reduce((sum, step) => sum + step.needsFixCount, 0);
-  const statusConfig = FLOW_STATUS_CONFIG[flow.status] ?? { bg: 'bg-slate-500/10', text: 'text-slate-400', dot: 'bg-slate-400' };
+  const statusConfig = FLOW_STATUS_CONFIG[flow.status];
+  const label = flowLabel(flow);
+  const statusLabel = flow.status.replaceAll('_', ' ');
 
   return (
-    <div
-      data-flow-card
-      className={cn(
-        'group relative rounded-xl p-3.5 transition-all duration-200 cursor-pointer',
-        'border border-border/50 hover:border-border',
-        'bg-card/60 hover:bg-card',
-        isSelected && 'border-primary/50 bg-primary/5 glow-sm'
-      )}
-      onClick={() => onSelect(flow.flowId)}
-    >
-      {/* Top row: Jira key + status */}
-      <div className="flex items-center justify-between gap-2 mb-2.5">
-        <span className="text-sm font-semibold text-foreground">
-          {flow.jiraKey || 'Custom task'}
-        </span>
-        <div className="flex items-center gap-2">
-          <div className={cn(
-            'flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border',
-            statusConfig.bg, statusConfig.text,
-            `border-current/20`
-          )}>
-            <span className={cn('h-1.5 w-1.5 rounded-full', statusConfig.dot)} />
-            {flow.status}
-          </div>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setDeleteModalOpen(true);
-            }}
-            className="p-1 rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-            title="Delete Flow"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      {/* Current step */}
-      <div className="flex items-center justify-between mb-2.5">
-        <span className="text-xs text-muted-foreground">
-          {flow.currentStep ? getStepDisplayName(flow.currentStep, agents) : 'Flow complete'}
-        </span>
-        <span className="text-[10px] font-mono text-muted-foreground/70" title={flow.flowId}>
-          {flow.flowId.replace('flow_', '').slice(0, 14)}
-        </span>
-      </div>
-
-      {/* Step indicators + Progress */}
-      <div className="space-y-2 mb-2.5">
-        <StepIndicator steps={flow.steps} stepOrder={flow.stepOrder} />
-      </div>
-
-      {/* Footer: elapsed time + needsFix */}
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span className="flex items-center gap-1">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          {flow.finishedAt
-            ? formatElapsedTime(flow.startedAt || flow.createdAt, new Date(flow.finishedAt))
-            : ['queued', 'pending_dependencies', 'running', 'stopping'].includes(flow.status)
-              ? formatElapsedTime(flow.startedAt || flow.createdAt)
-              : '—'}
-        </span>
-        {totalNeedsFix > 0 && (
-          <span className="text-amber-400 flex items-center gap-0.5">
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-            </svg>
-            {totalNeedsFix}
-          </span>
+    <div role="listitem" className="group relative min-w-0">
+      <button
+        type="button"
+        data-flow-card
+        aria-current={isSelected ? 'true' : undefined}
+        aria-label={`Open flow ${label}`}
+        onClick={() => onSelect(flow.flowId)}
+        className={cn(
+          'relative block w-full min-w-0 px-2.5 py-2 pr-2 text-left transition-colors',
+          'hover:bg-accent/60 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+          isSelected && 'bg-primary/10 hover:bg-primary/10',
         )}
-      </div>
+      >
+        {isSelected && <span aria-hidden="true" className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-primary" />}
 
-      {/* Blocked reason */}
-      {flow.status === 'blocked' && flow.blockedReason && (
-        <div className="mt-2.5 text-[11px] text-purple-300 bg-purple-500/10 border border-purple-500/20 rounded-lg px-2.5 py-1.5">
-          ⚠ {flow.blockedReason}
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', statusConfig.dot)} />
+          <strong className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground" title={label}>
+            {label}
+          </strong>
+          <span className={cn('shrink-0 text-[9px] font-medium capitalize', statusConfig.text)}>
+            {statusLabel}
+          </span>
         </div>
-      )}
 
-      {deleteModalOpen && (
-        <DeleteFlowDialog
-          flow={flow}
-          onClose={() => setDeleteModalOpen(false)}
-        />
-      )}
+        <div className="mt-1.5 flex min-w-0 items-center gap-1.5 pl-3.5 text-[9px] text-muted-foreground">
+          {flow.status === 'blocked' && flow.blockedReason && (
+            <span className="shrink-0" aria-label="Blocked" title={flow.blockedReason}>
+              <AlertTriangle className="h-3 w-3 text-purple-500" />
+            </span>
+          )}
+          {totalNeedsFix > 0 && (
+            <span className="flex shrink-0 items-center gap-0.5 text-amber-600 dark:text-amber-300" title={`${totalNeedsFix} fix cycles`}>
+              <Wrench className="h-2.5 w-2.5" />{totalNeedsFix}
+            </span>
+          )}
+          <StepIndicator steps={flow.steps} stepOrder={flow.stepOrder} />
+          <span className="flex w-12 shrink-0 items-center justify-end gap-0.5 truncate font-mono" title="Flow duration">
+            <Clock3 className="h-2.5 w-2.5" />{flowDuration(flow)}
+          </span>
+        </div>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setDeleteModalOpen(true)}
+        className="absolute right-1.5 top-1.5 z-10 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-colors hover:bg-red-500/10 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+        title="Delete flow"
+        aria-label={`Delete flow ${label}`}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+
+      {deleteModalOpen && <DeleteFlowDialog flow={flow} onClose={() => setDeleteModalOpen(false)} />}
     </div>
   );
 }

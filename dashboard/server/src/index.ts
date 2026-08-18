@@ -11,6 +11,7 @@ import { workflowsRouter } from './routes/workflows.js';
 import { agentsRouter } from './routes/agents.js';
 import { workspacesRouter } from './routes/workspaces.js';
 import { sessionsRouter } from './routes/sessions.js';
+import { improvePromptRouter } from './routes/improve-prompt.js';
 import { SessionService } from './session/service.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@devteam-dashboard/shared';
 
@@ -30,6 +31,7 @@ app.use('/api', workflowsRouter(orchestration.database));
 app.use('/api', agentsRouter(orchestration.database));
 app.use('/api', workspacesRouter(orchestration.database));
 app.use('/api', sessionsRouter(config, sessionService));
+app.use('/api', improvePromptRouter());
 
 // 4. Create HTTP server, then Socket.IO server on top
 const httpServer = createServer(app);

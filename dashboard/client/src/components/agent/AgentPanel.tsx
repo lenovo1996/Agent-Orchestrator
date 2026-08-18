@@ -1,68 +1,377 @@
 import { useEffect, useState } from 'react';
+import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react';
+import { Bot, Clock3, RotateCcw, Wrench } from 'lucide-react';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 import { AGENT_STEPS, getAgentOutputFilename, getStepDisplayName } from '@/lib/constants';
-import { formatTokens, calculateProgress } from '@/lib/format';
-import { Progress } from '@/components/ui/progress';
+import { calculateProgress, formatTokens } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import type { AgentStep, StepStatus } from '@devteam-dashboard/shared';
+import type { AgentConfig, AgentStep, SessionAttemptSummary, SessionUsage, StepStatus, WorkflowState } from '@devteam-dashboard/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const NODE_WIDTH = 210;
+const NODE_HEIGHT = 126;
+const COLUMN_GAP = 46;
+const ROW_GAP = 54;
+const MAX_COLUMNS = 3;
 
-/** Status → icon + color config */
-const STATUS_CONFIG: Record<StepStatus, { icon: string; color: string; bg: string }> = {
-  waiting: { icon: '○', color: 'text-gray-500', bg: 'bg-gray-500/10' },
-  queued: { icon: '◌', color: 'text-sky-400', bg: 'bg-sky-400/10' },
-  running: { icon: '●', color: 'text-blue-400', bg: 'bg-blue-500/10' },
-  needs_fix: { icon: '↺', color: 'text-amber-400', bg: 'bg-amber-500/10' },
-  done: { icon: '✓', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-  failed: { icon: '✗', color: 'text-red-400', bg: 'bg-red-500/10' },
-  blocked: { icon: '⚠', color: 'text-purple-400', bg: 'bg-purple-500/10' },
-  cancelled: { icon: '—', color: 'text-gray-500', bg: 'bg-gray-500/10' },
-  retrying: { icon: '↻', color: 'text-amber-400', bg: 'bg-amber-500/10' },
+const STATUS_CONFIG: Record<StepStatus, {
+  icon: string;
+  label: string;
+  node: string;
+  tone: string;
+  dot: string;
+  edge: string;
+  animated: boolean;
+}> = {
+  waiting: {
+    icon: '○', label: 'waiting', node: 'border-border bg-card', tone: 'text-muted-foreground',
+    dot: 'bg-muted-foreground', edge: 'hsl(var(--muted-foreground))', animated: false,
+  },
+  queued: {
+    icon: '◌', label: 'queued', node: 'border-sky-500/35 bg-sky-500/5', tone: 'text-sky-700 dark:text-sky-300',
+    dot: 'bg-sky-500', edge: '#38bdf8', animated: true,
+  },
+  running: {
+    icon: '●', label: 'running', node: 'border-blue-500/50 bg-blue-500/10 shadow-blue-500/10', tone: 'text-blue-700 dark:text-blue-300',
+    dot: 'bg-blue-500', edge: '#3b82f6', animated: true,
+  },
+  retrying: {
+    icon: '↻', label: 'retrying', node: 'border-amber-500/45 bg-amber-500/10', tone: 'text-amber-700 dark:text-amber-300',
+    dot: 'bg-amber-500', edge: '#f59e0b', animated: true,
+  },
+  needs_fix: {
+    icon: '↺', label: 'needs fix', node: 'border-amber-500/45 bg-amber-500/10', tone: 'text-amber-700 dark:text-amber-300',
+    dot: 'bg-amber-500', edge: '#f59e0b', animated: false,
+  },
+  done: {
+    icon: '✓', label: 'done', node: 'border-emerald-500/40 bg-emerald-500/5', tone: 'text-emerald-700 dark:text-emerald-300',
+    dot: 'bg-emerald-500', edge: '#10b981', animated: false,
+  },
+  failed: {
+    icon: '×', label: 'failed', node: 'border-red-500/45 bg-red-500/10', tone: 'text-red-700 dark:text-red-300',
+    dot: 'bg-red-500', edge: '#ef4444', animated: false,
+  },
+  blocked: {
+    icon: '!', label: 'blocked', node: 'border-purple-500/45 bg-purple-500/10', tone: 'text-purple-700 dark:text-purple-300',
+    dot: 'bg-purple-500', edge: '#a855f7', animated: false,
+  },
+  cancelled: {
+    icon: '—', label: 'cancelled', node: 'border-border bg-muted/40 opacity-75', tone: 'text-muted-foreground',
+    dot: 'bg-muted-foreground', edge: 'hsl(var(--muted-foreground))', animated: false,
+  },
 };
 
-/**
- * Fetch token counts and output completion times from backend.
- */
+type PipelineNodeData = {
+  step: AgentStep;
+  label: string;
+  objective: string;
+  status: StepStatus;
+  model: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cachedInputTokens: number | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  output: string;
+  outputTime: string;
+  cycle: number;
+  retryCount: number;
+  needsFixCount: number;
+  hasTarget: boolean;
+  hasSource: boolean;
+  targetPosition: Position;
+  sourcePosition: Position;
+};
+
+export type PipelineNode = Node<PipelineNodeData, 'pipelineStep'>;
+
+export type StepTelemetry = {
+  usage: SessionUsage | null;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+function metric(value: number | null): string {
+  if (value === null) return '—';
+  return value === 0 ? '0' : formatTokens(value);
+}
+
+function duration(startedAt: string | null, finishedAt: string | null, now: number): string {
+  if (!startedAt) return '—';
+  const start = Date.parse(startedAt);
+  const end = finishedAt ? Date.parse(finishedAt) : now;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return '—';
+  const seconds = Math.max(0, Math.floor((end - start) / 1_000));
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const rest = seconds % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : minutes > 0 ? `${minutes}m ${rest}s` : `${rest}s`;
+}
+
+function Metric({ label, value }: { label: string; value: number | null }) {
+  return (
+    <span className="min-w-0">
+      <span className="block text-[7px] font-semibold uppercase tracking-wider text-muted-foreground/70">{label}</span>
+      <strong className="block truncate text-[10px] font-semibold text-foreground">{metric(value)}</strong>
+    </span>
+  );
+}
+
+function PipelineStepNode({ data, selected }: NodeProps<PipelineNode>) {
+  const config = STATUS_CONFIG[data.status];
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!['running', 'retrying'].includes(data.status) || data.finishedAt) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [data.finishedAt, data.status]);
+
+  return (
+    <div
+      data-pipeline-step={data.step}
+      className={cn(
+        'relative h-[126px] w-[210px] rounded-xl border px-3 py-2 shadow-sm transition-all',
+        config.node,
+        selected && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+        data.status === 'running' && 'pipeline-node-running shadow-lg',
+      )}
+    >
+      {data.hasTarget && (
+        <Handle
+          type="target"
+          position={data.targetPosition}
+          isConnectable={false}
+          className={cn('!h-2.5 !w-2.5 !border-2 !border-background', config.dot)}
+        />
+      )}
+      {data.hasSource && (
+        <Handle
+          type="source"
+          position={data.sourcePosition}
+          isConnectable={false}
+          className={cn('!h-2.5 !w-2.5 !border-2 !border-background', config.dot)}
+        />
+      )}
+
+      <div className="flex min-w-0 items-start gap-2">
+        <span className={cn(
+          'mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-current/15 bg-background/60 text-xs font-bold',
+          config.tone,
+          config.animated && 'animate-pulse motion-reduce:animate-none',
+        )}>
+          {config.icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-semibold text-foreground" title={data.objective}>{data.label}</div>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            <span className="truncate font-mono text-[9px] text-muted-foreground">{data.step}</span>
+            <span className={cn('ml-auto shrink-0 text-[9px] font-medium', config.tone)}>{config.label}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-1.5 flex items-center gap-1.5 font-mono text-[8px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate" title={data.model}>{data.model}</span>
+        <span className="shrink-0" title="Total time"><Clock3 className="mr-0.5 inline h-2.5 w-2.5" />{duration(data.startedAt, data.finishedAt, now)}</span>
+      </div>
+
+      <div className="mt-1.5 grid grid-cols-3 gap-2 border-y border-border/60 py-1 font-mono">
+        <Metric label="input" value={data.inputTokens} />
+        <Metric label="output" value={data.outputTokens} />
+        <Metric label="cache" value={data.cachedInputTokens} />
+      </div>
+
+      <div className="mt-1 flex min-w-0 items-center gap-1.5 font-mono text-[8px] text-muted-foreground">
+        <span className="min-w-0 flex-1 truncate" title={data.output}>{data.output}</span>
+        {data.outputTime !== '—' && <span className="shrink-0" title={`Last output ${data.outputTime}`}>{data.outputTime}</span>}
+        {data.retryCount > 0 && <span className="shrink-0 text-amber-600 dark:text-amber-300" title={`${data.retryCount} technical retries`}><RotateCcw className="mr-0.5 inline h-2.5 w-2.5" />{data.retryCount}</span>}
+        {data.needsFixCount > 0 && <span className="shrink-0 text-purple-600 dark:text-purple-300" title={`${data.needsFixCount} fix cycles`}><Wrench className="mr-0.5 inline h-2.5 w-2.5" />{data.needsFixCount}</span>}
+        <span className="shrink-0" title={`Cycle ${data.cycle}`}>c{data.cycle}</span>
+      </div>
+    </div>
+  );
+}
+
+const NODE_TYPES = { pipelineStep: PipelineStepNode };
+
+function direction(from: { x: number; y: number }, to: { x: number; y: number }): Position {
+  if (to.y > from.y) return Position.Bottom;
+  return to.x > from.x ? Position.Right : Position.Left;
+}
+
+function incomingDirection(from: { x: number; y: number }, to: { x: number; y: number }): Position {
+  if (to.y > from.y) return Position.Top;
+  return to.x > from.x ? Position.Left : Position.Right;
+}
+
+export function buildPipelineGraph(
+  flow: WorkflowState,
+  agents: Record<string, AgentConfig>,
+  outputTimes: Record<string, string | null>,
+  selectedStep: AgentStep | null,
+  telemetry: Partial<Record<AgentStep, StepTelemetry>> = {},
+): { nodes: PipelineNode[]; edges: Edge[] } {
+  const steps = flow.stepOrder.length ? flow.stepOrder : AGENT_STEPS;
+  const columns = Math.max(1, Math.min(MAX_COLUMNS, steps.length));
+  const positions = steps.map((_, index) => {
+    const row = Math.floor(index / columns);
+    const rowIndex = index % columns;
+    const column = row % 2 === 0 ? rowIndex : columns - 1 - rowIndex;
+    return {
+      x: column * (NODE_WIDTH + COLUMN_GAP),
+      y: row * (NODE_HEIGHT + ROW_GAP),
+    };
+  });
+
+  const nodes: PipelineNode[] = steps.map((step, index) => {
+    const detail = flow.stepDetails.find((candidate) => candidate.step === step);
+    const latestAttempt = telemetry[step];
+    const previous = positions[index - 1];
+    const current = positions[index];
+    const next = positions[index + 1];
+    return {
+      id: step,
+      type: 'pipelineStep',
+      position: current,
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+      draggable: false,
+      deletable: false,
+      selectable: true,
+      selected: selectedStep === step,
+      ariaLabel: `${getStepDisplayName(step, agents)}: ${flow.steps[step] || 'waiting'}`,
+      data: {
+        step,
+        label: getStepDisplayName(step, agents),
+        objective: agents[step]?.objective || getStepDisplayName(step, agents),
+        status: flow.steps[step] || 'waiting',
+        model: agents[step]?.model || 'default model',
+        inputTokens: latestAttempt?.usage?.inputTokens ?? null,
+        outputTokens: latestAttempt?.usage?.outputTokens ?? null,
+        cachedInputTokens: latestAttempt?.usage?.cachedInputTokens ?? null,
+        startedAt: latestAttempt?.startedAt || detail?.startedAt || null,
+        finishedAt: latestAttempt?.finishedAt || detail?.finishedAt || null,
+        output: getAgentOutputFilename(step, agents),
+        outputTime: formatTime(outputTimes[step] || undefined),
+        cycle: detail?.cycle || 1,
+        retryCount: detail?.technicalRetryCount || 0,
+        needsFixCount: detail?.needsFixCount || 0,
+        hasTarget: index > 0,
+        hasSource: index < steps.length - 1,
+        targetPosition: previous ? incomingDirection(previous, current) : Position.Left,
+        sourcePosition: next ? direction(current, next) : Position.Right,
+      },
+    };
+  });
+
+  const edges: Edge[] = steps.slice(0, -1).map((step, index) => {
+    const nextStep = steps[index + 1];
+    const config = STATUS_CONFIG[flow.steps[nextStep] || 'waiting'];
+    return {
+      id: `${step}->${nextStep}`,
+      source: step,
+      target: nextStep,
+      type: 'smoothstep',
+      animated: config.animated,
+      selectable: false,
+      deletable: false,
+      style: { stroke: config.edge, strokeWidth: config.animated ? 2.5 : 1.75, opacity: flow.steps[nextStep] === 'waiting' ? 0.35 : 0.85 },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: config.edge },
+    };
+  });
+
+  return { nodes, edges };
+}
+
+function useStepTelemetry(flow: WorkflowState | undefined) {
+  const [telemetry, setTelemetry] = useState<Partial<Record<AgentStep, StepTelemetry>>>({});
+  const stepSignature = flow?.stepDetails
+    .map((detail) => `${detail.step}:${detail.cycle}:${detail.status}:${detail.updatedAt}`)
+    .join('|') || '';
+
+  useEffect(() => {
+    if (!flow) {
+      setTelemetry({});
+      return;
+    }
+
+    const controller = new AbortController();
+    const workspaceQuery = flow.workspaceName
+      ? `?workspaceName=${encodeURIComponent(flow.workspaceName)}`
+      : '';
+    const steps = flow.stepOrder.length ? flow.stepOrder : AGENT_STEPS;
+    setTelemetry({});
+
+    void Promise.all(steps.map(async (step) => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/api/flows/${encodeURIComponent(flow.flowId)}/sessions/${encodeURIComponent(step)}${workspaceQuery}`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) return null;
+        const data = await response.json() as { enabled?: boolean; attempts?: SessionAttemptSummary[] };
+        if (data.enabled === false) return null;
+        const attempt = data.attempts?.at(-1);
+        return attempt ? [step, {
+          usage: attempt.usage,
+          startedAt: attempt.startedAt,
+          finishedAt: attempt.finishedAt,
+        } satisfies StepTelemetry] as const : null;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return null;
+        return null;
+      }
+    })).then((entries) => {
+      if (!controller.signal.aborted) {
+        setTelemetry(Object.fromEntries(entries.filter((entry) => entry !== null)));
+      }
+    });
+
+    return () => controller.abort();
+  }, [flow?.flowId, flow?.workspaceName, stepSignature]);
+
+  return telemetry;
+}
+
 function useFlowStepData(flowId: string | null) {
   const [data, setData] = useState<{
     perStep: Record<string, number>;
     total: number;
     outputTimes: Record<string, string | null>;
-  }>({
-    perStep: {},
-    total: 0,
-    outputTimes: {},
-  });
+  }>({ perStep: {}, total: 0, outputTimes: {} });
 
   useEffect(() => {
     if (!flowId) {
       setData({ perStep: {}, total: 0, outputTimes: {} });
       return;
     }
-
     const controller = new AbortController();
     fetch(`${API_BASE}/api/flows/${encodeURIComponent(flowId)}/tokens`, { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch step data: ${res.status}`);
-        }
-        return res.json();
+      .then((response) => {
+        if (!response.ok) throw new Error(`Failed to fetch step data: ${response.status}`);
+        return response.json();
       })
       .then((json: { tokens: Record<string, number>; total: number; outputTimes: Record<string, string | null> }) => {
-        setData({
-          perStep: json.tokens || {},
-          total: json.total || 0,
-          outputTimes: json.outputTimes || {},
-        });
+        setData({ perStep: json.tokens || {}, total: json.total || 0, outputTimes: json.outputTimes || {} });
       })
-      .catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.error('[AgentPanel] Failed to fetch step data:', err);
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          console.error('[AgentPanel] Failed to fetch step data:', error);
           setData({ perStep: {}, total: 0, outputTimes: {} });
         }
       });
-
     return () => controller.abort();
   }, [flowId]);
 
@@ -71,197 +380,90 @@ function useFlowStepData(flowId: string | null) {
 
 function formatTime(iso: string | undefined): string {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export function AgentPanel() {
-  const selectedFlowId = useDashboardStore((s) => s.selectedFlowId);
-  const flows = useDashboardStore((s) => s.flows);
-  const agents = useDashboardStore((s) => s.agents);
-  const selectedStep = useDashboardStore((s) => s.selectedStep);
-  const selectStep = useDashboardStore((s) => s.selectStep);
+function flowStatusClass(status: WorkflowState['status']): string {
+  const values: Record<WorkflowState['status'], string> = {
+    queued: 'border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+    pending_dependencies: 'border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300',
+    running: 'border-blue-500/25 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+    blocked: 'border-purple-500/25 bg-purple-500/10 text-purple-700 dark:text-purple-300',
+    completed: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    failed: 'border-red-500/25 bg-red-500/10 text-red-700 dark:text-red-300',
+    stopping: 'border-orange-500/25 bg-orange-500/10 text-orange-700 dark:text-orange-300',
+    stopped: 'border-border bg-muted text-muted-foreground',
+    expired: 'border-border bg-muted text-muted-foreground',
+  };
+  return values[status];
+}
 
-  const flow = selectedFlowId ? flows[selectedFlowId] : null;
-  const { perStep, total, outputTimes } = useFlowStepData(selectedFlowId);
+export function AgentPanel({ colorMode = 'dark' }: { colorMode?: 'light' | 'dark' }) {
+  const selectedFlowId = useDashboardStore((state) => state.selectedFlowId);
+  const flow = useDashboardStore((state) => selectedFlowId ? state.flows[selectedFlowId] : undefined);
+  const agents = useDashboardStore((state) => state.agents);
+  const selectedStep = useDashboardStore((state) => state.selectedStep);
+  const selectStep = useDashboardStore((state) => state.selectStep);
+  const { total, outputTimes } = useFlowStepData(selectedFlowId);
+  const telemetry = useStepTelemetry(flow);
 
   if (!flow) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="text-center space-y-2">
-          <svg className="w-10 h-10 text-muted-foreground/30 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-          </svg>
-          <p className="text-sm text-muted-foreground">Select a flow to view pipeline</p>
+      <div className="flex h-full min-h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/20">
+        <div className="space-y-2 text-center">
+          <Bot className="mx-auto h-9 w-9 text-muted-foreground/30" />
+          <p className="text-xs text-muted-foreground">Select a flow to view pipeline graph</p>
         </div>
       </div>
     );
   }
 
   const progress = calculateProgress(flow.steps);
+  const graph = buildPipelineGraph(flow, agents, outputTimes, selectedStep, telemetry);
 
   return (
-    <div className="space-y-4">
-      {/* Flow info header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-bold text-foreground">{flow.jiraKey}</span>
-          <span className={cn(
-            'px-2 py-0.5 rounded-full text-[10px] font-medium border',
-            flow.status === 'running' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-            flow.status === 'queued' && 'bg-slate-500/10 text-slate-300 border-slate-500/20',
-            flow.status === 'pending_dependencies' && 'bg-sky-500/10 text-sky-400 border-sky-500/20',
-            flow.status === 'completed' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-            flow.status === 'failed' && 'bg-red-500/10 text-red-400 border-red-500/20',
-            flow.status === 'blocked' && 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-            flow.status === 'stopped' && 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-            flow.status === 'stopping' && 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-            flow.status === 'expired' && 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
-          )}>
-            {flow.status}
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg bg-card/30">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/70 px-3">
+        <span className="max-w-32 truncate text-xs font-semibold text-foreground" title={flow.jiraKey || flow.flowId}>{flow.jiraKey || flow.flowId}</span>
+        <span className={cn('rounded-full border px-2 py-0.5 text-[9px] font-semibold', flowStatusClass(flow.status))}>{flow.status.replace('_', ' ')}</span>
+        <div className="ml-auto flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
+          <span>{progress.completed}/{progress.total} steps</span>
+          <span className="h-1 w-16 overflow-hidden rounded-full bg-muted" title={`${progress.percentage}% complete`}>
+            <span className="block h-full rounded-full bg-primary transition-all" style={{ width: `${progress.percentage}%` }} />
           </span>
-          {total > 0 && (
-            <span className="text-xs font-mono text-amber-300/80 bg-amber-500/10 px-2 py-0.5 rounded-full">
-              {total.toLocaleString()} tokens
-            </span>
-          )}
+          <span>{formatTokens(total)} tok</span>
         </div>
       </div>
 
-      {flow.customPrompt && (
-        <p className="text-[11px] text-muted-foreground truncate bg-muted/50 rounded-lg px-3 py-1.5 border border-border/50">
-          {flow.customPrompt}
-        </p>
-      )}
-
-      {/* Steps table */}
-      <div className="overflow-x-auto -mx-3 px-3 md:mx-0 md:px-0">
-        <table className="w-full text-left min-w-[640px]">
-          <thead>
-            <tr className="text-[11px] text-muted-foreground uppercase tracking-wider">
-              <th className="pb-2 pr-4 font-medium">Agent</th>
-              <th className="pb-2 pr-4 font-medium">Status</th>
-              <th className="pb-2 pr-4 font-medium text-right">Tokens</th>
-              <th className="pb-2 pr-4 font-medium">Output</th>
-              <th className="pb-2 pr-4 font-medium">Time</th>
-              <th className="pb-2 font-medium">Info</th>
-            </tr>
-          </thead>
-          <tbody className="text-xs">
-            {(flow.stepOrder || AGENT_STEPS).map((step) => {
-              const status = flow.steps[step] || 'waiting';
-              const tokens = perStep[step] ?? 0;
-              const detail = flow.stepDetails.find((candidate) => candidate.step === step);
-              const retryCount = detail?.technicalRetryCount ?? 0;
-              const needsFixCount = detail?.needsFixCount ?? 0;
-              const isSelected = selectedStep === step;
-              const outputFile = getAgentOutputFilename(step, agents);
-              const config = STATUS_CONFIG[status];
-
-              let info = `${agents[step]?.objective || getStepDisplayName(step, agents)}: ${flow.jiraKey}`;
-              if (retryCount > 0) info += ` (retry: ${retryCount})`;
-              if (needsFixCount > 0) info += ` [fix: ${needsFixCount}]`;
-
-              return (
-                <tr
-                  key={step}
-                  onClick={() => selectStep(step)}
-                  className={cn(
-                    'cursor-pointer border-b border-border/30 transition-all duration-150',
-                    'hover:bg-accent/40',
-                    isSelected && 'bg-primary/5 border-l-2 border-l-primary'
-                  )}
-                >
-                  {/* Agent */}
-                  <td className="py-2.5 pr-4">
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        'w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold',
-                        config.bg, config.color
-                      )}>
-                        {config.icon}
-                      </span>
-                      <span className="font-medium text-foreground">
-                        {getStepDisplayName(step, agents)}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Status */}
-                  <td className="py-2.5 pr-4">
-                    <span className={cn('inline-flex items-center gap-1.5', config.color)}>
-                      {status === 'running' && (
-                        <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
-                      )}
-                      {status}
-                    </span>
-                  </td>
-
-                  {/* Tokens */}
-                  <td className="py-2.5 pr-4 text-right font-mono">
-                    <span className={tokens > 0 ? 'text-amber-300' : 'text-muted-foreground/50'}>
-                      {tokens > 0 ? tokens.toLocaleString() : '—'}
-                    </span>
-                    {retryCount > 0 && (
-                      <span className="text-muted-foreground ml-1 text-[10px]">
-                        ({retryCount + 1})
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Output */}
-                  <td className="py-2.5 pr-4">
-                    <span className={cn(
-                      'font-mono text-[11px]',
-                      status === 'done' ? 'text-foreground/80' : 'text-muted-foreground/30'
-                    )}>
-                      {outputFile}
-                    </span>
-                  </td>
-
-                  {/* Time */}
-                  <td className="py-2.5 pr-4 font-mono text-muted-foreground">
-                    {outputTimes[step] ? formatTime(outputTimes[step]!) : '—'}
-                  </td>
-
-                  {/* Info */}
-                  <td className="py-2.5 text-muted-foreground/70 truncate max-w-[180px]" title={info}>
-                    {info}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="pipeline-graph min-h-0 flex-1 bg-background/50" data-testid="pipeline-graph">
+        <ReactFlow<PipelineNode, Edge>
+          key={`${flow.flowId}:${flow.stepOrder.join(',')}`}
+          nodes={graph.nodes}
+          edges={graph.edges}
+          nodeTypes={NODE_TYPES}
+          colorMode={colorMode}
+          onNodeClick={(_event, node) => selectStep(node.data.step)}
+          fitView
+          fitViewOptions={{ padding: 0.18, minZoom: 0.45, maxZoom: 1.1 }}
+          minZoom={0.35}
+          maxZoom={1.6}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          edgesReconnectable={false}
+          elementsSelectable
+          deleteKeyCode={null}
+          zoomOnDoubleClick={false}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1} className="opacity-50" />
+          <Controls position="bottom-right" showInteractive={false} />
+        </ReactFlow>
       </div>
 
-      {/* Footer: total + blocked */}
-      <div className="flex items-center justify-between pt-1">
-        <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          <span className="text-xs text-muted-foreground">Total</span>
-          <span className={cn(
-            'text-xs font-mono font-semibold',
-            total > 0 ? 'text-amber-300' : 'text-muted-foreground/50'
-          )}>
-            {total > 0 ? total.toLocaleString() : '—'}
-          </span>
-        </div>
-        <span className="text-[10px] text-muted-foreground/50 font-mono">
-          {flow.flowId}
-        </span>
-      </div>
-
-      {/* Blocked banner */}
       {flow.status === 'blocked' && flow.blockedReason && (
-        <div className="flex items-center gap-2 rounded-lg bg-purple-500/10 border border-purple-500/20 px-3 py-2">
-          <svg className="w-4 h-4 text-purple-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-          </svg>
-          <span className="text-xs text-purple-300">
-            <span className="font-medium">Blocked:</span> {flow.currentStep} — {flow.blockedReason}
-          </span>
+        <div className="shrink-0 truncate border-t border-purple-500/20 bg-purple-500/10 px-3 py-1.5 text-[10px] text-purple-700 dark:text-purple-300" title={flow.blockedReason}>
+          <strong>Blocked at {flow.currentStep}:</strong> {flow.blockedReason}
         </div>
       )}
     </div>

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
+import { MenuBar, type DashboardView } from './components/layout/MenuBar';
 import { FlowList } from './components/flow/FlowList';
 import { AgentPanel } from './components/agent/AgentPanel';
 import { FlowActions } from './components/agent/FlowActions';
@@ -15,13 +16,10 @@ import { WorkflowsPage } from './components/workflows/WorkflowsPage';
 import { AgentsPage } from './components/agents/AgentsPage';
 import { useSocketEvents } from './hooks/use-socket-events';
 import { useDashboardStore } from './store/use-dashboard-store';
-import { cn } from './lib/utils';
 import { PanelFrame, type PanelId } from './components/layout/PanelFrame';
 import { usePanelResize } from './hooks/use-panel-resize';
 
 type Theme = 'light' | 'dark';
-type ViewMode = 'flows' | 'workflows' | 'agents';
-
 const COLLAPSED_PANEL_SIZE = 42;
 
 function getInitialTheme(): Theme {
@@ -42,11 +40,11 @@ export default function App() {
   const selectFlow = useDashboardStore((s) => s.selectFlow);
   const fetchFlow = useDashboardStore((s) => s.fetchFlow);
   const fetchAgents = useDashboardStore((s) => s.fetchAgents);
-  const [currentView, setCurrentView] = useState<'flows' | 'workflows' | 'agents'>('flows');
+  const [currentView, setCurrentView] = useState<DashboardView>('flows');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const [pipelineHeight, setPipelineHeight] = useState(300);
+  const [pipelineHeight, setPipelineHeight] = useState(360);
   const [leftColumnWidthPercent, setLeftColumnWidthPercent] = useState(42);
   const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Record<PanelId, boolean>>({
@@ -83,6 +81,11 @@ export default function App() {
     setExpandedPanel((current) => (current === panel ? null : panel));
   };
 
+  const changeView = (view: DashboardView) => {
+    setCurrentView(view);
+    setSidebarOpen(view === 'flows');
+  };
+
   const { startPipelineResize, startLeftSessionResize } = usePanelResize({
     collapsedPanels,
     expandedPanel,
@@ -100,10 +103,14 @@ export default function App() {
       onToggleCollapse={toggleCollapse}
       onToggleExpand={toggleExpand}
     >
-      <div className="h-full overflow-auto p-3 md:p-4">
-        <div className="space-y-3">
-          <AgentPanel />
-          <FlowActions />
+      <div className="h-full min-h-0 overflow-hidden p-3 md:p-4">
+        <div className="flex h-full min-h-0 flex-col gap-3">
+          <div className="min-h-40 flex-1">
+            <AgentPanel colorMode={theme} />
+          </div>
+          <div className="shrink-0">
+            <FlowActions />
+          </div>
         </div>
       </div>
     </PanelFrame>
@@ -168,63 +175,52 @@ export default function App() {
       <Header
         theme={theme}
         onThemeToggle={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
-        onMenuToggle={() => setSidebarOpen(!sidebarOpen)}
+        onMenuToggle={() => {
+          setCurrentView('flows');
+          setSidebarOpen((current) => !current);
+        }}
       />
 
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Mobile sidebar overlay */}
-        {sidebarOpen && (
-          <div
-            className="fixed inset-0 z-40 bg-black/60 md:hidden"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
+      <div className="relative flex flex-1 overflow-hidden">
+        <MenuBar currentView={currentView} onViewChange={changeView} />
 
-        {/* Sidebar: hidden on mobile unless toggled, always visible on md+ */}
-        <div
-          className={`
-            fixed inset-y-0 left-0 z-50 w-80 transform transition-transform duration-200 ease-in-out
-            md:relative md:translate-x-0 md:z-auto
-            ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-          `}
-        >
-          <Sidebar onFlowSelect={() => setSidebarOpen(false)}>
-            {/* Nav */}
-            <div className="flex bg-muted/50 p-1 rounded-md mb-2">
+        {currentView === 'flows' && (
+          <>
+            {/* Mobile sidebar overlay */}
+            {sidebarOpen && (
               <button
-                onClick={() => setCurrentView('flows')}
-                className={cn('flex-1 text-xs py-1.5 font-medium rounded', currentView === 'flows' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                Tasks
-              </button>
-              <button
-                onClick={() => setCurrentView('workflows')}
-                className={cn('flex-1 text-xs py-1.5 font-medium rounded', currentView === 'workflows' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                Workflows
-              </button>
-              <button
-                onClick={() => setCurrentView('agents')}
-                className={cn('flex-1 text-xs py-1.5 font-medium rounded', currentView === 'agents' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                Agents
-              </button>
-            </div>
+                type="button"
+                aria-label="Close task sidebar"
+                className="fixed inset-0 z-40 cursor-default bg-black/60 md:hidden"
+                onClick={() => setSidebarOpen(false)}
+              />
+            )}
 
-            {/* Start New Task Button */}
-            <button
-              onClick={() => setNewTaskDialogOpen(true)}
-              className="flex items-center justify-center gap-2 w-full px-2 py-2 rounded-md text-sm font-semibold bg-blue-500 text-white border border-blue-600 hover:bg-blue-600 transition-all shadow-lg hover:shadow-xl mb-4"
+            {/* Task sidebar: drawer on mobile, persistent beside the menu bar on desktop. */}
+            <div
+              className={`
+                fixed inset-y-0 left-16 z-50 w-60 transform transition-transform duration-200 ease-in-out
+                md:relative md:inset-y-auto md:left-auto md:z-auto md:translate-x-0
+                ${sidebarOpen ? 'translate-x-0' : '-translate-x-[calc(100%+4rem)]'}
+              `}
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Start New Task
-            </button>
+              <Sidebar onFlowSelect={() => setSidebarOpen(false)}>
+                <button
+                  type="button"
+                  onClick={() => setNewTaskDialogOpen(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-blue-600 bg-blue-500 px-2 py-2 text-sm font-semibold text-white shadow-md transition-all hover:bg-blue-600 hover:shadow-lg"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Start New Task
+                </button>
 
-            <FlowList />
-          </Sidebar>
-        </div>
+                <FlowList />
+              </Sidebar>
+            </div>
+          </>
+        )}
 
         {/* Content area */}
         <main className="flex flex-1 flex-col overflow-hidden min-w-0">

@@ -138,9 +138,9 @@ export function SessionHeader({
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <FilterButton active={showCommentary} label="Commentary" icon={MessageSquareText} onClick={onToggleCommentary} />
-          <FilterButton active={showTools} label="Tools" icon={Wrench} onClick={onToggleTools} />
-          <FilterButton active={showReasoning} label="Reasoning" icon={BrainCircuit} onClick={onToggleReasoning} />
+          <FilterButton active={showCommentary} label="" icon={MessageSquareText} onClick={onToggleCommentary} />
+          <FilterButton active={showTools} label="" icon={Wrench} onClick={onToggleTools} />
+          <FilterButton active={showReasoning} label="" icon={BrainCircuit} onClick={onToggleReasoning} />
           <button
             type="button"
             aria-label="Session details"

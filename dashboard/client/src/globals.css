@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+@property --pipeline-border-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes pipeline-border-travel {
+  to {
+    --pipeline-border-angle: 360deg;
+  }
+}
+
 @layer base {
   :root {
     --background: 210 40% 98%;
@@ -121,6 +133,55 @@
 
   .session-toggle-active {
     @apply border-primary/40 bg-primary/10 text-primary;
+  }
+
+  .pipeline-graph .react-flow__controls {
+    @apply overflow-hidden rounded-lg border border-border bg-background shadow-md;
+  }
+
+  .pipeline-graph .react-flow__controls-button {
+    @apply border-0 border-b border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground;
+  }
+
+  .pipeline-graph .react-flow__controls-button:last-child {
+    @apply border-b-0;
+  }
+
+  .pipeline-graph .react-flow__controls-button svg {
+    fill: currentColor;
+  }
+
+  .pipeline-graph .react-flow__attribution {
+    @apply bg-background/80 text-[8px] text-muted-foreground;
+  }
+
+  .pipeline-node-running::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    z-index: 2;
+    border-radius: inherit;
+    padding: 2px;
+    pointer-events: none;
+    background: conic-gradient(
+      from var(--pipeline-border-angle),
+      transparent 0deg,
+      transparent 220deg,
+      hsl(var(--primary) / 0.25) 250deg,
+      hsl(var(--primary)) 290deg,
+      hsl(199 95% 72%) 310deg,
+      transparent 340deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: pipeline-border-travel 1.6s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pipeline-node-running::before {
+      animation: none;
+    }
   }
 
   @container (max-width: 760px) {

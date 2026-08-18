@@ -25,7 +25,7 @@ export function usePanelResize({
     event.preventDefault();
     const startY = event.clientY;
     const startHeight = pipelineHeight;
-    const MIN_PIPELINE_HEIGHT = 132;
+    const MIN_PIPELINE_HEIGHT = 260;
     const MAX_PIPELINE_HEIGHT = 520;
 
     const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {

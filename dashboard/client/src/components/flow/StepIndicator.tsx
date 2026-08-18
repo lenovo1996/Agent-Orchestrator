@@ -8,36 +8,29 @@ interface StepIndicatorProps {
   stepOrder?: string[];
 }
 
-const DOT_COLORS: Record<StepStatus, string> = {
-  waiting: 'bg-gray-600',
-  queued: 'bg-sky-400 animate-pulse',
-  running: 'bg-blue-400 animate-pulse shadow-sm shadow-blue-400/50',
+const SEGMENT_COLORS: Record<StepStatus, string> = {
+  waiting: 'bg-muted',
+  queued: 'bg-sky-400 animate-pulse motion-reduce:animate-none',
+  running: 'bg-blue-500 animate-pulse motion-reduce:animate-none',
   needs_fix: 'bg-amber-400',
-  done: 'bg-emerald-400',
-  failed: 'bg-red-400',
-  blocked: 'bg-purple-400',
-  cancelled: 'bg-gray-600',
-  retrying: 'bg-amber-400 animate-pulse',
+  done: 'bg-emerald-500',
+  failed: 'bg-red-500',
+  blocked: 'bg-purple-500',
+  cancelled: 'bg-zinc-500',
+  retrying: 'bg-amber-400 animate-pulse motion-reduce:animate-none',
 };
 
 export function StepIndicator({ steps, stepOrder }: StepIndicatorProps) {
   const agents = useDashboardStore((s) => s.agents);
   const activeSteps = stepOrder || AGENT_STEPS;
   return (
-    <div className="flex items-center gap-1">
-      {activeSteps.map((step, idx) => (
-        <div key={step} className="flex items-center">
-          <div
-            className={cn('h-2 w-2 rounded-full transition-colors', DOT_COLORS[steps[step]] || 'bg-gray-600')}
-            title={`${getStepDisplayName(step, agents)}: ${steps[step]}`}
-          />
-          {idx < activeSteps.length - 1 && (
-            <div className={cn(
-              'h-px w-2 mx-0.5',
-              steps[step] === 'done' ? 'bg-emerald-500/50' : 'bg-border'
-            )} />
-          )}
-        </div>
+    <div className="flex h-1 w-10 shrink-0 items-center gap-0.5" aria-label="Step progress">
+      {activeSteps.map((step) => (
+        <span
+          key={step}
+          className={cn('h-1 min-w-1 flex-1 rounded-full transition-colors', SEGMENT_COLORS[steps[step]] || 'bg-muted')}
+          title={`${getStepDisplayName(step, agents)}: ${steps[step] || 'waiting'}`}
+        />
       ))}
     </div>
   );

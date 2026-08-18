@@ -67,6 +67,13 @@ describe('SessionViewer', () => {
       return socketMock as any;
     });
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, value: vi.fn() });
+    Object.defineProperties(HTMLElement.prototype, {
+      offsetHeight: {
+        configurable: true,
+        get() { return this.getAttribute('aria-label') === 'Session transcript' ? 480 : 96; },
+      },
+      offsetWidth: { configurable: true, get() { return 800; } },
+    });
     const workflow: WorkflowState = {
       flowId: 'flow_001', workspaceId: 'ws_1', workspaceName: 'Workspace', workflowId: 'wf_1',
       jiraKey: 'TEST-1', stepOrder: ['implementer'], status: 'running', currentStep: 'implementer',
@@ -219,6 +226,31 @@ describe('SessionViewer', () => {
     });
 
     await waitFor(() => expect(screen.getByTitle('Commands').textContent).toBe('1'));
+  });
+
+  it('virtualizes long transcripts instead of mounting every session item', async () => {
+    const items = Array.from({ length: 500 }, (_, index) => ({
+      id: `message-${index}`,
+      ordinal: index + 1,
+      kind: 'message' as const,
+      timestamp: new Date(Date.parse(latest.startedAt) + index * 1_000).toISOString(),
+      role: 'assistant' as const,
+      phase: 'commentary' as const,
+      text: `Virtual line ${index}`,
+      hasDetail: false,
+    }));
+    const longSnapshot: SessionSnapshot = { ...snapshot, items };
+    global.fetch = vi.fn(async (input: string | URL | Request) => String(input).includes(`/${latest.runId}`)
+      ? new Response(JSON.stringify(longSnapshot), { status: 200 })
+      : new Response(JSON.stringify({ enabled: true, attempts: [latest] }), { status: 200 })) as typeof fetch;
+
+    render(<SessionViewer />);
+    expect(await screen.findByText('Virtual line 0')).toBeTruthy();
+
+    const virtualList = screen.getByTestId('virtual-session-list');
+    expect(Number.parseFloat(virtualList.style.height)).toBeGreaterThan(10_000);
+    expect(virtualList.querySelectorAll('[data-index]').length).toBeLessThan(30);
+    expect(screen.queryByText('Virtual line 499')).toBeNull();
   });
 
   it('renders the historical-flow state without falling back to raw logs', async () => {

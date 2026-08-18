@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDownToLine, Radio } from 'lucide-react';
 import type {
   SessionAttemptSummary,
@@ -33,6 +34,13 @@ function sortItems(items: SessionItemSummary[]): SessionItemSummary[] {
     if (b.ordinal !== null) return 1;
     return a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
   });
+}
+
+function estimatedItemHeight(item: SessionItemSummary | undefined): number {
+  if (!item) return 72;
+  if (item.kind === 'message' || item.kind === 'reasoning') return 120;
+  if (item.kind === 'plan') return 104;
+  return item.outputPreview || item.text || item.filePaths?.length ? 82 : 62;
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
@@ -210,10 +218,27 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
     return true;
   }), [showCommentary, showReasoning, showTools, snapshot?.items]);
 
+  const getVirtualItemKey = useCallback((index: number) => visibleItems[index]?.id || index, [visibleItems]);
+  const rowVirtualizer = useVirtualizer({
+    count: visibleItems.length,
+    getScrollElement: () => scrollRef.current,
+    getItemKey: getVirtualItemKey,
+    estimateSize: (index) => {
+      const item = visibleItems[index];
+      const previous = visibleItems[index - 1];
+      const gap = previous && item ? Date.parse(item.timestamp) - Date.parse(previous.timestamp) : 0;
+      return estimatedItemHeight(item) + (gap >= INACTIVITY_MS ? 28 : 0);
+    },
+    overscan: 6,
+    initialRect: { width: 800, height: 480 },
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const virtualHeight = rowVirtualizer.getTotalSize();
+
   useEffect(() => {
     if (!nearBottom.current || !scrollRef.current) return;
     scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [snapshot?.attempt.status, visibleItems]);
+  }, [snapshot?.attempt.status, virtualHeight, visibleItems.length]);
 
   const scrollToBottom = useCallback(() => {
     const element = scrollRef.current;
@@ -286,15 +311,27 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
               className="min-h-0 flex-1 overflow-y-auto bg-zinc-100 text-foreground dark:bg-[#090b0f]"
             >
               <div className="mx-auto min-h-full max-w-6xl border-x border-border bg-background shadow-inner shadow-black/5 dark:shadow-black/30">
-                <div className="divide-y divide-border">
-                  {visibleItems.length === 0 && !isWorking ? (
-                    <div className="py-10 text-center font-mono text-[11px] text-muted-foreground">no visible session items</div>
-                  ) : (
-                    visibleItems.map((item, index) => {
-                      const previous = visibleItems[index - 1];
+                {visibleItems.length === 0 && !isWorking ? (
+                  <div className="py-10 text-center font-mono text-[11px] text-muted-foreground">no visible session items</div>
+                ) : (
+                  <div
+                    data-testid="virtual-session-list"
+                    className="relative w-full"
+                    style={{ height: `${virtualHeight}px` }}
+                  >
+                    {virtualRows.map((virtualRow) => {
+                      const item = visibleItems[virtualRow.index];
+                      const previous = visibleItems[virtualRow.index - 1];
                       const gap = previous ? Date.parse(item.timestamp) - Date.parse(previous.timestamp) : 0;
                       return (
-                        <div key={item.id} id={`session-${item.id}`} className="scroll-mt-10">
+                        <div
+                          key={virtualRow.key}
+                          id={`session-${item.id}`}
+                          data-index={virtualRow.index}
+                          ref={rowVirtualizer.measureElement}
+                          className="absolute left-0 top-0 w-full border-b border-border"
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        >
                           {gap >= INACTIVITY_MS && (
                             <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 font-mono text-[9px] uppercase tracking-widest text-muted-foreground/70">
                               <span className="h-px flex-1 bg-border" /><Radio className="h-3 w-3" /> idle {Math.round(gap / 60_000)}m<span className="h-px flex-1 bg-border" />
@@ -303,9 +340,9 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
                           <SessionItem item={item} detail={details[`${runId}:${item.id}`]} loadDetail={loadDetail} />
                         </div>
                       );
-                    })
-                  )}
-                </div>
+                    })}
+                  </div>
+                )}
               </div>
             </div>
             {showScrollToBottom && (
