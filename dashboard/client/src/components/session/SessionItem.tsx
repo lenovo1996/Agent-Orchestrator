@@ -105,7 +105,6 @@ export function SessionItem({
   const autoOpen = item.kind === 'command' && Boolean(item.outputPreview) && (item.outputPreview?.length || 0) < 180;
   const [open, setOpen] = useState(autoOpen);
   const value = presentation(item);
-  const compactAssistant = item.kind === 'message' && item.role !== 'user';
 
   useEffect(() => {
     if (open && item.hasDetail && !detail) loadDetail(item);
@@ -121,15 +120,16 @@ export function SessionItem({
     return (
       <article
         aria-label={`Session item: ${value.label}`}
-        className={`grid grid-cols-[4.25rem_minmax(0,1fr)] gap-2 px-3 py-2.5 font-mono ${value.row}`}
+        className={`grid gap-1 px-3 py-2.5 font-mono ${value.row}`}
       >
-        <time className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">{time(item.timestamp)}</time>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className={`w-3 shrink-0 text-center text-sm font-bold leading-none ${value.tone}`} aria-hidden="true">{value.marker}</span>
             <span className={`text-[10px] font-bold tracking-[0.14em] ${value.tone}`}>{value.label}</span>
+            <span className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">—</span>
+            <time className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">{time(item.timestamp)}</time>
           </div>
-          <div className={`prose prose-sm mt-1 max-w-none break-words pl-5 text-foreground dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-foreground prose-p:my-1 prose-p:leading-relaxed prose-pre:my-2 prose-pre:border prose-pre:border-border prose-pre:bg-muted/60 prose-pre:text-xs prose-code:text-cyan-700 dark:prose-code:text-cyan-200 ${compactAssistant ? 'prose-headings:text-sm prose-li:text-xs prose-p:text-xs' : ''}`}>
+          <div className={`prose prose-sm mt-1 max-w-none break-words pl-5 text-foreground dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-foreground prose-p:my-1 prose-p:leading-relaxed prose-pre:my-2 prose-pre:border prose-pre:border-border prose-pre:bg-muted/60 prose-pre:text-xs prose-code:text-cyan-700 dark:prose-code:text-cyan-200 prose-headings:text-sm prose-li:text-xs prose-p:text-xs`}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ''}</ReactMarkdown>
           </div>
         </div>

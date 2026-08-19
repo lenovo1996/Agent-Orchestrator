@@ -1,12 +1,15 @@
 import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { AgentStepResult, StepAttemptRecord } from './types.js';
 import { PermanentAgentError, RetriableAgentError } from './errors.js';
 import { parseOutputStatus } from './output-parser.js';
 import { ProcessSupervisor } from './process-supervisor.js';
 import type { OrchestrationService } from './service.js';
+import { AppServerClient, type AppServerConfig } from './appserver-client.js';
+import { AppServerSessionBridge } from './appserver-session-bridge.js';
 
 function deterministicUuid(value: string): string {
   const hash = crypto.createHash('sha256').update(value).digest('hex');
@@ -30,9 +33,21 @@ function tail(value: string, max = 20_000): string {
 
 export class AgentRunner {
   readonly supervisor: ProcessSupervisor;
+  private _appServerClient: AppServerClient | null = null;
 
   constructor(private readonly service: OrchestrationService) {
     this.supervisor = new ProcessSupervisor(service);
+  }
+
+  get appServerClient(): AppServerClient | null {
+    return this._appServerClient;
+  }
+
+  initAppServerClient(config: AppServerConfig): AppServerClient {
+    if (!this._appServerClient) {
+      this._appServerClient = new AppServerClient(config);
+    }
+    return this._appServerClient;
   }
 
   private runMemory(command: 'init' | 'update' | 'generate', flowId: string, step?: string): void {
@@ -61,6 +76,88 @@ export class AgentRunner {
 
   private updateMemory(flowId: string, step: string): void {
     this.runMemory('update', flowId, step);
+  }
+
+  private ensureWorkspaceTrusted(workspacePath: string): void {
+    const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    const configPath = path.join(codexHome, 'config.toml');
+    if (!fs.existsSync(configPath)) return;
+
+    const config = fs.readFileSync(configPath, 'utf8');
+    const escapedPath = workspacePath.replace(/"/g, '\\"');
+    const projectKey = `["${escapedPath}"]`;
+
+    if (!config.includes(projectKey)) {
+      const addition = `\n${projectKey}\ntrust_level = "trusted"\n`;
+      fs.appendFileSync(configPath, addition);
+    }
+  }
+
+  private mergeMcpJsonToWorkspaceConfig(workspacePath: string): void {
+    const mcpJsonPath = path.join(workspacePath, '.mcp.json');
+    if (!fs.existsSync(mcpJsonPath)) return;
+
+    try {
+      const mcpJson = JSON.parse(fs.readFileSync(mcpJsonPath, 'utf8')) as {
+        mcpServers?: Record<string, {
+          type?: string;
+          command?: string;
+          args?: string[];
+          url?: string;
+          env?: Record<string, string>;
+          bearer_token_env_var?: string;
+        }>;
+      };
+
+      if (!mcpJson.mcpServers || Object.keys(mcpJson.mcpServers).length === 0) return;
+
+      const codexDir = path.join(workspacePath, '.codex');
+      const configPath = path.join(codexDir, 'config.toml');
+
+      let existingConfig = '';
+      if (fs.existsSync(configPath)) {
+        existingConfig = fs.readFileSync(configPath, 'utf8');
+      }
+
+      const newServers: string[] = [];
+      for (const [name, server] of Object.entries(mcpJson.mcpServers)) {
+        if (existingConfig.includes(`[mcp_servers.${name}]`)) continue;
+
+        if (server.type === 'http' && server.url) {
+          let block = `[mcp_servers.${name}]\nurl = "${server.url}"\n`;
+          if (server.bearer_token_env_var) {
+            block += `bearer_token_env_var = "${server.bearer_token_env_var}"\n`;
+          }
+          if (server.env) {
+            block += `[mcp_servers.${name}.env]\n`;
+            for (const [key, value] of Object.entries(server.env)) {
+              block += `${key} = "${value}"\n`;
+            }
+          }
+          newServers.push(block);
+        } else if (server.command) {
+          let block = `[mcp_servers.${name}]\ncommand = "${server.command}"\n`;
+          if (server.args && server.args.length > 0) {
+            block += `args = [${server.args.map((a) => `"${a}"`).join(', ')}]\n`;
+          }
+          if (server.env) {
+            block += `[mcp_servers.${name}.env]\n`;
+            for (const [key, value] of Object.entries(server.env)) {
+              block += `${key} = "${value}"\n`;
+            }
+          }
+          newServers.push(block);
+        }
+      }
+
+      if (newServers.length > 0) {
+        fs.mkdirSync(codexDir, { recursive: true });
+        const addition = `\n${newServers.join('\n')}`;
+        fs.appendFileSync(configPath, addition);
+      }
+    } catch {
+      // Ignore parse errors
+    }
   }
 
   private buildPrompt(flowId: string, step: string): string {
@@ -131,7 +228,7 @@ export class AgentRunner {
 
   private recoveredExitCode(attempt: StepAttemptRecord): number | null {
     const agent = this.service.getAgent(attempt.step);
-    if ((agent.runtime || 'codex') !== 'codex') return attempt.exitCode;
+    if ((agent.runtime || 'appserver') !== 'codex') return attempt.exitCode;
 
     const flow = this.service.getFlow(attempt.flowId);
     const metadataFile = path.join(
@@ -224,24 +321,61 @@ export class AgentRunner {
       }
     }
 
-    const attemptId = deterministicUuid(`${input.inngestRunId}:${input.inngestAttempt}`);
-    const attempt = this.service.createAttempt({
-      id: attemptId,
-      flowId: input.flowId,
-      step: input.step,
-      cycle: input.cycle,
-      technicalAttempt: input.inngestAttempt,
-      inngestRunId: input.inngestRunId,
-      inngestAttempt: input.inngestAttempt,
-      sessionRunId: crypto.randomUUID(),
-      runnerId: input.runnerId,
-    });
-    if (attempt.status === 'completed') return this.readResult(input.flowId, input.step, attempt);
-    if (attempt.status === 'running') return this.projectExisting(attempt);
+    // Check if we should resume an existing thread (retry with session)
+    const retryCommand = this.service.latestRetryCommand(input.flowId);
+    const shouldResume = retryCommand?.resumeThread === true && retryCommand?.step === input.step;
+
+    let attempt: StepAttemptRecord;
+    let isResumed = false;
+    if (shouldResume) {
+      const resumed = this.service.resumeAttempt(
+        input.flowId, input.step, input.cycle,
+        input.inngestRunId, input.inngestAttempt, input.runnerId,
+      );
+      if (resumed) {
+        attempt = resumed;
+        isResumed = true;
+      } else {
+        // No attempt with thread found, create new
+        const attemptId = deterministicUuid(`${input.inngestRunId}:${input.inngestAttempt}`);
+        attempt = this.service.createAttempt({
+          id: attemptId,
+          flowId: input.flowId,
+          step: input.step,
+          cycle: input.cycle,
+          technicalAttempt: input.inngestAttempt,
+          inngestRunId: input.inngestRunId,
+          inngestAttempt: input.inngestAttempt,
+          sessionRunId: crypto.randomUUID(),
+          runnerId: input.runnerId,
+        });
+      }
+    } else {
+      const attemptId = deterministicUuid(`${input.inngestRunId}:${input.inngestAttempt}`);
+      attempt = this.service.createAttempt({
+        id: attemptId,
+        flowId: input.flowId,
+        step: input.step,
+        cycle: input.cycle,
+        technicalAttempt: input.inngestAttempt,
+        inngestRunId: input.inngestRunId,
+        inngestAttempt: input.inngestAttempt,
+        sessionRunId: crypto.randomUUID(),
+        runnerId: input.runnerId,
+      });
+    }
+    if (!isResumed && attempt.status === 'completed') return this.readResult(input.flowId, input.step, attempt);
+    if (!isResumed && attempt.status === 'running') return this.projectExisting(attempt);
 
     const flow = this.service.getFlow(input.flowId);
     const agent = this.service.getAgent(input.step);
-    const runtimeName = agent.runtime || 'codex';
+    const runtimeName = agent.runtime || 'appserver';
+
+    // App-server runtime uses WebSocket instead of CLI process
+    if (runtimeName === 'appserver') {
+      return this.executeViaAppServer(input, attempt);
+    }
+
     const runtimeScript = path.join(this.service.config.repoRoot, 'scripts', 'runtimes', `${runtimeName}.sh`);
     if (!/^[A-Za-z0-9._-]+$/.test(runtimeName) || !fs.existsSync(runtimeScript)
       || (runtimeName === 'generic' && !agent.runtimeCommand)) {
@@ -264,6 +398,8 @@ export class AgentRunner {
 
     const wrapper = path.join(this.service.config.repoRoot, 'scripts', 'agent', 'wrapper.sh');
     const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
+    this.ensureWorkspaceTrusted(effectiveWorkspace);
+    this.mergeMcpJsonToWorkspaceConfig(effectiveWorkspace);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       AGENT_RUNTIME: runtimeName,
@@ -329,6 +465,165 @@ export class AgentRunner {
       const stage = error instanceof RetriableAgentError ? error.stage : 'process';
       this.service.finishAttempt(attempt.id, 'failed', exitCode, { stage, message: message.slice(0, 500), retriable: !permanent });
       if (permanent) throw new PermanentAgentError(message, stage);
+      if (error instanceof RetriableAgentError) throw error;
+      throw new RetriableAgentError(message, stage);
+    }
+  }
+
+  /**
+   * Execute an agent step via the app-server daemon WebSocket API.
+   * Instead of spawning a CLI process, we connect to the daemon, create a
+   * thread, send the prompt as a turn, and wait for completion.
+   */
+  private async executeViaAppServer(
+    input: { flowId: string; step: string; cycle: number; inngestRunId: string; inngestAttempt: number; runnerId: string },
+    attempt: StepAttemptRecord,
+  ): Promise<AgentStepResult> {
+    const flow = this.service.getFlow(input.flowId);
+    const agent = this.service.getAgent(input.step);
+    const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
+    this.ensureWorkspaceTrusted(effectiveWorkspace);
+    this.mergeMcpJsonToWorkspaceConfig(effectiveWorkspace);
+    const workDirectory = this.service.artifactDirectory(flow);
+    const outputFile = this.service.outputFile(input.flowId, input.step);
+    let previousMtime = 0;
+    try { previousMtime = fs.statSync(outputFile).mtimeMs; } catch { /* first attempt */ }
+
+    // Ensure app-server client is initialized
+    const client = this._appServerClient;
+    if (!client) {
+      const message = 'AppServerClient not initialized. Call initAppServerClient() first.';
+      this.service.finishAttempt(attempt.id, 'failed', null, { stage: 'configuration', message, retriable: false });
+      throw new PermanentAgentError(message, 'configuration');
+    }
+
+    // Create session bridge for metadata + log files
+    const logFile = path.join(workDirectory, 'logs', `${input.step}.log`);
+    const bridge = new AppServerSessionBridge(client, {
+      workDir: workDirectory,
+      flowId: input.flowId,
+      step: input.step,
+      attemptId: attempt.id,
+      inngestRunId: input.inngestRunId,
+      inngestAttempt: input.inngestAttempt,
+      sessionRunId: attempt.sessionRunId,
+      logFile,
+    });
+
+    // Check if we should resume an existing thread (retry with session)
+    const retryCommand = this.service.latestRetryCommand(input.flowId);
+    const shouldResume = retryCommand?.resumeThread === true && retryCommand?.step === input.step;
+
+    bridge.start(!shouldResume);
+
+    // Mark attempt as running (no PID for daemon mode, use 0)
+    try {
+      this.service.markAttemptRunning(attempt.id, 0, 0);
+    } catch (error) {
+      bridge.fail(error instanceof Error ? error.message : String(error));
+      throw new PermanentAgentError(
+        error instanceof Error ? error.message : String(error),
+        'cancelled',
+      );
+    }
+
+    try {
+      let threadInfo: { threadId: string; sessionId: string; model: string; cwd: string };
+
+      if (shouldResume) {
+        const existing = this.service.latestAttemptWithThread(input.flowId, input.step);
+        if (existing) {
+          try {
+            threadInfo = await client.resumeThread(existing.threadId, { cwd: effectiveWorkspace, model: agent.model || undefined });
+            bridge.appendLog(`[resume] Resumed thread ${existing.threadId}\n`);
+          } catch (err) {
+            // Resume failed, fall back to creating a new thread
+            bridge.appendLog(`[resume] Failed to resume thread: ${(err as Error).message}. Creating new thread.\n`);
+            threadInfo = await client.createThread({
+              cwd: effectiveWorkspace,
+              model: agent.model || undefined,
+            });
+          }
+        } else {
+          threadInfo = await client.createThread({
+            cwd: effectiveWorkspace,
+            model: agent.model || undefined,
+          });
+        }
+      } else {
+        // Create new thread
+        threadInfo = await client.createThread({
+          cwd: effectiveWorkspace,
+          model: agent.model || undefined,
+        });
+      }
+
+      // Send the prompt as a turn
+      // When resuming, use a simple prompt (just the custom prompt or a continue message)
+      // instead of rebuilding the full prompt with all context
+      let prompt: string;
+      if (shouldResume && retryCommand) {
+        const flow = this.service.getFlow(input.flowId);
+        prompt = flow.customPrompt || 'Please continue from where you left off. Review your previous work and output file, then continue the task.';
+      } else {
+        prompt = this.buildPrompt(input.flowId, input.step);
+      }
+      const turnInfo = await client.startTurn(threadInfo.threadId, prompt, {
+        model: agent.model || undefined,
+      });
+
+      // Wait for turn completion — only for the specific turn we started
+      const exitCode = await new Promise<number>((resolve) => {
+        const onCompleted = (tid: string, completedTurnId: string) => {
+          if (tid === threadInfo.threadId && completedTurnId === turnInfo.turnId) {
+            client.removeListener('turn:completed', onCompleted);
+            client.removeListener('error', onError);
+            resolve(0);
+          }
+        };
+        const onError = (tid: string | null, message: string) => {
+          if (tid === threadInfo.threadId || tid === null) {
+            client.removeListener('turn:completed', onCompleted);
+            client.removeListener('error', onError);
+            bridge.fail(message);
+            resolve(1);
+          }
+        };
+        client.on('turn:completed', onCompleted);
+        client.on('error', onError);
+
+        // Timeout
+        setTimeout(() => {
+          client.removeListener('turn:completed', onCompleted);
+          client.removeListener('error', onError);
+          bridge.fail('Agent turn exceeded local timeout');
+          resolve(1);
+        }, this.service.config.agentTimeoutMs);
+      });
+
+      bridge.complete(exitCode);
+
+      // If agent didn't write the output file directly (common with app-server),
+      // write the captured agent message as the output.
+      if (!fs.existsSync(outputFile) || fs.statSync(outputFile).mtimeMs <= previousMtime) {
+        const agentOutput = bridge.finalAgentMessage;
+        if (agentOutput) {
+          fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+          fs.writeFileSync(outputFile, agentOutput + '\n', { mode: 0o600 });
+        }
+      }
+
+      const domainResult = this.readResult(input.flowId, input.step, attempt, previousMtime);
+      if (exitCode !== 0 && domainResult.status !== 'BLOCKED') {
+        throw new RetriableAgentError(`Agent turn failed with exit code ${exitCode}`, 'process');
+      }
+      this.updateMemory(input.flowId, input.step);
+      this.service.finishAttempt(attempt.id, 'completed', exitCode);
+      return domainResult;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const stage = error instanceof RetriableAgentError ? error.stage : 'process';
+      this.service.finishAttempt(attempt.id, 'failed', 1, { stage, message: message.slice(0, 500), retriable: true });
       if (error instanceof RetriableAgentError) throw error;
       throw new RetriableAgentError(message, stage);
     }

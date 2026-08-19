@@ -40,6 +40,7 @@ export function FlowActions() {
     useState<AgentStep | null>(null);
   const [improving, setImproving] = useState(false);
   const [improveError, setImproveError] = useState<string | null>(null);
+  const [resumeSession, setResumeSession] = useState(false);
 
   if (!flow) return null;
 
@@ -115,12 +116,15 @@ export function FlowActions() {
     setPromptModalOpen(false);
     setRetryOpen(false);
     try {
-      const bodyPayload: { step: string; clearOutput: boolean; prompt?: string } = {
+      const bodyPayload: { step: string; clearOutput: boolean; prompt?: string; resumeThread?: boolean } = {
         step,
         clearOutput,
       };
       if (prompt !== undefined) {
         bodyPayload.prompt = prompt;
+      }
+      if (resumeSession) {
+        bodyPayload.resumeThread = true;
       }
       const res = await fetch(`${API_BASE}/api/flows/${flow.flowId}/actions/retry`, {
         method: "POST",
@@ -444,6 +448,16 @@ export function FlowActions() {
               placeholder="Enter custom prompt (optional)"
               className="w-full h-32 px-3 py-2 text-sm bg-background border border-input rounded-lg focus:outline-none focus:ring-1 focus:ring-ring resize-none"
             />
+
+            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={resumeSession}
+                onChange={(e) => setResumeSession(e.target.checked)}
+                className="rounded border-border"
+              />
+              Resume existing session (continue from previous context)
+            </label>
 
             <div className="flex items-center justify-between">
               <button

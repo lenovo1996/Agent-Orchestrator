@@ -412,7 +412,7 @@ export class OrchestrationService {
       `, request.step, customPrompt, timestamp, flowId, flow.revision);
       if (Number(updated.changes) !== 1) throw new ConflictError('Stale flow revision');
       const command = this.insertCommand(
-        flowId, 'retry', { step: request.step, clearOutput: request.clearOutput === true }, idempotencyKey,
+        flowId, 'retry', { step: request.step, clearOutput: request.clearOutput === true, resumeThread: request.resumeThread === true }, idempotencyKey,
       );
       this.emitDomainEvent(flowId, 'flow.retry-requested', {
         flowId, step: request.step, status: 'queued', revision: flow.revision + 1,
@@ -1031,6 +1031,82 @@ export class OrchestrationService {
     };
   }
 
+  latestRetryCommand(flowId: string): { step: string; clearOutput: boolean; resumeThread: boolean } | null {
+    const row = this.database.get<{ payload_json: string }>(
+      "SELECT payload_json FROM flow_commands WHERE flow_id = ? AND type = 'retry' ORDER BY created_at DESC LIMIT 1",
+      flowId,
+    );
+    if (!row) return null;
+    const payload = parseJson<Record<string, unknown>>(row.payload_json, {});
+    return {
+      step: typeof payload.step === 'string' ? payload.step : '',
+      clearOutput: payload.clearOutput === true,
+      resumeThread: payload.resumeThread === true,
+    };
+  }
+
+  latestAttemptWithThread(flowId: string, step: string): { threadId: string; sessionRunId: string } | null {
+    const attempts = this.listAttempts(flowId, step);
+    for (let i = attempts.length - 1; i >= 0; i--) {
+      const attempt = attempts[i];
+      if (attempt.status !== 'completed' && attempt.status !== 'failed' && attempt.status !== 'running') continue;
+      try {
+        const flow = this.getFlow(flowId);
+        const metadataPath = path.join(this.artifactDirectory(flow), 'sessions', step, `${attempt.sessionRunId}.json`);
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as { threadId?: string };
+        if (metadata.threadId) {
+          return { threadId: metadata.threadId, sessionRunId: attempt.sessionRunId };
+        }
+      } catch { /* no metadata */ }
+    }
+    return null;
+  }
+
+  resumeAttempt(
+    flowId: string,
+    step: string,
+    cycle: number,
+    inngestRunId: string,
+    inngestAttempt: number,
+    runnerId: string,
+  ): StepAttemptRecord | null {
+    return this.database.transaction(() => {
+      const flow = this.getFlow(flowId);
+      if (flow.status !== 'running') {
+        throw new ConflictError(`Cannot resume an attempt while flow is ${flowId}`);
+      }
+      const attempts = this.listAttempts(flowId, step);
+      for (let i = attempts.length - 1; i >= 0; i--) {
+        const attempt = attempts[i];
+        if (attempt.status !== 'completed' && attempt.status !== 'failed') continue;
+        try {
+          const metadataPath = path.join(this.artifactDirectory(flow), 'sessions', step, `${attempt.sessionRunId}.json`);
+          const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as { threadId?: string };
+          if (metadata.threadId) {
+            const timestamp = now();
+            this.database.run(`
+              UPDATE step_attempts SET status = 'running', cycle = ?,
+                inngest_run_id = ?, inngest_attempt = ?, runner_id = ?,
+                started_at = ?, updated_at = ?
+              WHERE id = ?
+            `, cycle, inngestRunId, inngestAttempt, runnerId, timestamp, timestamp, attempt.id);
+            this.database.run(`
+              UPDATE flow_steps SET status = 'running', technical_retry_count = ?,
+                started_at = COALESCE(started_at, ?), updated_at = ?
+              WHERE flow_id = ? AND step = ?
+            `, inngestAttempt, timestamp, timestamp, flowId, step);
+            this.bumpFlow(flow, {
+              eventType: 'step.running',
+              payload: { step, attemptId: attempt.id, technicalAttempt: inngestAttempt },
+            });
+            return this.attempt(attempt.id);
+          }
+        } catch { /* no metadata */ }
+      }
+      return null;
+    });
+  }
+
   createAttempt(input: {
     id: string; flowId: string; step: string; cycle: number; technicalAttempt: number;
     inngestRunId: string; inngestAttempt: number; sessionRunId: string; runnerId: string;
@@ -1068,11 +1144,13 @@ export class OrchestrationService {
         throw new ConflictError(`Cannot start an attempt while flow is ${flow.status}`);
       }
       const timestamp = now();
+      // Handle both queued (new attempt) and running (resumed attempt) statuses
       const updated = this.database.run(`
         UPDATE step_attempts SET status = 'running', pid = ?, process_group_id = ?,
-          started_at = COALESCE(started_at, ?), updated_at = ? WHERE id = ? AND status = 'queued'
+          started_at = COALESCE(started_at, ?), updated_at = ?
+        WHERE id = ? AND status IN ('queued', 'running')
       `, pid, processGroupId, timestamp, timestamp, attemptId);
-      if (Number(updated.changes) !== 1) throw new ConflictError('Attempt is no longer queued');
+      if (Number(updated.changes) !== 1) throw new ConflictError('Attempt is no longer queued or running');
       this.database.run(`
         UPDATE flow_steps SET status = 'running', technical_retry_count = ?,
           started_at = COALESCE(started_at, ?), updated_at = ? WHERE flow_id = ? AND step = ?

@@ -12,7 +12,8 @@
     "client"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:inngest\" \"npm run dev:worker\"",
+    "dev": "concurrently -n app,server,client,inngest,worker -c blue,green,cyan,yellow,magenta \"npm run dev:appserver\" \"npm run dev:server\" \"npm run dev:client\" \"npm run dev:inngest\" \"npm run dev:worker\"",
+    "dev:appserver": "node scripts/start-appserver.js",
     "dev:server": "npm run dev --host=0.0.0.0 --workspace=server",
     "dev:client": "npm run dev --host=0.0.0.0 --workspace=client",
     "dev:inngest": "docker compose -f ../docker-compose.inngest.yml up",

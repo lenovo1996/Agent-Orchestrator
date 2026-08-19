@@ -44,7 +44,7 @@ export function Header({ theme, onThemeToggle, onMenuToggle }: HeaderProps) {
   }, [setOrchestrationReady]);
 
   return (
-    <header className="relative flex items-center justify-between border-b border-border/50 px-4 md:px-6 py-3 bg-card/80 glass">
+    <header className="relative flex items-center justify-between border-b border-border/50 px-2 md:px-6 py-1 bg-card/80 glass">
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {/* Hamburger menu — visible on mobile only */}
         <button

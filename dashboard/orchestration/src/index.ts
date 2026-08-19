@@ -1,4 +1,6 @@
 export * from './agent-runner.js';
+export * from './appserver-client.js';
+export * from './appserver-session-bridge.js';
 export * from './config.js';
 export * from './database.js';
 export * from './driver.js';

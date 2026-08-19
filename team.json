@@ -45,7 +45,7 @@
     "implementer": {
       "role": "Code Implementer",
       "objective": "Implement plan in code, keep commits small, run relevant tests, report changed files and commands.",
-      "model": "gpt-5.6-sol",
+      "model": "free",
       "thinking": "high",
       "tools": [
         "read",
@@ -56,12 +56,12 @@
       "outputs": [
         "output/implementation.md"
       ],
-      "runtime": "codex"
+      "runtime": "appserver"
     },
     "verifier": {
       "role": "Code Verifier",
       "objective": "Review diff for correctness, security, regressions, style. Create and execute QA test cases. Summarize verification and prepare Jira/Slack handoff.",
-      "model": "gpt-5.6-sol",
+      "model": "free",
       "thinking": "xhigh",
       "tools": [
         "read",
@@ -85,35 +85,32 @@
     "analyzer": {
       "role": "Analyzer",
       "objective": "Understand the existing codebase and identify refactoring opportunities.  Analyze architecture, dependencies, code quality issues, technical debt, maintainability concerns, and potential risks.  Produce an objective assessment of the current state without proposing implementation changes.",
-      "model": "gpt-5.5",
+      "model": "free",
       "thinking": "high",
       "tools": [],
       "outputs": [
         "output/analyzer.md"
-      ],
-      "runtime": "codex"
+      ]
     },
     "refactor-planner": {
       "role": "Refactor Planner",
       "objective": "Create a safe, incremental refactoring plan that improves code quality while preserving existing behavior.  Break large refactoring efforts into small, reviewable steps.",
-      "model": "gpt-5.5",
+      "model": "free",
       "thinking": "medium",
       "tools": [],
       "outputs": [
         "output/refactor-plan.md"
-      ],
-      "runtime": "codex"
+      ]
     },
     "refactor-implementer": {
       "role": "Refactor Implementer",
       "objective": "Apply refactoring changes according to the approved plan while preserving behavior and minimizing code churn.",
-      "model": "gpt-5.5",
+      "model": "free",
       "thinking": "high",
       "tools": [],
       "outputs": [
         "output/implementation.md"
-      ],
-      "runtime": "codex"
+      ]
     },
     "investigator": {
       "role": "Investigator",

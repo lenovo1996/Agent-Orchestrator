@@ -6,6 +6,30 @@ const runtime = createOrchestrationRuntime();
 let connection: WorkerConnection | null = null;
 let shuttingDown = false;
 
+// Initialize app-server client if configured
+const appServerPort = process.env.CODEX_APP_SERVER_PORT || '9876';
+const appServerUrl = process.env.CODEX_APP_SERVER_URL || `ws://127.0.0.1:${appServerPort}`;
+const appServerAutoApprove = process.env.DASHBOARD_APP_SERVER_AUTO_APPROVE !== 'false';
+const appServerClient = runtime.runner.initAppServerClient({
+  url: appServerUrl,
+  autoApprove: appServerAutoApprove,
+});
+runtime.runner.supervisor.setAppServerClient(appServerClient);
+
+// Connect with retry
+function connectAppServer(attempt = 1): void {
+  appServerClient.connect().then(() => {
+    console.log(`[worker] Connected to app-server at ${appServerUrl}`);
+  }).catch((err) => {
+    if (attempt < 12) {
+      setTimeout(() => connectAppServer(attempt + 1), 5_000);
+    } else {
+      console.warn(`[worker] App-server unreachable after ${attempt} attempts: ${(err as Error).message}`);
+    }
+  });
+}
+connectAppServer();
+
 function connectionStatus(): 'connecting' | 'connected' | 'disconnected' | 'stopping' {
   if (shuttingDown) return 'stopping';
   if (!connection) return 'connecting';

@@ -1,6 +1,6 @@
 export type ParsedOutputStatus = 'DONE' | 'NEEDS_FIX' | 'BLOCKED' | 'FAILED' | 'UNKNOWN';
 
-const STATUS_MARKER = /##\s*Status\s*(?::|\n)\s*(DONE|NEEDS[ _]FIX|FAILED|BLOCKED)\b/i;
+const STATUS_MARKER = /##\s*Status\s*(?::\s*|\s+|\n)\s*(DONE|NEEDS[ _]FIX|FAILED|BLOCKED)\b/i;
 
 function isReviewOutput(filePath: string): boolean {
   const normalized = filePath.replaceAll('\\', '/').toLowerCase();

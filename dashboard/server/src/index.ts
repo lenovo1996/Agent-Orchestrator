@@ -12,6 +12,7 @@ import { agentsRouter } from './routes/agents.js';
 import { workspacesRouter } from './routes/workspaces.js';
 import { sessionsRouter } from './routes/sessions.js';
 import { improvePromptRouter } from './routes/improve-prompt.js';
+import { agentInteractionRouter } from './routes/agent-interaction.js';
 import { SessionService } from './session/service.js';
 import type { ClientToServerEvents, ServerToClientEvents } from '@devteam-dashboard/shared';
 
@@ -19,6 +20,30 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@devteam-dashbo
 const config = loadConfig();
 const orchestration = createOrchestrationRuntime({ repoRoot: config.repoRoot, taskFlowsDir: config.taskFlowsDir, codexHome: config.codexHome });
 const sessionService = new SessionService(config, orchestration.service);
+
+// 1b. Initialize app-server client
+const appServerPort = process.env.CODEX_APP_SERVER_PORT || '9876';
+const appServerUrl = process.env.CODEX_APP_SERVER_URL || `ws://127.0.0.1:${appServerPort}`;
+const appServerAutoApprove = process.env.DASHBOARD_APP_SERVER_AUTO_APPROVE !== 'false';
+const appServerClient = orchestration.runner.initAppServerClient({
+  url: appServerUrl,
+  autoApprove: appServerAutoApprove,
+});
+orchestration.runner.supervisor.setAppServerClient(appServerClient);
+
+// Connect with retry — app-server may start after the dashboard server
+function connectAppServer(attempt = 1): void {
+  appServerClient.connect().then(() => {
+    console.log(`[dashboard] Connected to app-server at ${appServerUrl}`);
+  }).catch((err) => {
+    if (attempt < 12) {
+      setTimeout(() => connectAppServer(attempt + 1), 5_000);
+    } else {
+      console.warn(`[dashboard] App-server unreachable after ${attempt} attempts: ${(err as Error).message}`);
+    }
+  });
+}
+connectAppServer();
 
 // 2. Express app with CORS middleware
 const app = express();
@@ -32,6 +57,7 @@ app.use('/api', agentsRouter(orchestration.database));
 app.use('/api', workspacesRouter(orchestration.database));
 app.use('/api', sessionsRouter(config, sessionService));
 app.use('/api', improvePromptRouter());
+app.use('/api', agentInteractionRouter(orchestration.service, orchestration.runner));
 
 // 4. Create HTTP server, then Socket.IO server on top
 const httpServer = createServer(app);

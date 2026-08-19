@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDownToLine, Radio } from 'lucide-react';
+import { ArrowDownToLine, Radio, Sparkles } from 'lucide-react';
 import type {
   SessionAttemptSummary,
   SessionItemDetail,
@@ -53,7 +53,7 @@ function WorkingIndicator() {
       role="status"
       aria-live="polite"
       aria-label="Working..."
-      className="grid grid-cols-[4.25rem_minmax(0,1fr)] gap-2 bg-blue-500/5 px-3 py-3 font-mono"
+      className="grid grid-cols-[4.25rem_minmax(0,1fr)] gap-2 bg-blue-500/5 px-2 py-2 font-mono"
     >
       <span className="select-none text-[10px] font-semibold tracking-widest text-blue-600/60 dark:text-blue-400/60">LIVE</span>
       <span className="flex items-center gap-2 text-[11px] text-blue-700 dark:text-blue-300">
@@ -99,8 +99,28 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
   const [showTools, setShowTools] = useState(true);
   const [showReasoning, setShowReasoning] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [followUpMessage, setFollowUpMessage] = useState('');
+  const [sendingFollowUp, setSendingFollowUp] = useState(false);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [improving, setImproving] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
+
+  const autoResizeTextarea = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const lineHeight = 20;
+    const maxLines = 7;
+    const maxHeight = lineHeight * maxLines;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, []);
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [followUpMessage, autoResizeTextarea]);
 
   useEffect(() => {
     setManualAttempt(false);
@@ -110,7 +130,7 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
     setError('');
     nearBottom.current = true;
     setShowScrollToBottom(false);
-  }, [selectedFlowId, selectedStep, workspaceName]);
+  }, [selectedFlowId, selectedStep, workspaceName, selectedFlow?.revision]);
 
   useEffect(() => {
     if (!selectedFlowId || !selectedStep) return;
@@ -248,6 +268,61 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
     element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
   }, []);
 
+  const handleSendFollowUp = useCallback(async () => {
+    if (!followUpMessage.trim() || !selectedFlowId || !selectedStep) return;
+    setSendingFollowUp(true);
+    setFollowUpError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/steps/${encodeURIComponent(selectedStep)}/send-message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: followUpMessage }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setFollowUpMessage('');
+      } else {
+        setFollowUpError(data.error || 'Failed to send message');
+      }
+    } catch {
+      setFollowUpError('Failed to connect to server');
+    } finally {
+      setSendingFollowUp(false);
+    }
+  }, [followUpMessage, selectedFlowId, selectedStep]);
+
+  const handleInterrupt = useCallback(async () => {
+    if (!selectedFlowId || !selectedStep) return;
+    try {
+      await fetch(`${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/steps/${encodeURIComponent(selectedStep)}/interrupt`, {
+        method: 'POST',
+      });
+    } catch { /* ignore */ }
+  }, [selectedFlowId, selectedStep]);
+
+  const handleImprovePrompt = useCallback(async () => {
+    if (!followUpMessage.trim()) return;
+    setImproving(true);
+    setFollowUpError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/improve-prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: followUpMessage }),
+      });
+      const data = await res.json();
+      if (res.ok && data.improved) {
+        setFollowUpMessage(data.improved);
+      } else {
+        setFollowUpError(data.error || 'Failed to improve prompt');
+      }
+    } catch {
+      setFollowUpError('Failed to connect to server');
+    } finally {
+      setImproving(false);
+    }
+  }, [followUpMessage]);
+
   const loadDetail = useCallback((item: SessionItemSummary) => {
     const cacheKey = `${runId}:${item.id}`;
     if (!selectedFlowId || !selectedStep || !runId || details[cacheKey]) return;
@@ -351,15 +426,68 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
                 aria-label="Scroll to bottom"
                 title="Scroll to bottom"
                 onClick={scrollToBottom}
-                className={`absolute right-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isWorking ? 'bottom-14' : 'bottom-3'}`}
+                className={`absolute right-3 z-20 inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background/95 text-muted-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${isWorking ? 'bottom-16' : 'bottom-3'}`}
               >
                 <ArrowDownToLine className="h-4 w-4" />
               </button>
             )}
             {isWorking && (
-              <div data-session-working-dock className="shrink-0 border-t border-border bg-background/95 backdrop-blur">
-                <div className="mx-auto max-w-6xl border-x border-border">
-                  <WorkingIndicator />
+              <div data-session-working-dock className="shrink-0 border-t border-border bg-muted/40 dark:bg-zinc-950">
+                <div className="mx-auto max-w-6xl">
+                  <div className="flex items-center gap-2 px-3 py-1 text-[10px] font-mono text-muted-foreground border-b border-border">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    </span>
+                    agent running
+                  </div>
+                  <div className="flex items-start gap-0 px-3 py-2">
+                    <span className="mt-1.5 shrink-0 font-mono text-sm text-emerald-500 select-none">❯</span>
+                    <textarea
+                      ref={textareaRef}
+                      value={followUpMessage}
+                      onChange={(e) => setFollowUpMessage(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          void handleSendFollowUp();
+                        }
+                      }}
+                      placeholder="type a message..."
+                      disabled={sendingFollowUp}
+                      rows={1}
+                      className="flex-1 ml-2 px-0 py-1 text-sm font-mono bg-transparent border-0 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 disabled:opacity-50 resize-none leading-5"
+                    />
+                    <div className="flex items-center gap-1 mt-0.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleImprovePrompt}
+                        disabled={improving || !followUpMessage.trim()}
+                        title="Improve prompt (AI)"
+                        className="p-1 rounded text-purple-500/70 hover:text-purple-500 hover:bg-purple-500/10 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {improving ? (
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSendFollowUp}
+                        disabled={sendingFollowUp || !followUpMessage.trim()}
+                        className="px-2 py-1 text-[11px] font-mono font-medium text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {sendingFollowUp ? '...' : '⏎'}
+                      </button>
+                    </div>
+                  </div>
+                  {followUpError && (
+                    <div className="px-3 pb-1.5 text-[11px] font-mono text-red-500">{followUpError}</div>
+                  )}
                 </div>
               </div>
             )}

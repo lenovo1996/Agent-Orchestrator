@@ -1,12 +1,28 @@
 import type { ChildProcess } from 'node:child_process';
 import type { OrchestrationService } from './service.js';
+import type { AppServerClient } from './appserver-client.js';
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 export class ProcessSupervisor {
+  private _appServerClient: AppServerClient | null = null;
+  private activeThreads = new Map<string, { threadId: string; turnId: string }>();
+
   constructor(private readonly service: OrchestrationService) {}
+
+  setAppServerClient(client: AppServerClient | null): void {
+    this._appServerClient = client;
+  }
+
+  registerActiveThread(flowId: string, step: string, threadId: string, turnId: string): void {
+    this.activeThreads.set(`${flowId}:${step}`, { threadId, turnId });
+  }
+
+  unregisterActiveThread(flowId: string, step: string): void {
+    this.activeThreads.delete(`${flowId}:${step}`);
+  }
 
   isAlive(pid: number | null): boolean {
     if (!pid || pid <= 1) return false;
@@ -51,8 +67,25 @@ export class ProcessSupervisor {
   }
 
   async terminateFlow(flowId: string): Promise<void> {
+    // Interrupt app-server threads first
+    if (this._appServerClient?.connected) {
+      const interruptPromises: Promise<void>[] = [];
+      for (const [key, { threadId, turnId }] of this.activeThreads) {
+        if (key.startsWith(`${flowId}:`)) {
+          interruptPromises.push(
+            this._appServerClient.interruptTurn(threadId, turnId).catch(() => { /* ignore */ }),
+          );
+          this.activeThreads.delete(key);
+        }
+      }
+      await Promise.all(interruptPromises);
+    }
+
+    // Also terminate process-based attempts
     const attempts = this.service.runningAttempts(flowId);
-    await Promise.all(attempts.map((attempt) => this.terminateGroup(attempt.processGroupId || attempt.pid)));
+    await Promise.all(attempts
+      .filter((a) => a.processGroupId || a.pid)
+      .map((attempt) => this.terminateGroup(attempt.processGroupId || attempt.pid)));
   }
 
   async waitForChild(child: ChildProcess, timeoutMs: number): Promise<{ exitCode: number | null; timedOut: boolean }> {

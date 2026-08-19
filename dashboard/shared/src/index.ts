@@ -112,6 +112,7 @@ export interface RetryFlowRequest {
   step: string;
   clearOutput?: boolean;
   prompt?: string;
+  resumeThread?: boolean;
 }
 
 export interface FlowCommandResponse {
@@ -306,5 +307,21 @@ export interface ClientToServerEvents {
   'log:unsubscribe': (payload: { flowId: string; step: AgentStep }) => void;
   'session:subscribe': (payload: SessionSubscription) => void;
   'session:unsubscribe': (payload: SessionSubscription) => void;
+}
+
+// === Agent Interaction ===
+
+export interface AgentMessageRequest {
+  message: string;
+}
+
+export interface AgentMessageResponse {
+  success: boolean;
+  turnId: string;
+  method: 'steer' | 'new-turn';
+}
+
+export interface AgentInterruptResponse {
+  success: boolean;
 }
 export * from './workspaces';

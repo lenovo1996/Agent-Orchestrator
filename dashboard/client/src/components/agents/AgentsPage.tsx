@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { AgentConfig } from '@devteam-dashboard/shared';
-import { Plus, Edit2, Trash2, Bot, Target, Wrench, FileOutput, Server, BrainCircuit, TerminalSquare } from 'lucide-react';
+import { Plus, Edit2, Trash2, Bot, Target, Wrench, FileOutput, BrainCircuit, TerminalSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 
@@ -20,8 +20,6 @@ export function AgentsPage() {
   const [objective, setObjective] = useState('');
   const [model, setModel] = useState('');
   const [thinking, setThinking] = useState('');
-  const [runtime, setRuntime] = useState('');
-  const [runtimeCommand, setRuntimeCommand] = useState('');
   const [tools, setTools] = useState('');
   const [outputs, setOutputs] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -60,8 +58,6 @@ export function AgentsPage() {
         objective,
         model,
         thinking,
-        runtime,
-        runtimeCommand,
         tools: toolArray,
         outputs: outputArray,
         instructions
@@ -107,8 +103,6 @@ export function AgentsPage() {
     setObjective('');
     setModel('');
     setThinking('');
-    setRuntime('');
-    setRuntimeCommand('');
     setTools('');
     setOutputs('');
     setInstructions('');
@@ -122,8 +116,6 @@ export function AgentsPage() {
     setObjective(agent.objective);
     setModel(agent.model || '');
     setThinking(agent.thinking || '');
-    setRuntime(agent.runtime || '');
-    setRuntimeCommand(agent.runtimeCommand || '');
     setTools(agent.tools.join(', '));
     setOutputs(agent.outputs.join(', '));
     setInstructions(agent.instructions);
@@ -234,33 +226,7 @@ export function AgentsPage() {
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium flex items-center gap-1.5 text-foreground/80">
-                <Server className="w-4 h-4 text-muted-foreground" />
-                Runtime <span className="text-muted-foreground font-normal">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={runtime}
-                onChange={e => setRuntime(e.target.value)}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
           </div>
-
-          {runtime === 'generic' && (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground/80">Runtime command</label>
-              <input
-                required
-                type="text"
-                value={runtimeCommand}
-                onChange={e => setRuntimeCommand(e.target.value)}
-                placeholder="my-cli --flag"
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
-          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1.5">

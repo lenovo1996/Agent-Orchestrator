@@ -44,8 +44,8 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newTaskDialogOpen, setNewTaskDialogOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
-  const [pipelineHeight, setPipelineHeight] = useState(360);
-  const [leftColumnWidthPercent, setLeftColumnWidthPercent] = useState(42);
+  const [pipelineHeight, setPipelineHeight] = useState(470);
+  const [leftColumnWidthPercent, setLeftColumnWidthPercent] = useState(50);
   const [expandedPanel, setExpandedPanel] = useState<PanelId | null>(null);
   const [collapsedPanels, setCollapsedPanels] = useState<Record<PanelId, boolean>>({
     pipeline: false,
