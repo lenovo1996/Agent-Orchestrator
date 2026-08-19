@@ -343,23 +343,54 @@ start_docker_compose() {
   
   cd "$SCRIPT_DIR"
   
-  # Check if .env exists
+  # Check if .env exists, if not create from .env.example
   if [ ! -f "$ENV_FILE" ]; then
-    log_error ".env file not found. Run setup first."
-    return 1
+    log_warn ".env file not found"
+    if [ -f "$ENV_EXAMPLE" ]; then
+      log_info "Creating .env from .env.example..."
+      cp "$ENV_EXAMPLE" "$ENV_FILE"
+      log_success "Created .env file"
+    else
+      log_error ".env.example not found. Cannot create .env"
+      return 1
+    fi
   fi
   
-  # Set WORKSPACE_PATH if not set
-  if [ -z "${WORKSPACE_PATH:-}" ]; then
-    export WORKSPACE_PATH="$(dirname "$SCRIPT_DIR")"
-    log_info "WORKSPACE_PATH not set, using: $WORKSPACE_PATH"
+  # Generate random keys if using defaults
+  if grep -q "replace_with_a_random_hex_value" "$ENV_FILE"; then
+    log_info "Generating random keys for Inngest..."
+    local event_key signing_key
+    event_key=$(openssl rand -hex 32)
+    signing_key=$(openssl rand -hex 32)
+    
+    sed -i "s/INNGEST_EVENT_KEY=replace_with_a_random_hex_value/INNGEST_EVENT_KEY=$event_key/" "$ENV_FILE"
+    sed -i "s/INNGEST_SIGNING_KEY=replace_with_a_random_hex_value/INNGEST_SIGNING_KEY=$signing_key/" "$ENV_FILE"
+    log_success "Generated Inngest keys"
   fi
   
-  # Set CODEX_HOME if not set
-  if [ -z "${CODEX_HOME:-}" ]; then
-    export CODEX_HOME="$HOME/.codex"
-    log_info "CODEX_HOME not set, using: $CODEX_HOME"
+  # Set WORKSPACE_PATH if not set in .env
+  if ! grep -q "^WORKSPACE_PATH=" "$ENV_FILE"; then
+    local workspace_path
+    workspace_path="$(dirname "$SCRIPT_DIR")"
+    echo "" >> "$ENV_FILE"
+    echo "# Workspace path for Docker volume mapping" >> "$ENV_FILE"
+    echo "WORKSPACE_PATH=$workspace_path" >> "$ENV_FILE"
+    log_info "Added WORKSPACE_PATH=$workspace_path to .env"
   fi
+  
+  # Set CODEX_HOME if not set in .env
+  if ! grep -q "^CODEX_HOME=" "$ENV_FILE"; then
+    local codex_home="$HOME/.codex"
+    echo "" >> "$ENV_FILE"
+    echo "# Codex home directory for Docker volume mapping" >> "$ENV_FILE"
+    echo "CODEX_HOME=$codex_home" >> "$ENV_FILE"
+    log_info "Added CODEX_HOME=$codex_home to .env"
+  fi
+  
+  # Load environment variables
+  set -a
+  source "$ENV_FILE"
+  set +a
   
   log_info "Starting all services via Docker Compose..."
   log_info "  - Inngest (port 8288, 8289)"
@@ -367,6 +398,9 @@ start_docker_compose() {
   log_info "  - API Server (port 3001)"
   log_info "  - Client (port 5173)"
   log_info "  - Worker"
+  log_info ""
+  log_info "Workspace: ${WORKSPACE_PATH}"
+  log_info "Codex Home: ${CODEX_HOME}"
   log_info ""
   log_info "Press Ctrl+C to stop all services"
   log_info ""
