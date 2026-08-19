@@ -311,16 +311,16 @@ export class AgentRunner {
       throw new PermanentAgentError(`Flow is no longer runnable: ${checkpoint.status}`, 'cancelled');
     }
     
-    // Try to recover existing attempt, but don't fail if output doesn't exist
+    // Try to recover existing attempt, but don't fail if recovery fails
     const otherRunning = this.service.runningAttemptForCycle(input.flowId, input.step, input.cycle);
     if (otherRunning) {
       try {
         return await this.projectExisting(otherRunning);
       } catch (error) {
-        // If recovery fails (e.g., no output file), mark as failed and continue to create new attempt
-        if (error instanceof RetriableAgentError && error.stage === 'missing_output') {
+        // If recovery fails for any reason, mark as failed and continue to create new attempt
+        if (error instanceof RetriableAgentError) {
           this.service.finishAttempt(otherRunning.id, 'failed', null, {
-            stage: 'missing_output', message: 'Previous attempt produced no output', retriable: true,
+            stage: error.stage, message: error.message, retriable: true,
           });
         } else {
           throw error;
