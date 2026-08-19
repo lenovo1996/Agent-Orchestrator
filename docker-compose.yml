@@ -4,9 +4,7 @@ services:
     image: inngest/inngest:v1.39.0
     command: ["inngest", "start"]
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8288:8288"
-      - "127.0.0.1:8289:8289"
+    network_mode: host
     environment:
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY:?set INNGEST_EVENT_KEY in .env}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY:?set INNGEST_SIGNING_KEY in .env}
@@ -19,34 +17,23 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-    networks:
-      - devteam
 
   # Codex App Server - Agent runtime
   appserver:
     build:
       context: .
       dockerfile: Dockerfile
-    command: codex app-server --listen ws://0.0.0.0:9876
+    command: codex app-server --listen ws://127.0.0.1:9876
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:9876:9876"
+    network_mode: host
     environment:
       CODEX_HOME: /codex-home
-      CODEX_APP_SERVER_URL: ws://0.0.0.0:9876
+      CODEX_APP_SERVER_URL: ws://127.0.0.1:9876
     volumes:
       # Mount codex home from host (read-write for sqlite)
       - ${CODEX_HOME:-~/.codex}:/codex-home:rw
       # Mount workspace for agents to access
       - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
-    networks:
-      - devteam
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9876/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
   # Dashboard Server - API
   server:
@@ -56,17 +43,16 @@ services:
     command: npm run dev:server
     working_dir: /app/dashboard
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3001:3001"
+    network_mode: host
     environment:
       NODE_ENV: development
       PORT: 3001
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       INNGEST_DEV: ${INNGEST_DEV:-0}
-      INNGEST_BASE_URL: http://inngest:8288
-      INNGEST_GATEWAY_URL: ws://inngest:8289/v0/connect
-      CODEX_APP_SERVER_URL: ws://appserver:9876
+      INNGEST_BASE_URL: http://127.0.0.1:8288
+      INNGEST_GATEWAY_URL: ws://127.0.0.1:8289/v0/connect
+      CODEX_APP_SERVER_URL: ws://127.0.0.1:9876
       DASHBOARD_APP_SERVER_AUTO_APPROVE: ${DASHBOARD_APP_SERVER_AUTO_APPROVE:-true}
       DEVTEAM_AGENT_CONCURRENCY: ${DEVTEAM_AGENT_CONCURRENCY:-3}
       DEVTEAM_AGENT_TIMEOUT: ${DEVTEAM_AGENT_TIMEOUT:-6h}
@@ -86,8 +72,6 @@ services:
         condition: service_healthy
       appserver:
         condition: service_started
-    networks:
-      - devteam
 
   # Dashboard Client - Frontend
   client:
@@ -97,14 +81,11 @@ services:
     command: npm run dev:client
     working_dir: /app/dashboard
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:5173:5173"
+    network_mode: host
     environment:
-      VITE_API_URL: http://localhost:3001
+      VITE_API_URL: http://127.0.0.1:3001
     depends_on:
       - server
-    networks:
-      - devteam
 
   # Worker - Inngest worker
   worker:
@@ -114,14 +95,15 @@ services:
     command: npm run dev:worker
     working_dir: /app/dashboard
     restart: unless-stopped
+    network_mode: host
     environment:
       NODE_ENV: development
       INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
       INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
       INNGEST_DEV: ${INNGEST_DEV:-0}
-      INNGEST_BASE_URL: http://inngest:8288
-      INNGEST_GATEWAY_URL: ws://inngest:8289/v0/connect
-      CODEX_APP_SERVER_URL: ws://appserver:9876
+      INNGEST_BASE_URL: http://127.0.0.1:8288
+      INNGEST_GATEWAY_URL: ws://127.0.0.1:8289/v0/connect
+      CODEX_APP_SERVER_URL: ws://127.0.0.1:9876
       DASHBOARD_APP_SERVER_AUTO_APPROVE: ${DASHBOARD_APP_SERVER_AUTO_APPROVE:-true}
       DEVTEAM_AGENT_CONCURRENCY: ${DEVTEAM_AGENT_CONCURRENCY:-3}
       DEVTEAM_AGENT_TIMEOUT: ${DEVTEAM_AGENT_TIMEOUT:-6h}
@@ -141,12 +123,6 @@ services:
         condition: service_healthy
       appserver:
         condition: service_started
-    networks:
-      - devteam
-
-networks:
-  devteam:
-    driver: bridge
 
 volumes:
   inngest-data:
