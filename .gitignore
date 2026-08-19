@@ -6,3 +6,4 @@ workflows.db-shm
 workflows.db-wal
 .tasks
 .worktrees
+.tables
