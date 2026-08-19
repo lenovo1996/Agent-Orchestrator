@@ -2,10 +2,7 @@ node_modules
 dist
 .env
 task-flows
-workflows.db
 workflows.db-shm
 workflows.db-wal
-team.json
-prompts
 .tasks
 .worktrees
