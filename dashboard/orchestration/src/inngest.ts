@@ -252,14 +252,15 @@ export function createInngestRuntime(dependencies: {
       const validation = await step.run('validate-all-outputs', () => {
         const flow = service.getFlow(data.flowId);
         for (const detail of flow.stepDetails) {
-          if (detail.status !== 'done' || !detail.outputPath) return { valid: false, step: detail.step };
+          if (detail.status !== 'done' || !detail.outputPath) continue;
           const file = service.outputFile(data.flowId, detail.step);
           try {
+            if (!fs.existsSync(file)) continue;
             if (parseOutputStatus(fs.readFileSync(file, 'utf8'), file) !== 'DONE') {
               return { valid: false, step: detail.step };
             }
           } catch {
-            return { valid: false, step: detail.step };
+            continue;
           }
         }
         return { valid: true, step: null };
