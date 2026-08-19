@@ -264,6 +264,26 @@ export class AgentRunner {
   }
 
   private async projectExisting(attempt: StepAttemptRecord): Promise<AgentStepResult> {
+    // For appserver runtime (PID=0), check if attempt is still actively running
+    // by looking at the metadata file status
+    if (attempt.status === 'running' && (!attempt.pid || attempt.pid === 0)) {
+      const flow = this.service.getFlow(attempt.flowId);
+      const metadataPath = path.join(
+        this.service.artifactDirectory(flow),
+        'sessions', attempt.step, `${attempt.sessionRunId}.json`,
+      );
+      try {
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as { status?: string };
+        if (metadata.status === 'running' || metadata.status === 'starting') {
+          // Agent is still running, throw retriable error to retry later
+          throw new RetriableAgentError('Agent is still running via appserver', 'process');
+        }
+      } catch (error) {
+        if (error instanceof RetriableAgentError) throw error;
+        // If metadata doesn't exist or can't be read, continue to readResult
+      }
+    }
+
     if (attempt.status === 'running' && (attempt.processGroupId || attempt.pid)) {
       const exited = attempt.processGroupId
         ? await this.supervisor.waitForGroup(attempt.processGroupId, this.service.config.agentTimeoutMs)
