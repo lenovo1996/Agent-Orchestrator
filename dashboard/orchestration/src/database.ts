@@ -200,7 +200,7 @@ export class OrchestrationDatabase {
   constructor(readonly filename: string) {
     if (filename !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(filename)), { recursive: true });
     this.raw = new DatabaseSync(filename);
-    this.raw.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+    this.raw.exec('PRAGMA journal_mode = DELETE; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     this.migrate();
   }
 
