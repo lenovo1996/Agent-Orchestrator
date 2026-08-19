@@ -497,6 +497,14 @@ export class AgentRunner {
       throw new PermanentAgentError(message, 'configuration');
     }
 
+    // Wait for connection if not connected yet
+    if (!client.connected) {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new RetriableAgentError('AppServer connection timeout', 'process')), 30_000);
+        client.once('connected', () => { clearTimeout(timeout); resolve(); });
+      });
+    }
+
     // Create session bridge for metadata + log files
     const logFile = path.join(workDirectory, 'logs', `${input.step}.log`);
     const bridge = new AppServerSessionBridge(client, {
