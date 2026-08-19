@@ -338,6 +338,42 @@ start_inngest() {
   return 1
 }
 
+start_docker_compose() {
+  log_step "Starting Docker Compose Environment"
+  
+  cd "$SCRIPT_DIR"
+  
+  # Check if .env exists
+  if [ ! -f "$ENV_FILE" ]; then
+    log_error ".env file not found. Run setup first."
+    return 1
+  fi
+  
+  # Set WORKSPACE_PATH if not set
+  if [ -z "${WORKSPACE_PATH:-}" ]; then
+    export WORKSPACE_PATH="$(dirname "$SCRIPT_DIR")"
+    log_info "WORKSPACE_PATH not set, using: $WORKSPACE_PATH"
+  fi
+  
+  # Set CODEX_HOME if not set
+  if [ -z "${CODEX_HOME:-}" ]; then
+    export CODEX_HOME="$HOME/.codex"
+    log_info "CODEX_HOME not set, using: $CODEX_HOME"
+  fi
+  
+  log_info "Starting all services via Docker Compose..."
+  log_info "  - Inngest (port 8288, 8289)"
+  log_info "  - App Server (port 9876)"
+  log_info "  - API Server (port 3001)"
+  log_info "  - Client (port 5173)"
+  log_info "  - Worker"
+  log_info ""
+  log_info "Press Ctrl+C to stop all services"
+  log_info ""
+  
+  docker compose up --build
+}
+
 start_dev() {
   log_step "Starting Development Environment"
   
@@ -409,6 +445,10 @@ main() {
       start_dev
       exit 0
       ;;
+    --docker)
+      start_docker_compose
+      exit 0
+      ;;
     --prod)
       start_inngest
       start_production
@@ -421,6 +461,7 @@ main() {
       echo "  (none)      Full interactive setup"
       echo "  --check     Only check prerequisites"
       echo "  --start     Start services (assumes setup done)"
+      echo "  --docker    Start all services via Docker Compose"
       echo "  --prod      Start in production mode"
       echo "  --help      Show this help"
       echo ""

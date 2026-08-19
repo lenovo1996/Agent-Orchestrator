@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+task-flows
+.workflows.db-shm
+workflows.db-wal
+.tasks
+.worktrees
+.git
+*.log
