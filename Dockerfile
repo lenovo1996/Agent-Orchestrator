@@ -25,7 +25,9 @@ COPY dashboard/orchestration/package*.json ./dashboard/orchestration/
 COPY dashboard/server/package*.json ./dashboard/server/
 COPY dashboard/client/package*.json ./dashboard/client/
 COPY mcp/package*.json ./mcp/
-COPY agents/*/package*.json ./agents/
+
+# Copy agents directory
+COPY agents/ ./agents/
 
 # Install dependencies
 RUN cd dashboard && npm install

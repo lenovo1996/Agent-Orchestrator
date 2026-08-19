@@ -35,8 +35,8 @@ services:
       CODEX_HOME: /codex-home
       CODEX_APP_SERVER_URL: ws://0.0.0.0:9876
     volumes:
-      # Mount codex home from host (contains config.toml, auth, etc.)
-      - ${CODEX_HOME:-~/.codex}:/codex-home:ro
+      # Mount codex home from host (read-write for sqlite)
+      - ${CODEX_HOME:-~/.codex}:/codex-home:rw
       # Mount workspace for agents to access
       - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
     networks:
@@ -54,6 +54,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: npm run dev:server
+    working_dir: /app/dashboard
     restart: unless-stopped
     ports:
       - "127.0.0.1:3001:3001"
@@ -73,7 +74,7 @@ services:
       DASHBOARD_CODEX_HOME: /codex-home
     volumes:
       # Mount codex home from host
-      - ${CODEX_HOME:-~/.codex}:/codex-home:ro
+      - ${CODEX_HOME:-~/.codex}:/codex-home:rw
       # Mount workspace for agents to access
       - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
       # Mount task-flows directory
@@ -94,6 +95,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: npm run dev:client
+    working_dir: /app/dashboard
     restart: unless-stopped
     ports:
       - "127.0.0.1:5173:5173"
@@ -110,6 +112,7 @@ services:
       context: .
       dockerfile: Dockerfile
     command: npm run dev:worker
+    working_dir: /app/dashboard
     restart: unless-stopped
     environment:
       NODE_ENV: development
@@ -126,7 +129,7 @@ services:
       DASHBOARD_CODEX_HOME: /codex-home
     volumes:
       # Mount codex home from host
-      - ${CODEX_HOME:-~/.codex}:/codex-home:ro
+      - ${CODEX_HOME:-~/.codex}:/codex-home:rw
       # Mount workspace for agents to access
       - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
       # Mount task-flows directory
