@@ -31,6 +31,69 @@ function tokenValues(content: string): number[] {
   return values;
 }
 
+interface WorkerHealthPayload {
+  ready?: boolean;
+  runnerId?: string;
+  status?: string;
+  capacity?: number;
+}
+
+async function checkInngest(url: string): Promise<{ ready: boolean; error?: string }> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
+    return response.ok ? { ready: true } : { ready: false, error: `HTTP ${response.status}` };
+  } catch (error) {
+    return { ready: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function checkWorker(
+  url: string,
+  fallbackCapacity: number,
+): Promise<{
+  ready: boolean;
+  runnerId: string | null;
+  connectionStatus: string | null;
+  capacity: number;
+  error?: string;
+}> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
+    let payload: WorkerHealthPayload = {};
+    try {
+      payload = await response.json() as WorkerHealthPayload;
+    } catch {
+      if (response.ok) return {
+        ready: false,
+        runnerId: null,
+        connectionStatus: null,
+        capacity: fallbackCapacity,
+        error: 'Invalid worker health response',
+      };
+    }
+
+    const worker = {
+      ready: response.ok && payload.ready === true,
+      runnerId: typeof payload.runnerId === 'string' ? payload.runnerId : null,
+      connectionStatus: typeof payload.status === 'string' ? payload.status : null,
+      capacity: Number.isInteger(payload.capacity) && Number(payload.capacity) > 0
+        ? Number(payload.capacity)
+        : fallbackCapacity,
+    };
+    if (!response.ok) return { ...worker, error: `HTTP ${response.status}` };
+    if (!worker.ready) return { ...worker, error: 'Worker not ready' };
+    return worker;
+  } catch (error) {
+    return {
+      ready: false,
+      runnerId: null,
+      connectionStatus: null,
+      capacity: fallbackCapacity,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export function flowsRouter(config: DashboardConfig, runtime: OrchestrationRuntime): Router {
   const { service } = runtime;
   const router = Router();
@@ -169,32 +232,15 @@ export function flowsRouter(config: DashboardConfig, runtime: OrchestrationRunti
   });
 
   router.get('/orchestration/health', async (_req, res) => {
-    const worker = service.latestWorker();
-    const workerReady = Boolean(
-      worker
-      && worker.connectionStatus === 'connected'
-      && Date.now() - Date.parse(worker.lastHeartbeat) <= runtime.config.workerStaleMs,
-    );
-    let inngestReady = false;
-    let inngestError: string | undefined;
-    try {
-      const response = await fetch(runtime.config.inngestBaseUrl, { signal: AbortSignal.timeout(2_000) });
-      inngestReady = response.ok;
-      if (!response.ok) inngestError = `HTTP ${response.status}`;
-    } catch (error) {
-      inngestError = error instanceof Error ? error.message : String(error);
-    }
-    const ready = workerReady && inngestReady;
+    const [inngest, worker] = await Promise.all([
+      checkInngest(runtime.config.inngestBaseUrl),
+      checkWorker(runtime.config.workerHealthUrl, runtime.config.agentConcurrency),
+    ]);
+    const ready = worker.ready && inngest.ready;
     res.status(ready ? 200 : 503).json({
       ready,
-      inngest: { ready: inngestReady, url: runtime.config.inngestBaseUrl, ...(inngestError ? { error: inngestError } : {}) },
-      worker: {
-        ready: workerReady,
-        runnerId: worker?.runnerId || null,
-        connectionStatus: worker?.connectionStatus || null,
-        capacity: worker?.capacity || runtime.config.agentConcurrency,
-        lastHeartbeat: worker?.lastHeartbeat || null,
-      },
+      inngest: { ready: inngest.ready, url: runtime.config.inngestBaseUrl, ...(inngest.error ? { error: inngest.error } : {}) },
+      worker,
     });
   });
 

@@ -1269,39 +1269,6 @@ export class OrchestrationService {
     return row ? this.attempt(row.id) : null;
   }
 
-  heartbeat(status: 'connecting' | 'connected' | 'disconnected' | 'stopping'): void {
-    const timestamp = now();
-    const active = this.database.get<{ count: number }>(`
-      SELECT COUNT(*) AS count FROM step_attempts WHERE runner_id = ? AND status = 'running'
-    `, this.config.runnerId)?.count || 0;
-    this.database.run(`
-      INSERT INTO orchestrator_workers(
-        runner_id, connection_status, capacity, active_attempts, last_heartbeat, version, updated_at
-      ) VALUES (?, ?, ?, ?, ?, '1.0.0', ?)
-      ON CONFLICT(runner_id) DO UPDATE SET
-        connection_status = excluded.connection_status,
-        capacity = excluded.capacity,
-        active_attempts = excluded.active_attempts,
-        last_heartbeat = excluded.last_heartbeat,
-        version = excluded.version,
-        updated_at = excluded.updated_at
-    `, this.config.runnerId, status, this.config.agentConcurrency, Number(active), timestamp, timestamp);
-  }
-
-  latestWorker(): {
-    runnerId: string; connectionStatus: string; capacity: number; lastHeartbeat: string;
-  } | null {
-    const row = this.database.get<{
-      runner_id: string; connection_status: string; capacity: number; last_heartbeat: string;
-    }>('SELECT * FROM orchestrator_workers ORDER BY last_heartbeat DESC LIMIT 1');
-    return row ? {
-      runnerId: row.runner_id,
-      connectionStatus: row.connection_status,
-      capacity: Number(row.capacity),
-      lastHeartbeat: row.last_heartbeat,
-    } : null;
-  }
-
   claimOutbox(limit = 20): Array<{
     id: string; eventId: string; flowId: string; commandId: string | null;
     eventType: string; payload: { commandId: string; flowId: string };

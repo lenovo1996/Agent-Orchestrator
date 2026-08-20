@@ -22,8 +22,7 @@ export function createTestOrchestration(
     blockedTtlMs: 30 * 86_400_000,
     inngestBaseUrl: 'http://127.0.0.1:8288',
     inngestGatewayUrl: 'ws://127.0.0.1:8289/v0/connect',
-    workerHeartbeatMs: 50,
-    workerStaleMs: 150,
+    workerHealthUrl: 'http://127.0.0.1:3011',
   };
   const database = new OrchestrationDatabase(config.dbPath);
   database.run(`

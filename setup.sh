@@ -21,6 +21,7 @@ DASHBOARD_DIR="$SCRIPT_DIR/dashboard"
 ENV_FILE="$SCRIPT_DIR/.env"
 ENV_EXAMPLE="$SCRIPT_DIR/.env.example"
 DB_FILE="$SCRIPT_DIR/workflows.db"
+HOST_APP_SERVER_PID=""
 
 # Colors
 RED='\033[0;31m'
@@ -190,7 +191,6 @@ setup_env() {
       log_success "Copied .env.example to .env"
     else
       log_info "Keeping existing .env"
-      return 0
     fi
   else
     cp "$ENV_EXAMPLE" "$ENV_FILE"
@@ -209,14 +209,15 @@ setup_env() {
     log_success "Generated Inngest keys"
   fi
   
-  # Prompt for appserver URL
-  if ! grep -q "CODEX_APP_SERVER_URL" "$ENV_FILE" || grep -q "^# CODEX_APP_SERVER_URL" "$ENV_FILE"; then
-    if prompt_yn "Enable app-server runtime?" "y"; then
-      local port="${CODEX_APP_SERVER_PORT:-9876}"
-      sed -i "s|# CODEX_APP_SERVER_URL=.*|CODEX_APP_SERVER_URL=ws://127.0.0.1:$port|" "$ENV_FILE"
-      sed -i "s|# DASHBOARD_APP_SERVER_AUTO_APPROVE=.*|DASHBOARD_APP_SERVER_AUTO_APPROVE=true|" "$ENV_FILE"
-      log_success "Enabled app-server runtime on port $port"
-    fi
+  # The app-server runs on the host so agents can access host tools and apps.
+  if ! grep -q "^CODEX_APP_SERVER_URL=" "$ENV_FILE"; then
+    local port="${CODEX_APP_SERVER_PORT:-9876}"
+    printf '\n# Codex app-server running on the host\nCODEX_APP_SERVER_URL=ws://127.0.0.1:%s\n' "$port" >> "$ENV_FILE"
+    log_success "Configured host app-server on port $port"
+  fi
+
+  if ! grep -q "^DASHBOARD_APP_SERVER_AUTO_APPROVE=" "$ENV_FILE"; then
+    printf 'DASHBOARD_APP_SERVER_AUTO_APPROVE=true\n' >> "$ENV_FILE"
   fi
   
   log_info "Current .env configuration:"
@@ -308,6 +309,87 @@ setup_codex_config() {
 # ============================================================================
 # Start Functions
 # ============================================================================
+remove_legacy_appserver_container() {
+  local -a container_ids=()
+  local container_id
+
+  while IFS= read -r container_id; do
+    if [ -n "$container_id" ]; then
+      container_ids+=("$container_id")
+    fi
+  done < <(docker ps -aq \
+    --filter "label=com.docker.compose.project.working_dir=$SCRIPT_DIR" \
+    --filter "label=com.docker.compose.service=appserver")
+
+  if [ ${#container_ids[@]} -eq 0 ]; then
+    return 0
+  fi
+
+  log_info "Removing legacy Docker appserver container..."
+  docker rm -f "${container_ids[@]}" > /dev/null
+  log_success "Legacy Docker appserver container removed"
+}
+
+app_server_ready() {
+  local port="${CODEX_APP_SERVER_PORT:-9876}"
+  curl -fsS "http://127.0.0.1:$port/readyz" > /dev/null 2>&1
+}
+
+start_host_appserver() {
+  log_step "Starting Codex App Server On Host"
+
+  if app_server_ready; then
+    log_success "Host app-server already running at ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:9876}"
+    return 0
+  fi
+
+  if ! command -v codex > /dev/null 2>&1; then
+    log_error "Codex CLI is required on the host"
+    log_info "Install via: npm i -g @openai/codex"
+    return 1
+  fi
+
+  (
+    cd "$DASHBOARD_DIR"
+    exec node scripts/start-appserver.js
+  ) &
+  HOST_APP_SERVER_PID=$!
+
+  log_info "Waiting for host app-server to be ready..."
+  local retries=30
+  while [ $retries -gt 0 ]; do
+    if app_server_ready; then
+      log_success "Host app-server is ready at ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:9876}"
+      return 0
+    fi
+
+    if ! kill -0 "$HOST_APP_SERVER_PID" 2>/dev/null; then
+      wait "$HOST_APP_SERVER_PID" || true
+      HOST_APP_SERVER_PID=""
+      log_error "Host app-server exited before becoming ready"
+      return 1
+    fi
+
+    sleep 1
+    retries=$((retries - 1))
+  done
+
+  log_error "Host app-server failed to become ready"
+  return 1
+}
+
+stop_host_appserver() {
+  if [ -z "$HOST_APP_SERVER_PID" ] || ! kill -0 "$HOST_APP_SERVER_PID" 2>/dev/null; then
+    return 0
+  fi
+
+  log_info "Stopping host app-server..."
+  kill "$HOST_APP_SERVER_PID" 2>/dev/null || true
+  wait "$HOST_APP_SERVER_PID" 2>/dev/null || true
+  HOST_APP_SERVER_PID=""
+  log_success "Host app-server stopped"
+}
+
 start_inngest() {
   log_step "Starting Inngest"
   
@@ -392,9 +474,13 @@ start_docker_compose() {
   source "$ENV_FILE"
   set +a
   
-  log_info "Starting all services via Docker Compose..."
+  remove_legacy_appserver_container
+  trap stop_host_appserver EXIT
+  start_host_appserver
+
+  log_info "Starting container services via Docker Compose..."
   log_info "  - Inngest (port 8288, 8289)"
-  log_info "  - App Server (port 9876)"
+  log_info "  - Codex App Server on host (port ${CODEX_APP_SERVER_PORT:-9876})"
   log_info "  - API Server (port 3001)"
   log_info "  - Client (port 5173)"
   log_info "  - Worker"
@@ -419,7 +505,7 @@ start_dev() {
   set +a
   
   log_info "Starting all services..."
-  log_info "  - App Server (port ${CODEX_APP_SERVER_PORT:-9876})"
+  log_info "  - Codex App Server on host (port ${CODEX_APP_SERVER_PORT:-9876})"
   log_info "  - API Server (port 3001)"
   log_info "  - Client (port 5173)"
   log_info "  - Inngest (port 8288)"
@@ -511,7 +597,7 @@ main() {
   check_node || ((errors++))
   check_git || ((errors++))
   check_docker || true  # Docker is optional
-  check_codex || true   # Codex is optional
+  check_codex || errors=$((errors + 1))
   check_uv || true      # uv is optional
   
   if [ $errors -gt 0 ]; then
@@ -555,7 +641,7 @@ main() {
   echo "  - Dashboard:  http://localhost:5173"
   echo "  - API Server: http://localhost:3001"
   echo "  - Inngest:    http://localhost:8288"
-  echo "  - App Server: ws://127.0.0.1:9876"
+  echo "  - App Server: ws://127.0.0.1:9876 (host process)"
   echo ""
   
   if prompt_yn "Start development environment now?" "y"; then

@@ -14,8 +14,7 @@ export interface OrchestrationConfig {
   blockedTtlMs: number;
   inngestBaseUrl: string;
   inngestGatewayUrl: string;
-  workerHeartbeatMs: number;
-  workerStaleMs: number;
+  workerHealthUrl: string;
 }
 
 function defaultRepoRoot(): string {
@@ -57,7 +56,6 @@ export function loadOrchestrationConfig(
     blockedTtlMs: overrides.blockedTtlMs || parseDuration(blockedTtl),
     inngestBaseUrl: overrides.inngestBaseUrl || process.env.INNGEST_BASE_URL || 'http://127.0.0.1:8288',
     inngestGatewayUrl: overrides.inngestGatewayUrl || process.env.INNGEST_GATEWAY_URL || 'ws://127.0.0.1:8289/v0/connect',
-    workerHeartbeatMs: overrides.workerHeartbeatMs || 5_000,
-    workerStaleMs: overrides.workerStaleMs || 15_000,
+    workerHealthUrl: overrides.workerHealthUrl || process.env.DEVTEAM_WORKER_HEALTH_URL || 'http://127.0.0.1:3011',
   };
 }

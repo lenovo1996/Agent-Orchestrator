@@ -92,6 +92,7 @@ Các biến tùy chọn thường dùng:
 | `DEVTEAM_AGENT_TIMEOUT` | `6h` | Timeout local cho một agent process |
 | `DEVTEAM_BLOCKED_TTL` | `30d` | Thời gian chờ resume trước khi flow thành `expired` |
 | `DEVTEAM_WORKER_HEALTH_PORT` | `3011` | Health port của Connect worker |
+| `DEVTEAM_WORKER_HEALTH_URL` | `http://127.0.0.1:3011` | URL dashboard server dùng để kiểm tra trực tiếp Connect worker |
 | `DASHBOARD_PORT` | `3001` | API/Socket.IO port |
 | `DASHBOARD_HOST` | `127.0.0.1` | Interface của dashboard server |
 | `DASHBOARD_CORS_ORIGIN` | `*` | CORS origin trong development |
@@ -166,7 +167,7 @@ npm run dev:worker
 ```
 
 Worker chạy TypeScript watch mode, kết nối tới
-`ws://127.0.0.1:8289/v0/connect`, dispatch durable outbox, heartbeat vào SQLite và
+`ws://127.0.0.1:8289/v0/connect`, dispatch durable outbox, cung cấp HTTP health và
 chạy tối đa `DEVTEAM_AGENT_CONCURRENCY` agent. Log thành công có dạng:
 
 ```text
@@ -208,7 +209,7 @@ Kết quả mong đợi:
 - `/api/orchestration/health` trả HTTP `200`, với cả `inngest.ready` và
   `worker.ready` bằng `true`.
 
-Trong vài giây đầu endpoint có thể trả `503` khi Connect worker chưa heartbeat. Nếu
+Trong vài giây đầu endpoint có thể trả `503` khi Connect worker chưa sẵn sàng. Nếu
 tiếp tục trả `503`, xem phần troubleshooting bên dưới.
 
 ## Dừng và khởi động lại development
@@ -263,9 +264,7 @@ sau đó restart `npm run dev:worker`.
 
 - `inngest.ready=false`: kiểm tra container và port `8288`.
 - `worker.ready=false`: kiểm tra worker log, `curl http://127.0.0.1:3011` và chắc chắn
-  worker dùng cùng database với dashboard.
-- Worker heartbeat được xem là stale sau khoảng 15 giây; process worker phải chạy
-  liên tục.
+  `DEVTEAM_WORKER_HEALTH_URL` trỏ đúng health endpoint của worker.
 
 ### Port đã được sử dụng
 

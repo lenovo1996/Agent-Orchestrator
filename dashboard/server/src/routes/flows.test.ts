@@ -136,14 +136,60 @@ describe('SQLite-backed flow REST API', () => {
     expect((await request(app, 'GET', `/api/flows/${flowId}?workspaceId=another-workspace`)).status).toBe(404);
   });
 
-  it('returns 503 when Inngest or a connected worker is unavailable', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 503 })));
+  it('returns 200 when Inngest and the worker health endpoint are ready', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === orchestration.config.inngestBaseUrl) {
+        return new Response(null, { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        ready: true,
+        runnerId: 'worker-1',
+        status: 'connected',
+        capacity: 4,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+
     const response = await request(app, 'GET', '/api/orchestration/health');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ready: true,
+      inngest: { ready: true, url: orchestration.config.inngestBaseUrl },
+      worker: {
+        ready: true,
+        runnerId: 'worker-1',
+        connectionStatus: 'connected',
+        capacity: 4,
+      },
+    });
+  });
+
+  it('returns 503 when Inngest and the worker health endpoint are unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      if (String(input) === orchestration.config.inngestBaseUrl) {
+        return new Response(null, { status: 503 });
+      }
+      return new Response(JSON.stringify({
+        ready: false,
+        runnerId: 'worker-1',
+        status: 'connecting',
+        capacity: 3,
+      }), { status: 503, headers: { 'Content-Type': 'application/json' } });
+    }));
+
+    const response = await request(app, 'GET', '/api/orchestration/health');
+
     expect(response.status).toBe(503);
     expect(response.body).toMatchObject({
       ready: false,
-      inngest: { ready: false },
-      worker: { ready: false },
+      inngest: { ready: false, error: 'HTTP 503' },
+      worker: {
+        ready: false,
+        runnerId: 'worker-1',
+        connectionStatus: 'connecting',
+        capacity: 3,
+        error: 'HTTP 503',
+      },
     });
   });
 });

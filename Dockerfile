@@ -2,6 +2,7 @@ FROM node:22-slim
 
 # Install basic dependencies
 RUN apt-get update && apt-get install -y \
+    bubblewrap \
     git \
     curl \
     python3 \

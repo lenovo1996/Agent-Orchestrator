@@ -55,7 +55,7 @@ cd dashboard && npm run dev
 
 Production uses `npm start` for the dashboard and `npm run start:worker` for the
 Connect worker. Readiness is exposed at `GET /api/orchestration/health` and requires
-both Inngest and a fresh connected worker heartbeat.
+both Inngest and a successful direct worker health check.
 
 ## Flow commands
 

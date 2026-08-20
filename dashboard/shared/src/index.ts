@@ -129,7 +129,7 @@ export interface OrchestrationHealth {
     runnerId: string | null;
     connectionStatus: string | null;
     capacity: number;
-    lastHeartbeat: string | null;
+    error?: string;
   };
 }
 

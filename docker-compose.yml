@@ -18,23 +18,6 @@ services:
       retries: 5
       start_period: 20s
 
-  # Codex App Server - Agent runtime
-  appserver:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: codex app-server --listen ws://127.0.0.1:9876
-    restart: unless-stopped
-    network_mode: host
-    environment:
-      CODEX_HOME: /codex-home
-      CODEX_APP_SERVER_URL: ws://127.0.0.1:9876
-    volumes:
-      # Mount codex home from host (read-write for sqlite)
-      - ${CODEX_HOME:-~/.codex}:/codex-home:rw
-      # Mount workspace for agents to access
-      - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
-
   # Dashboard Server - API
   server:
     build:
@@ -52,11 +35,14 @@ services:
       INNGEST_DEV: ${INNGEST_DEV:-0}
       INNGEST_BASE_URL: http://127.0.0.1:8288
       INNGEST_GATEWAY_URL: ws://127.0.0.1:8289/v0/connect
-      CODEX_APP_SERVER_URL: ws://127.0.0.1:9876
+      DEVTEAM_DB_PATH: /devteam-state/workflows.db
+      DEVTEAM_WORKER_HEALTH_URL: ${DEVTEAM_WORKER_HEALTH_URL:-http://127.0.0.1:3011}
+      CODEX_APP_SERVER_URL: ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:9876}
       DASHBOARD_APP_SERVER_AUTO_APPROVE: ${DASHBOARD_APP_SERVER_AUTO_APPROVE:-true}
       DEVTEAM_AGENT_CONCURRENCY: ${DEVTEAM_AGENT_CONCURRENCY:-3}
       DEVTEAM_AGENT_TIMEOUT: ${DEVTEAM_AGENT_TIMEOUT:-6h}
       DEVTEAM_BLOCKED_TTL: ${DEVTEAM_BLOCKED_TTL:-30d}
+      CODEX_HOME: /codex-home
       DASHBOARD_CODEX_HOME: /codex-home
     volumes:
       # Mount codex home from host
@@ -65,13 +51,11 @@ services:
       - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
       # Mount task-flows directory
       - ./task-flows:/app/task-flows:rw
-      # Mount workflows database
-      - ./workflows.db:/app/workflows.db:rw
+      # Share the SQLite database directory so WAL/SHM sidecars are visible to the worker
+      - ./:/devteam-state:rw
     depends_on:
       inngest:
         condition: service_healthy
-      appserver:
-        condition: service_started
 
   # Dashboard Client - Frontend
   client:
@@ -103,7 +87,9 @@ services:
       INNGEST_DEV: ${INNGEST_DEV:-0}
       INNGEST_BASE_URL: http://127.0.0.1:8288
       INNGEST_GATEWAY_URL: ws://127.0.0.1:8289/v0/connect
-      CODEX_APP_SERVER_URL: ws://127.0.0.1:9876
+      DEVTEAM_DB_PATH: /devteam-state/workflows.db
+      DEVTEAM_WORKER_HEALTH_PORT: ${DEVTEAM_WORKER_HEALTH_PORT:-3011}
+      CODEX_APP_SERVER_URL: ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:9876}
       DASHBOARD_APP_SERVER_AUTO_APPROVE: ${DASHBOARD_APP_SERVER_AUTO_APPROVE:-true}
       DEVTEAM_AGENT_CONCURRENCY: ${DEVTEAM_AGENT_CONCURRENCY:-3}
       DEVTEAM_AGENT_TIMEOUT: ${DEVTEAM_AGENT_TIMEOUT:-6h}
@@ -116,13 +102,11 @@ services:
       - ${WORKSPACE_PATH:-..}:${WORKSPACE_PATH:-..}:rw
       # Mount task-flows directory
       - ./task-flows:/app/task-flows:rw
-      # Mount workflows database
-      - ./workflows.db:/app/workflows.db:rw
+      # Share the SQLite database directory so WAL/SHM sidecars are visible to the server
+      - ./:/devteam-state:rw
     depends_on:
       inngest:
         condition: service_healthy
-      appserver:
-        condition: service_started
 
 volumes:
   inngest-data:
