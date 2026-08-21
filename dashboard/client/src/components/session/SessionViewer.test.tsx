@@ -286,6 +286,59 @@ describe('SessionViewer', () => {
     });
   });
 
+  it('keeps a realtime session attempt when an older empty list response arrives later', async () => {
+    let resolveAttemptList!: (response: Response) => void;
+    const pendingAttemptList = new Promise<Response>((resolve) => {
+      resolveAttemptList = resolve;
+    });
+    global.fetch = vi.fn(async (input: string | URL | Request) => String(input).includes(`/${latest.runId}`)
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : pendingAttemptList) as typeof fetch;
+
+    render(<SessionViewer />);
+    await waitFor(() => expect(socketMock.handlers['session:attempt-updated']).toBeTypeOf('function'));
+
+    await act(async () => {
+      socketMock.handlers['session:attempt-updated']({
+        workspaceName: null,
+        flowId: 'flow_001',
+        step: 'implementer',
+        attempt: latest,
+      });
+    });
+    expect(await screen.findByText('Newest final')).toBeTruthy();
+
+    await act(async () => {
+      resolveAttemptList(new Response(JSON.stringify({ enabled: true, attempts: [] }), { status: 200 }));
+      await pendingAttemptList;
+    });
+
+    await waitFor(() => expect(screen.getByText('Newest final')).toBeTruthy());
+    expect((screen.getByLabelText('Attempt') as HTMLSelectElement).value).toBe(latest.runId);
+  });
+
+  it('keeps the active session visible when a flow revision refresh returns an empty attempt list', async () => {
+    let attemptsAvailable = true;
+    global.fetch = vi.fn(async (input: string | URL | Request) => String(input).includes(`/${latest.runId}`)
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : new Response(JSON.stringify({ enabled: true, attempts: attemptsAvailable ? [latest] : [] }), { status: 200 })) as typeof fetch;
+
+    render(<SessionViewer />);
+    expect(await screen.findByText('Newest final')).toBeTruthy();
+
+    attemptsAvailable = false;
+    act(() => {
+      const current = useDashboardStore.getState().flows.flow_001;
+      useDashboardStore.setState({
+        flows: { flow_001: { ...current, revision: current.revision + 1 } },
+      });
+    });
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(3));
+    expect(screen.getByText('Newest final')).toBeTruthy();
+    expect((screen.getByLabelText('Attempt') as HTMLSelectElement).value).toBe(latest.runId);
+  });
+
   it('renders a pre-thread failure from structured metadata without stderr tail', async () => {
     const failed = {
       ...first,

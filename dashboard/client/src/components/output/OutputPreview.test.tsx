@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { WorkflowState } from '@devteam-dashboard/shared';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 import { OutputPreview } from './OutputPreview';
@@ -121,6 +121,38 @@ describe('OutputPreview Markdown theme', () => {
 
     expect(await screen.findByText('Realtime output')).toBeTruthy();
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let an older empty response overwrite a realtime output update', async () => {
+    let resolveInitialFetch!: (response: Response) => void;
+    const pendingInitialFetch = new Promise<Response>((resolve) => {
+      resolveInitialFetch = resolve;
+    });
+    globalThis.fetch = vi.fn(async () => pendingInitialFetch) as typeof fetch;
+
+    render(<OutputPreview />);
+    await waitFor(() => expect(socketMock.handlers['output:updated']).toBeTypeOf('function'));
+
+    act(() => {
+      socketMock.handlers['output:updated']({
+        flowId: 'flow_001',
+        step: 'implementer',
+        content: 'Realtime output wins',
+        metadata: { size: 20, lastModified: timestamp },
+      });
+    });
+    expect(await screen.findByText('Realtime output wins')).toBeTruthy();
+
+    await act(async () => {
+      resolveInitialFetch(new Response(JSON.stringify({ exists: false, content: null }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+      await pendingInitialFetch;
+    });
+
+    await waitFor(() => expect(screen.getByText('Realtime output wins')).toBeTruthy());
+    expect(screen.queryByText('No output file found for this step')).toBeNull();
   });
 
   it('refetches after step completion when the watcher attached after the file was written', async () => {

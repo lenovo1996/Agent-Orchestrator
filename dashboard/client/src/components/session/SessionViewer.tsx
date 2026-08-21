@@ -115,6 +115,8 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const nearBottom = useRef(true);
+  const attemptListRequest = useRef(0);
+  const attemptEventVersion = useRef(0);
 
   const autoResizeTextarea = useCallback(() => {
     const el = textareaRef.current;
@@ -132,6 +134,8 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
   }, [followUpMessage, autoResizeTextarea]);
 
   useEffect(() => {
+    attemptListRequest.current += 1;
+    attemptEventVersion.current += 1;
     setManualAttempt(false);
     setAttempts([]);
     setRunId('');
@@ -139,17 +143,21 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
     setError('');
     nearBottom.current = true;
     setShowScrollToBottom(false);
-  }, [selectedFlowId, selectedStep, workspaceName, selectedFlow?.revision]);
+  }, [selectedFlowId, selectedStep, workspaceName]);
 
   useEffect(() => {
     if (!selectedFlowId || !selectedStep) return;
     const controller = new AbortController();
+    const request = ++attemptListRequest.current;
+    const eventVersion = attemptEventVersion.current;
     setLoading(true);
     setError('');
     fetch(`${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/sessions/${encodeURIComponent(selectedStep)}${query(workspaceName)}`, { signal: controller.signal })
       .then(async (response) => {
         const data = await response.json();
+        if (request !== attemptListRequest.current) return;
         if (response.status === 503 || data.enabled === false) {
+          if (eventVersion !== attemptEventVersion.current) return;
           setDisabled(true);
           setAttempts([]);
           return;
@@ -157,16 +165,33 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
         if (!response.ok) throw new Error(data.error || 'Failed to load session attempts');
         const next = data.attempts as SessionAttemptSummary[];
         setDisabled(false);
-        setAttempts(next);
+        if (eventVersion !== attemptEventVersion.current) {
+          setAttempts((current) => {
+            const merged = new Map(next.map((attempt) => [attempt.runId, attempt]));
+            for (const attempt of current) merged.set(attempt.runId, attempt);
+            return [...merged.values()].sort((left, right) =>
+              left.startedAt.localeCompare(right.startedAt) || left.runId.localeCompare(right.runId));
+          });
+          return;
+        }
+        setAttempts((current) => {
+          const merged = new Map(current.map((attempt) => [attempt.runId, attempt]));
+          for (const attempt of next) merged.set(attempt.runId, attempt);
+          return [...merged.values()].sort((left, right) =>
+            left.startedAt.localeCompare(right.startedAt) || left.runId.localeCompare(right.runId));
+        });
         setRunId((current) => {
+          if (next.length === 0) return current;
           if (manualAttempt && next.some((attempt) => attempt.runId === current)) return current;
           return next.at(-1)?.runId || '';
         });
       })
       .catch((reason) => {
-        if (reason.name !== 'AbortError') setError(reason.message);
+        if (request === attemptListRequest.current && reason.name !== 'AbortError') setError(reason.message);
       })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+      .finally(() => {
+        if (request === attemptListRequest.current && !controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
   }, [manualAttempt, selectedFlow?.revision, selectedFlowId, selectedStep, workspaceName]);
 
@@ -228,6 +253,7 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
       if (payload.flowId !== selectedFlowId || payload.step !== selectedStep
         || (payload.workspaceName || null) !== workspaceName) return;
 
+      attemptEventVersion.current += 1;
       setAttempts((current) => mergeAttempts(current, payload.attempt));
       if (!manualAttempt) {
         const currentAttempt = attempts.find((attempt) => attempt.runId === runId);

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useDashboardStore } from '@/store/use-dashboard-store';
@@ -41,6 +41,7 @@ export function OutputPreview() {
   const [output, setOutput] = useState<OutputData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const outputRequest = useRef(0);
 
   const stepStatus = selectedFlowId && selectedStep
     ? flows[selectedFlowId]?.steps[selectedStep]
@@ -49,6 +50,7 @@ export function OutputPreview() {
   const fetchOutput = useCallback(async () => {
     if (!selectedFlowId || !selectedStep) return;
 
+    const request = ++outputRequest.current;
     setLoading(true);
     setError(null);
 
@@ -60,12 +62,14 @@ export function OutputPreview() {
         throw new Error(`Failed to fetch output: ${res.status}`);
       }
       const data: OutputData = await res.json();
+      if (request !== outputRequest.current) return;
       setOutput(data);
     } catch (err) {
+      if (request !== outputRequest.current) return;
       setError(err instanceof Error ? err.message : 'Unknown error');
       setOutput(null);
     } finally {
-      setLoading(false);
+      if (request === outputRequest.current) setLoading(false);
     }
   }, [selectedFlowId, selectedStep]);
 
@@ -73,6 +77,8 @@ export function OutputPreview() {
   // also covers very fast agents that write before the artifact watcher attaches.
   useEffect(() => {
     if (!selectedFlowId || !selectedStep) {
+      outputRequest.current += 1;
+      setLoading(false);
       setOutput(null);
       return;
     }
@@ -90,6 +96,9 @@ export function OutputPreview() {
     };
     const handleOutputUpdated = (payload: OutputUpdatedPayload) => {
       if (payload.flowId === selectedFlowId && payload.step === selectedStep) {
+        outputRequest.current += 1;
+        setLoading(false);
+        setError(null);
         setOutput({
           content: payload.content,
           exists: true,
