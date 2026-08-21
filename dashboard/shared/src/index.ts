@@ -193,7 +193,7 @@ export interface SessionAttemptSummary {
   flowId: string;
   step: string;
   threadId: string | null;
-  status: 'starting' | 'running' | 'completed' | 'failed';
+  status: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
   startedAt: string;
   finishedAt: string | null;
   exitCode: number | null;

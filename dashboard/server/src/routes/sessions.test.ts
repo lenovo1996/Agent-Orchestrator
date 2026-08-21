@@ -165,4 +165,39 @@ describe('session routes', () => {
     expect(snapshot.body.rolloutAvailable).toBe(true);
     expect(snapshot.body.items[0].text).toBe('from zstd');
   });
+
+  it('uses rollout token usage when app-server metadata contains only zeros', async () => {
+    writeAttempt('workspace-a', {
+      ...attempt(runA, threadA, '2026-08-17T00:00:00.000Z'),
+      usage: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+    });
+    writeRollout(threadA, [
+      { timestamp: '2026-08-17T00:00:00.000Z', ordinal: 0, type: 'session_meta', payload: { timestamp: '2026-08-17T00:00:00.000Z' } },
+      {
+        timestamp: '2026-08-17T00:00:01.000Z',
+        ordinal: 1,
+        type: 'event_msg',
+        payload: {
+          type: 'token_count',
+          info: {
+            total_token_usage: {
+              input_tokens: 120,
+              cached_input_tokens: 50,
+              output_tokens: 40,
+              reasoning_output_tokens: 17,
+            },
+          },
+        },
+      },
+    ]);
+
+    const snapshot = await request(app, `/api/flows/flow_001/sessions/implementer/${runA}?workspaceName=workspace-a`);
+    expect(snapshot.body.stats.usage).toEqual({
+      inputTokens: 120,
+      cachedInputTokens: 50,
+      outputTokens: 40,
+      reasoningOutputTokens: 17,
+    });
+    expect(snapshot.body.stats.totalTokens).toBe(160);
+  });
 });

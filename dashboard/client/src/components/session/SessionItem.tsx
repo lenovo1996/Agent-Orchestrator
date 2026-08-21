@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, ChevronDown, LoaderCircle } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { SessionItemDetail, SessionItemSummary } from '@devteam-dashboard/shared';
 
@@ -10,6 +10,10 @@ interface Presentation {
   tone: string;
   row: string;
 }
+
+const reasoningMarkdownComponents: Components = {
+  strong: ({ children }) => <span className="font-normal">{children}</span>,
+};
 
 function presentation(item: SessionItemSummary): Presentation {
   if (item.kind === 'message' && item.role === 'user') {
@@ -336,7 +340,12 @@ export function SessionItem({
             <time className="select-none pt-px text-[10px] tabular-nums text-muted-foreground/60">{time(item.timestamp)}</time>
           </div>
           <div className={`prose prose-sm mt-1 max-w-none break-words pl-5 text-foreground dark:prose-invert prose-headings:mb-2 prose-headings:mt-3 prose-headings:text-foreground prose-p:my-1 prose-p:leading-relaxed prose-pre:my-2 prose-pre:border prose-pre:border-border prose-pre:bg-muted/60 prose-pre:text-xs prose-code:text-cyan-700 dark:prose-code:text-cyan-200 prose-headings:text-sm prose-li:text-xs prose-p:text-xs`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text || ''}</ReactMarkdown>
+            <ReactMarkdown
+              components={item.kind === 'reasoning' ? reasoningMarkdownComponents : undefined}
+              remarkPlugins={[remarkGfm]}
+            >
+              {item.text || ''}
+            </ReactMarkdown>
           </div>
         </div>
       </article>

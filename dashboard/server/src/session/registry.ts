@@ -19,7 +19,7 @@ export function sanitizeAttempt(value: unknown): SessionAttemptSummary | null {
     !RUN_ID.test(attempt.runId) ||
     typeof attempt.flowId !== 'string' ||
     typeof attempt.step !== 'string' ||
-    !['starting', 'running', 'completed', 'failed'].includes(String(attempt.status)) ||
+    !['starting', 'running', 'completed', 'failed', 'cancelled'].includes(String(attempt.status)) ||
     typeof attempt.startedAt !== 'string' ||
     !(attempt.threadId === null || typeof attempt.threadId === 'string') ||
     !(attempt.finishedAt === null || typeof attempt.finishedAt === 'string') ||

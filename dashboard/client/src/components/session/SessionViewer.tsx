@@ -458,13 +458,7 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
             {isWorking && (
               <div data-session-working-dock className="shrink-0 border-t border-border bg-muted/40 dark:bg-zinc-950">
                 <div className="mx-auto max-w-6xl">
-                  <div className="flex items-center gap-2 px-3 py-1 text-[10px] font-mono text-muted-foreground border-b border-border">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    </span>
-                    agent running
-                  </div>
+                  <WorkingIndicator />
                   <div className="flex items-start gap-0 px-3 py-2">
                     <span className="mt-1.5 shrink-0 font-mono text-sm text-emerald-500 select-none">❯</span>
                     <textarea

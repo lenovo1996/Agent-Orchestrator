@@ -16,6 +16,15 @@ interface CacheEntry {
   parsed: ParsedSession;
 }
 
+function hasRecordedUsage(usage: SessionAttemptSummary['usage']): boolean {
+  return Boolean(usage && (
+    usage.inputTokens > 0
+    || usage.cachedInputTokens > 0
+    || usage.outputTokens > 0
+    || usage.reasoningOutputTokens > 0
+  ));
+}
+
 const CACHE_TTL_MS = 10 * 60_000;
 const MAX_CACHE_ENTRIES = 32;
 
@@ -110,7 +119,7 @@ export class SessionService {
       step: attempt.step,
       threadId: null,
       status: attempt.status === 'queued' ? 'starting' : attempt.status === 'running' ? 'running'
-        : attempt.status === 'completed' ? 'completed' : 'failed',
+        : attempt.status === 'completed' ? 'completed' : attempt.status === 'cancelled' ? 'cancelled' : 'failed',
       startedAt: attempt.startedAt || attempt.createdAt,
       finishedAt: attempt.finishedAt,
       exitCode: attempt.exitCode,
@@ -191,7 +200,9 @@ export class SessionService {
       const parsed = await this.parsed(rollout);
       const start = Date.parse(attempt.startedAt);
       const finish = attempt.finishedAt ? Date.parse(attempt.finishedAt) : NaN;
-      const usage = attempt.usage || parsed.stats.usage;
+      const usage = hasRecordedUsage(attempt.usage)
+        ? attempt.usage
+        : parsed.stats.usage || attempt.usage;
       return {
         attempt,
         rolloutAvailable: true,

@@ -313,7 +313,8 @@ export function createInngestRuntime(dependencies: {
       triggers: [{ event: 'inngest/function.cancelled' }],
     },
     async ({ event, step }) => {
-      const flowId = failureFlowId(event);
+      const runId = typeof event.data?.run_id === 'string' ? event.data.run_id : null;
+      const flowId = runId ? service.flowIdForInngestRun(runId) : null;
       if (!flowId) return { cleaned: false };
       await step.run('terminate-process-group', () => runner.supervisor.terminateFlow(flowId));
       await step.run('finalize-stop-command', () => {

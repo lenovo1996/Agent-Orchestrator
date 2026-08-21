@@ -592,31 +592,42 @@ export class AgentRunner {
       } else {
         prompt = this.buildPrompt(input.flowId, input.step);
       }
+      const reasoningEffort = agent.thinking?.trim() || undefined;
       const turnInfo = await client.startTurn(threadInfo.threadId, prompt, {
         model: agent.model || undefined,
+        effort: reasoningEffort,
+        summary: reasoningEffort === 'none' ? 'none' : 'detailed',
       });
-      this.supervisor.registerActiveThread(input.flowId, input.step, threadInfo.threadId, turnInfo.turnId);
+      this.supervisor.registerActiveThread(
+        input.flowId,
+        input.step,
+        attempt.id,
+        threadInfo.threadId,
+        turnInfo.turnId,
+      );
 
       try {
         // Wait for turn completion — only for the specific turn we started
-        const exitCode = await new Promise<number>((resolve) => {
+        const completion = await new Promise<{ exitCode: number; status: string }>((resolve) => {
           let settled = false;
           let timeout: ReturnType<typeof setTimeout> | undefined;
-          const finish = (code: number) => {
+          const finish = (exitCode: number, status: string) => {
             if (settled) return;
             settled = true;
             client.removeListener('turn:completed', onCompleted);
             client.removeListener('error', onError);
             if (timeout) clearTimeout(timeout);
-            resolve(code);
+            resolve({ exitCode, status });
           };
-          const onCompleted = (tid: string, completedTurnId: string) => {
-            if (tid === threadInfo.threadId && completedTurnId === turnInfo.turnId) finish(0);
+          const onCompleted = (tid: string, completedTurnId: string, status: string) => {
+            if (tid === threadInfo.threadId && completedTurnId === turnInfo.turnId) {
+              finish(status === 'completed' ? 0 : 1, status);
+            }
           };
           const onError = (tid: string | null, message: string) => {
             if (tid === threadInfo.threadId || tid === null) {
               bridge.fail(message);
-              finish(1);
+              finish(1, 'failed');
             }
           };
           client.on('turn:completed', onCompleted);
@@ -624,12 +635,18 @@ export class AgentRunner {
 
           timeout = setTimeout(() => {
             bridge.fail('Agent turn exceeded local timeout');
-            finish(1);
+            finish(1, 'failed');
           }, this.service.config.agentTimeoutMs);
           timeout.unref();
         });
 
-        bridge.complete(exitCode);
+        if (completion.status === 'interrupted') {
+          bridge.cancel();
+          this.service.finishAttempt(attempt.id, 'cancelled', null);
+          throw new PermanentAgentError('Agent turn was interrupted', 'cancelled');
+        }
+
+        bridge.complete(completion.exitCode);
 
         // If agent didn't write the output file directly (common with app-server),
         // write the captured agent message as the output.
@@ -642,16 +659,20 @@ export class AgentRunner {
         }
 
         const domainResult = this.readResult(input.flowId, input.step, attempt, previousMtime);
-        if (exitCode !== 0 && domainResult.status !== 'BLOCKED') {
-          throw new RetriableAgentError(`Agent turn failed with exit code ${exitCode}`, 'process');
+        if (completion.exitCode !== 0 && domainResult.status !== 'BLOCKED') {
+          throw new RetriableAgentError(`Agent turn failed with exit code ${completion.exitCode}`, 'process');
         }
         this.updateMemory(input.flowId, input.step);
-        this.service.finishAttempt(attempt.id, 'completed', exitCode);
+        this.service.finishAttempt(attempt.id, 'completed', completion.exitCode);
         return domainResult;
       } finally {
         this.supervisor.unregisterActiveThread(input.flowId, input.step);
       }
     } catch (error) {
+      if (error instanceof PermanentAgentError && error.stage === 'cancelled') {
+        this.service.finishAttempt(attempt.id, 'cancelled', null);
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       const stage = error instanceof RetriableAgentError ? error.stage : 'process';
       this.service.finishAttempt(attempt.id, 'failed', 1, { stage, message: message.slice(0, 500), retriable: true });

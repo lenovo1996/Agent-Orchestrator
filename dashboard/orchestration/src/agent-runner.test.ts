@@ -9,16 +9,16 @@ import { createFlow, createTestService } from './test-helpers.js';
 
 class FakeAppServerClient extends EventEmitter {
   readonly connected = true;
-  readonly createThread = vi.fn(async () => ({
-    threadId: 'thread-1', sessionId: 'session-1', model: 'test-model', cwd: '/workspace',
-  }));
-  readonly startTurn = vi.fn(async () => ({ turnId: 'turn-1', status: 'inProgress' }));
+  readonly createThread = vi.fn(async () => {
+    this.emit('thread:started', 'thread-1');
+    return { threadId: 'thread-1', sessionId: 'session-1', model: 'test-model', cwd: '/workspace' };
+  });
+  readonly startTurn = vi.fn(async (threadId: string) => {
+    this.emit('turn:started', threadId, 'turn-1');
+    return { turnId: 'turn-1', status: 'inProgress' };
+  });
   readonly interruptTurn = vi.fn(async (threadId: string, turnId: string) => {
-    this.emit('item:completed', threadId, turnId, {
-      type: 'agentMessage',
-      text: '## Status\nDONE\n\nTests: 1 passed, 0 failed',
-    });
-    this.emit('turn:completed', threadId, turnId);
+    this.emit('turn:completed', threadId, turnId, 'interrupted');
   });
 }
 
@@ -83,7 +83,10 @@ function invocation(inngestRunId = 'child-run-1', inngestAttempt = 0) {
 
 describe('AgentRunner', () => {
   it('registers an app-server turn so stopping the flow interrupts it', async () => {
-    context.database.run("UPDATE agents SET runtime = 'appserver' WHERE id = 'implementer'");
+    context.database.run(`
+      UPDATE agents SET runtime = 'appserver', model = 'gpt-5.6-sol', thinking = 'high'
+      WHERE id = 'implementer'
+    `);
     const client = new FakeAppServerClient();
     (runner as unknown as { _appServerClient: AppServerClient | null })._appServerClient = client as unknown as AppServerClient;
     runner.supervisor.setAppServerClient(client as unknown as AppServerClient);
@@ -93,8 +96,21 @@ describe('AgentRunner', () => {
     await vi.waitFor(() => expect(client.startTurn).toHaveBeenCalledOnce());
     await runner.supervisor.terminateFlow(input.flowId);
 
-    await expect(execution).resolves.toMatchObject({ status: 'DONE' });
+    await expect(execution).rejects.toMatchObject({ stage: 'cancelled' });
+    expect(client.startTurn).toHaveBeenCalledWith('thread-1', expect.any(String), {
+      model: 'gpt-5.6-sol', effort: 'high', summary: 'detailed',
+    });
     expect(client.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-1');
+    expect(context.service.listAttempts(input.flowId)[0]).toMatchObject({ status: 'cancelled' });
+    const attempt = context.service.listAttempts(input.flowId)[0];
+    expect(JSON.parse(fs.readFileSync(path.join(
+      context.service.artifactDirectory(input.flowId),
+      'sessions',
+      input.step,
+      `${attempt.sessionRunId}.json`,
+    ), 'utf8'))).toMatchObject({
+      threadId: 'thread-1', turnId: 'turn-1', status: 'cancelled',
+    });
 
     await runner.supervisor.terminateFlow(input.flowId);
     expect(client.interruptTurn).toHaveBeenCalledOnce();

@@ -8,7 +8,8 @@ function delay(milliseconds: number): Promise<void> {
 
 export class ProcessSupervisor {
   private _appServerClient: AppServerClient | null = null;
-  private activeThreads = new Map<string, { threadId: string; turnId: string }>();
+  private activeThreads = new Map<string, { attemptId: string; threadId: string; turnId: string }>();
+  private terminations = new Map<string, Promise<void>>();
 
   constructor(private readonly service: OrchestrationService) {}
 
@@ -16,8 +17,8 @@ export class ProcessSupervisor {
     this._appServerClient = client;
   }
 
-  registerActiveThread(flowId: string, step: string, threadId: string, turnId: string): void {
-    this.activeThreads.set(`${flowId}:${step}`, { threadId, turnId });
+  registerActiveThread(flowId: string, step: string, attemptId: string, threadId: string, turnId: string): void {
+    this.activeThreads.set(`${flowId}:${step}`, { attemptId, threadId, turnId });
   }
 
   unregisterActiveThread(flowId: string, step: string): void {
@@ -66,26 +67,59 @@ export class ProcessSupervisor {
     }
   }
 
-  async terminateFlow(flowId: string): Promise<void> {
-    // Interrupt app-server threads first
-    if (this._appServerClient?.connected) {
-      const interruptPromises: Promise<void>[] = [];
-      for (const [key, { threadId, turnId }] of this.activeThreads) {
-        if (key.startsWith(`${flowId}:`)) {
-          interruptPromises.push(
-            this._appServerClient.interruptTurn(threadId, turnId).catch(() => { /* ignore */ }),
-          );
-          this.activeThreads.delete(key);
-        }
-      }
-      await Promise.all(interruptPromises);
+  terminateFlow(flowId: string): Promise<void> {
+    const existing = this.terminations.get(flowId);
+    if (existing) return existing;
+    const termination = this.performTerminateFlow(flowId).finally(() => {
+      if (this.terminations.get(flowId) === termination) this.terminations.delete(flowId);
+    });
+    this.terminations.set(flowId, termination);
+    return termination;
+  }
+
+  private async performTerminateFlow(flowId: string): Promise<void> {
+    const attempts = this.service.runningAttempts(flowId);
+    const turns = new Map<string, { attemptId: string; threadId: string; turnId: string }>();
+    for (const [key, turn] of this.activeThreads) {
+      if (key.startsWith(`${flowId}:`)) turns.set(`${turn.threadId}:${turn.turnId}`, turn);
     }
 
-    // Also terminate process-based attempts
-    const attempts = this.service.runningAttempts(flowId);
+    const unresolvedAttempts: string[] = [];
+    for (const attempt of attempts.filter((candidate) => !candidate.processGroupId && !candidate.pid)) {
+      if ([...turns.values()].some((turn) => turn.attemptId === attempt.id)) continue;
+      const durableTurn = this.service.attemptTurn(attempt.id);
+      if (durableTurn) {
+        turns.set(`${durableTurn.threadId}:${durableTurn.turnId}`, { attemptId: attempt.id, ...durableTurn });
+      } else {
+        unresolvedAttempts.push(attempt.id);
+      }
+    }
+
+    const errors: Error[] = [];
+    if (turns.size && !this._appServerClient?.connected) {
+      errors.push(new Error('Codex app-server is not connected'));
+    } else if (this._appServerClient) {
+      const results = await Promise.allSettled([...turns.values()].map(async (turn) => {
+        await this._appServerClient!.interruptTurn(turn.threadId, turn.turnId);
+        for (const [key, active] of this.activeThreads) {
+          if (active.attemptId === turn.attemptId) this.activeThreads.delete(key);
+        }
+      }));
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          errors.push(result.reason instanceof Error ? result.reason : new Error(String(result.reason)));
+        }
+      }
+    }
+
     await Promise.all(attempts
       .filter((a) => a.processGroupId || a.pid)
       .map((attempt) => this.terminateGroup(attempt.processGroupId || attempt.pid)));
+
+    if (unresolvedAttempts.length) {
+      errors.push(new Error(`Running attempts have no termination handle: ${unresolvedAttempts.join(', ')}`));
+    }
+    if (errors.length) throw new AggregateError(errors, `Failed to stop flow ${flowId}`);
   }
 
   async waitForChild(child: ChildProcess, timeoutMs: number): Promise<{ exitCode: number | null; timedOut: boolean }> {

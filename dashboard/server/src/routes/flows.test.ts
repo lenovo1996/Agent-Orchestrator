@@ -50,11 +50,8 @@ describe('SQLite-backed flow REST API', () => {
     runtime = {
       config: orchestration.config,
       service: orchestration.service,
-      stopFlow: async (flowId: string, idempotencyKey?: string) => {
-        const command = orchestration.service.requestStop(flowId, idempotencyKey);
-        orchestration.service.finishStop(flowId, command.commandId);
-        return command;
-      },
+      stopFlow: async (flowId: string, idempotencyKey?: string) =>
+        orchestration.service.requestStop(flowId, idempotencyKey),
     } as unknown as OrchestrationRuntime;
     const config: DashboardConfig = {
       port: 0,
@@ -120,6 +117,11 @@ describe('SQLite-backed flow REST API', () => {
       'Idempotency-Key': 'stop-command',
     });
     expect(stopped.status).toBe(202);
+    expect(orchestration.service.getFlow(flowId).status).toBe('stopping');
+    expect((await request(app, 'DELETE', `/api/flows/${flowId}`, undefined, {
+      'Idempotency-Key': 'delete-while-stopping',
+    })).status).toBe(409);
+    orchestration.service.finishStop(flowId, stopped.body.commandId);
     expect(orchestration.service.getFlow(flowId).status).toBe('stopped');
     expect((await request(app, 'DELETE', `/api/flows/${flowId}`, undefined, {
       'Idempotency-Key': 'delete-command',

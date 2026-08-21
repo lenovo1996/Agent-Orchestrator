@@ -68,7 +68,7 @@ function FilterButton({ active, label, icon: Icon, onClick }: {
       className={`session-icon-toggle ${active ? 'session-toggle-active' : ''}`}
     >
       <Icon className="h-3.5 w-3.5" />
-      <span className="session-toggle-label">{label}</span>
+      <span className="sr-only">{label}</span>
     </button>
   );
 }
@@ -110,7 +110,9 @@ export function SessionHeader({
     ? 'bg-red-500'
     : attempt.status === 'completed'
       ? 'bg-emerald-500'
-      : 'bg-blue-500';
+      : attempt.status === 'cancelled'
+        ? 'bg-zinc-500'
+        : 'bg-blue-500';
 
   return (
     <header className="session-header shrink-0 border-b border-border/60 bg-card/40">
@@ -138,9 +140,9 @@ export function SessionHeader({
         </div>
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          <FilterButton active={showCommentary} label="" icon={MessageSquareText} onClick={onToggleCommentary} />
-          <FilterButton active={showTools} label="" icon={Wrench} onClick={onToggleTools} />
-          <FilterButton active={showReasoning} label="" icon={BrainCircuit} onClick={onToggleReasoning} />
+          <FilterButton active={showCommentary} label="Commentary" icon={MessageSquareText} onClick={onToggleCommentary} />
+          <FilterButton active={showTools} label="Tools" icon={Wrench} onClick={onToggleTools} />
+          <FilterButton active={showReasoning} label="Reasoning" icon={BrainCircuit} onClick={onToggleReasoning} />
           <button
             type="button"
             aria-label="Session details"

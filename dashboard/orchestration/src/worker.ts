@@ -39,7 +39,9 @@ function connectionStatus(): 'connecting' | 'connected' | 'disconnected' | 'stop
 }
 
 await runtime.runner.reconcileRunningAttempts();
-await runtime.reconcileStoppingFlows();
+await runtime.reconcileStoppingFlows().catch((error) => {
+  console.warn('[worker] initial stop reconciliation deferred:', error);
+});
 runtime.outbox.start();
 
 const healthPort = Number(process.env.DEVTEAM_WORKER_HEALTH_PORT || 3011);

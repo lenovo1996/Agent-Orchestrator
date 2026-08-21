@@ -540,6 +540,18 @@ export class OrchestrationService {
       entries.findIndex((candidate) => candidate.flowId === entry.flowId) === index);
   }
 
+  flowIdForInngestRun(inngestRunId: string): string | null {
+    const attempt = this.database.get<{ flow_id: string }>(
+      'SELECT flow_id FROM step_attempts WHERE inngest_run_id = ? LIMIT 1',
+      inngestRunId,
+    );
+    if (attempt) return attempt.flow_id;
+    return this.database.get<{ flow_id: string }>(
+      'SELECT flow_id FROM orchestration_runs WHERE inngest_run_id = ? LIMIT 1',
+      inngestRunId,
+    )?.flow_id || null;
+  }
+
   deleteFlow(flowId: string, idempotencyKey?: string): FlowCommandResponse {
     const existing = this.existingCommand(idempotencyKey, 'delete', flowId);
     if (existing) return existing;
@@ -1060,6 +1072,27 @@ export class OrchestrationService {
       } catch { /* no metadata */ }
     }
     return null;
+  }
+
+  attemptTurn(attemptId: string): { threadId: string; turnId: string } | null {
+    const attempt = this.attempt(attemptId);
+    try {
+      const metadataPath = path.join(
+        this.artifactDirectory(attempt.flowId),
+        'sessions',
+        attempt.step,
+        `${attempt.sessionRunId}.json`,
+      );
+      const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as {
+        threadId?: unknown;
+        turnId?: unknown;
+      };
+      return typeof metadata.threadId === 'string' && typeof metadata.turnId === 'string'
+        ? { threadId: metadata.threadId, turnId: metadata.turnId }
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   resumeAttempt(

@@ -31,6 +31,42 @@ describe('Inngest coordinator', () => {
     ]);
   });
 
+  it('maps the real cancellation run_id back to the flow before terminating it', async () => {
+    const command = createFlow(context.service, 'cancelled-cleanup');
+    context.service.claimCoordinator(
+      command.commandId,
+      command.flowId,
+      'inngest-coordinator-run',
+      'test-runner',
+    );
+    const terminateFlow = vi.fn(async () => undefined);
+    const { cancelledCleanup } = createInngestRuntime({
+      service: context.service,
+      runner: { supervisor: { terminateFlow } } as unknown as AgentRunner,
+      worktrees: {} as WorktreeManager,
+      config: context.config,
+    });
+    const stop = context.service.requestStop(command.flowId, 'stop-after-cancellation');
+    const engine = new InngestTestEngine({ function: cancelledCleanup });
+
+    const { result } = await engine.execute({
+      events: [{
+        id: 'cancel-event',
+        name: 'inngest/function.cancelled',
+        data: {
+          function_id: 'devteam-flow-coordinator',
+          run_id: 'inngest-coordinator-run',
+        },
+        ts: Date.now(),
+      }],
+    });
+
+    expect(result).toEqual({ cleaned: true });
+    expect(terminateFlow).toHaveBeenCalledWith(command.flowId);
+    expect(context.service.getFlow(command.flowId).status).toBe('stopped');
+    expect(context.service.command(stop.commandId).status).toBe('completed');
+  });
+
   it('runs a dynamic DONE sequence to completion with stable step IDs', async () => {
     const command = createFlow(context.service);
     const invoked: string[] = [];

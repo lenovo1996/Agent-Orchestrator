@@ -107,4 +107,19 @@ describe('SessionItem', () => {
     />);
     expect(screen.getByLabelText('Session item: YOU').querySelector('.prose')?.className).not.toContain('prose-p:text-xs');
   });
+
+  it('renders emphasized THINK content with regular weight', () => {
+    render(<SessionItem
+      item={{
+        id: 'reasoning', ordinal: 3, kind: 'reasoning', text: '**Inspecting the active turn**',
+        timestamp: '2026-08-17T00:00:02Z', hasDetail: false,
+      }}
+      loadDetail={vi.fn()}
+    />);
+
+    const thinkItem = screen.getByLabelText('Session item: THINK');
+    expect(thinkItem.querySelector('.prose strong')).toBeNull();
+    expect(screen.getByText('Inspecting the active turn').className).toContain('font-normal');
+    expect(screen.getByText('THINK').className).toContain('font-bold');
+  });
 });

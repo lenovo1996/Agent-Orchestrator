@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import type { AppServerClient } from './appserver-client.js';
+import type { AppServerClient, AppServerThreadTokenUsage } from './appserver-client.js';
 
 // ─── Session metadata format (compatible with session-capture.js output) ─────
 
@@ -15,7 +15,8 @@ interface SessionMetadata {
   flowId: string;
   step: string;
   threadId: string | null;
-  status: 'starting' | 'running' | 'completed' | 'failed';
+  turnId: string | null;
+  status: 'starting' | 'running' | 'completed' | 'failed' | 'cancelled';
   startedAt: string;
   finishedAt: string | null;
   exitCode: number | null;
@@ -56,8 +57,8 @@ export class AppServerSessionBridge extends EventEmitter {
   private metadata: SessionMetadata;
   private metadataPath: string;
   private logStream: fs.WriteStream | null = null;
-  private turnId: string | null = null;
   private _finalAgentMessage = '';
+  private reasoningItems = new Set<string>();
   private usage = {
     inputTokens: 0,
     cachedInputTokens: 0,
@@ -80,6 +81,7 @@ export class AppServerSessionBridge extends EventEmitter {
       flowId: config.flowId,
       step: config.step,
       threadId: null,
+      turnId: null,
       status: 'starting',
       startedAt: new Date().toISOString(),
       finishedAt: null,
@@ -99,7 +101,14 @@ export class AppServerSessionBridge extends EventEmitter {
       try {
         const existing = JSON.parse(fs.readFileSync(this.metadataPath, 'utf8')) as SessionMetadata;
         if (existing.runId === this.config.sessionRunId && existing.threadId) {
-          this.metadata = { ...existing, status: 'running', finishedAt: null, exitCode: null, errorSummary: null };
+          this.metadata = {
+            ...existing,
+            turnId: existing.turnId || null,
+            status: 'running',
+            finishedAt: null,
+            exitCode: null,
+            errorSummary: null,
+          };
         }
       } catch { /* no existing metadata, use default */ }
     }
@@ -107,6 +116,7 @@ export class AppServerSessionBridge extends EventEmitter {
     // Open log file
     this.logStream = fs.createWriteStream(this.config.logFile, { flags: 'a' });
     this._finalAgentMessage = '';
+    this.reasoningItems.clear();
 
     // Wire up client events
     this.client.on('thread:started', this.onThreadStarted);
@@ -115,6 +125,8 @@ export class AppServerSessionBridge extends EventEmitter {
     this.client.on('item:started', this.onItemStarted);
     this.client.on('item:completed', this.onItemCompleted);
     this.client.on('agentMessage:delta', this.onAgentMessageDelta);
+    this.client.on('reasoning:summaryDelta', this.onReasoningSummaryDelta);
+    this.client.on('tokenUsage:updated', this.onTokenUsageUpdated);
     this.client.on('commandExec:outputDelta', this.onCommandExecDelta);
     this.client.on('process:outputDelta', this.onProcessDelta);
     this.client.on('process:exited', this.onProcessExited);
@@ -131,6 +143,8 @@ export class AppServerSessionBridge extends EventEmitter {
     this.client.removeListener('item:started', this.onItemStarted);
     this.client.removeListener('item:completed', this.onItemCompleted);
     this.client.removeListener('agentMessage:delta', this.onAgentMessageDelta);
+    this.client.removeListener('reasoning:summaryDelta', this.onReasoningSummaryDelta);
+    this.client.removeListener('tokenUsage:updated', this.onTokenUsageUpdated);
     this.client.removeListener('commandExec:outputDelta', this.onCommandExecDelta);
     this.client.removeListener('process:outputDelta', this.onProcessDelta);
     this.client.removeListener('process:exited', this.onProcessExited);
@@ -155,7 +169,8 @@ export class AppServerSessionBridge extends EventEmitter {
   };
 
   private onTurnStarted = (_threadId: string, turnId: string): void => {
-    this.turnId = turnId;
+    this.metadata.turnId = turnId;
+    this.writeMetadata();
     this.appendLog(`\n--- Turn ${turnId} started ---\n`);
   };
 
@@ -191,6 +206,35 @@ export class AppServerSessionBridge extends EventEmitter {
   private onAgentMessageDelta = (_threadId: string, _turnId: string, _itemId: string, delta: string): void => {
     this.appendLog(delta);
     this.emit('outputDelta', delta);
+  };
+
+  private onReasoningSummaryDelta = (
+    _threadId: string,
+    _turnId: string,
+    itemId: string,
+    _summaryIndex: number,
+    delta: string,
+  ): void => {
+    if (!this.reasoningItems.has(itemId)) {
+      this.reasoningItems.add(itemId);
+      this.appendLog(`\n\x1b[35m\x1b[3mthinking\x1b[0m\x1b[0m\n`);
+    }
+    this.appendLog(delta);
+  };
+
+  private onTokenUsageUpdated = (
+    _threadId: string,
+    _turnId: string,
+    usage: AppServerThreadTokenUsage,
+  ): void => {
+    this.usage = {
+      inputTokens: usage.total.inputTokens,
+      cachedInputTokens: usage.total.cachedInputTokens,
+      outputTokens: usage.total.outputTokens,
+      reasoningOutputTokens: usage.total.reasoningOutputTokens,
+    };
+    this.metadata.usage = { ...this.usage };
+    this.writeMetadata();
   };
 
   private onCommandExecDelta = (_threadId: string, _turnId: string, _itemId: string, delta: string): void => {
@@ -240,6 +284,17 @@ export class AppServerSessionBridge extends EventEmitter {
     this.writeMetadata();
     this.appendLog(`\n[ERROR] ${error}\n`);
     this.emit('failed', 1);
+    this.stop();
+  }
+
+  cancel(): void {
+    this.metadata.status = 'cancelled';
+    this.metadata.exitCode = null;
+    this.metadata.finishedAt = new Date().toISOString();
+    this.metadata.usage = { ...this.usage };
+    this.metadata.errorSummary = null;
+    this.writeMetadata();
+    this.appendLog(`\n[${new Date().toISOString()}] Session bridge cancelled\n`);
     this.stop();
   }
 

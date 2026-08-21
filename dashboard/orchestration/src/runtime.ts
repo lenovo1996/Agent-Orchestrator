@@ -33,10 +33,7 @@ export class OrchestrationRuntime {
   }
 
   async stopFlow(flowId: string, idempotencyKey?: string): Promise<FlowCommandResponse> {
-    const command = this.service.requestStop(flowId, idempotencyKey);
-    await this.runner.supervisor.terminateFlow(flowId);
-    this.service.finishStop(flowId, command.commandId);
-    return command;
+    return this.service.requestStop(flowId, idempotencyKey);
   }
 
   async reconcileStoppingFlows(): Promise<void> {

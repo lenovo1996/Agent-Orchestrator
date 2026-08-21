@@ -29,6 +29,7 @@ export interface AppServerConfig {
   url: string;
   autoApprove?: boolean;
   reconnectMs?: number;
+  interruptTimeoutMs?: number;
 }
 
 export interface ThreadInfo {
@@ -43,16 +44,37 @@ export interface TurnInfo {
   status: string;
 }
 
+export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none';
+
+export interface AppServerTokenUsageBreakdown {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+  cacheWriteInputTokens?: number;
+}
+
+export interface AppServerThreadTokenUsage {
+  last: AppServerTokenUsageBreakdown;
+  total: AppServerTokenUsageBreakdown;
+  modelContextWindow?: number | null;
+}
+
 // ─── Events emitted by AppServerClient ──────────────────────────────────────
 
 export interface AppServerEvents {
   'thread:started': (threadId: string) => void;
   'turn:started': (threadId: string, turnId: string) => void;
-  'turn:completed': (threadId: string, turnId: string) => void;
+  'turn:completed': (threadId: string, turnId: string, status: string) => void;
   'turn:failed': (threadId: string, turnId: string, error: string) => void;
   'item:started': (threadId: string, turnId: string, item: Record<string, unknown>) => void;
   'item:completed': (threadId: string, turnId: string, item: Record<string, unknown>) => void;
   'agentMessage:delta': (threadId: string, turnId: string, itemId: string, delta: string) => void;
+  'reasoning:summaryDelta': (
+    threadId: string, turnId: string, itemId: string, summaryIndex: number, delta: string,
+  ) => void;
+  'tokenUsage:updated': (threadId: string, turnId: string, usage: AppServerThreadTokenUsage) => void;
   'commandExec:outputDelta': (threadId: string, turnId: string, itemId: string, delta: string) => void;
   'process:outputDelta': (threadId: string, processId: string, stream: string, delta: string) => void;
   'process:exited': (threadId: string, processId: string, exitCode: number) => void;
@@ -78,6 +100,7 @@ export class AppServerClient extends EventEmitter {
       url: config.url,
       autoApprove: config.autoApprove ?? true,
       reconnectMs: config.reconnectMs ?? 5_000,
+      interruptTimeoutMs: config.interruptTimeoutMs ?? 15_000,
     };
   }
 
@@ -212,12 +235,16 @@ export class AppServerClient extends EventEmitter {
   async startTurn(threadId: string, input: string, params?: {
     model?: string;
     cwd?: string;
+    effort?: string;
+    summary?: ReasoningSummary;
   }): Promise<TurnInfo> {
     const result = await this.request('turn/start', {
       threadId,
       input: [{ type: 'text', text: input, text_elements: [] }],
       model: params?.model,
       cwd: params?.cwd,
+      effort: params?.effort,
+      summary: params?.summary,
     }) as { turn: { id: string; status: string } };
 
     return { turnId: result.turn.id, status: result.turn.status };
@@ -234,7 +261,34 @@ export class AppServerClient extends EventEmitter {
   }
 
   async interruptTurn(threadId: string, turnId: string): Promise<void> {
-    await this.request('turn/interrupt', { threadId, turnId });
+    let cleanup = (): void => {};
+    const completed = new Promise<void>((resolve, reject) => {
+      const onCompleted = (completedThreadId: string, completedTurnId: string, status: string): void => {
+        if (completedThreadId !== threadId || completedTurnId !== turnId) return;
+        cleanup();
+        if (status === 'interrupted') resolve();
+        else reject(new Error(`Turn ${turnId} completed with status ${status} while interrupting`));
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error(`Timed out waiting for turn ${turnId} to be interrupted`));
+      }, this.config.interruptTimeoutMs);
+      timeout.unref();
+      cleanup = () => {
+        clearTimeout(timeout);
+        this.removeListener('turn:completed', onCompleted);
+      };
+      this.on('turn:completed', onCompleted);
+    });
+
+    try {
+      await Promise.all([
+        this.request('turn/interrupt', { threadId, turnId }),
+        completed,
+      ]);
+    } finally {
+      cleanup();
+    }
   }
 
   async injectItems(threadId: string, items: unknown[]): Promise<void> {
@@ -322,8 +376,8 @@ export class AppServerClient extends EventEmitter {
         break;
       }
       case 'turn/completed': {
-        const turn = params.turn as { id: string } | undefined;
-        if (turn && threadId) this.emit('turn:completed', threadId, turn.id);
+        const turn = params.turn as { id: string; status?: string } | undefined;
+        if (turn && threadId) this.emit('turn:completed', threadId, turn.id, turn.status || 'unknown');
         break;
       }
       case 'item/started': {
@@ -337,6 +391,25 @@ export class AppServerClient extends EventEmitter {
       case 'agentMessage/delta': {
         if (threadId && turnId) {
           this.emit('agentMessage:delta', threadId, turnId, params.itemId as string, params.delta as string);
+        }
+        break;
+      }
+      case 'item/reasoning/summaryTextDelta': {
+        if (threadId && turnId) {
+          this.emit(
+            'reasoning:summaryDelta',
+            threadId,
+            turnId,
+            params.itemId as string,
+            Number(params.summaryIndex || 0),
+            params.delta as string,
+          );
+        }
+        break;
+      }
+      case 'thread/tokenUsage/updated': {
+        if (threadId && turnId && params.tokenUsage) {
+          this.emit('tokenUsage:updated', threadId, turnId, params.tokenUsage as AppServerThreadTokenUsage);
         }
         break;
       }
