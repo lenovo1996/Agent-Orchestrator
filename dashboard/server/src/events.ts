@@ -261,6 +261,21 @@ export function setupSocketEvents(
         io.to(`workspace:${service.getFlow(flowId).workspaceId}`).emit('output:updated', { flowId, step, content, metadata });
       } catch { /* flow was deleted */ }
     });
+
+    watcher.on('session-attempt-changed', (flowId: string, step, runId: string) => {
+      if (!sessionService) return;
+      try {
+        const flow = service.getFlow(flowId);
+        const attempt = sessionService.getAttempt(flowId, step, runId, flow.workspaceName);
+        if (!attempt) return;
+        io.to(`workspace:${flow.workspaceId}`).emit('session:attempt-updated', {
+          workspaceName: flow.workspaceName,
+          flowId,
+          step,
+          attempt,
+        });
+      } catch { /* flow or attempt was deleted */ }
+    });
   }
 
   let cursor = service.latestDomainCursor();
@@ -284,6 +299,18 @@ export function setupSocketEvents(
           const { workspacePath: _workspacePath, worktreePath: _worktreePath, ...workflow } = flow;
           watcher?.addFlow(event.flowId);
           io.to(room).emit('flow:updated', { sequence: event.sequence, flowId: event.flowId, workflow });
+          if (sessionService) {
+            for (const step of flow.stepOrder) {
+              const attempt = sessionService.list(event.flowId, step, flow.workspaceName).at(-1);
+              if (!attempt) continue;
+              io.to(room).emit('session:attempt-updated', {
+                workspaceName: flow.workspaceName,
+                flowId: event.flowId,
+                step,
+                attempt,
+              });
+            }
+          }
         } catch { /* deleted between event read and projection */ }
       }
     } finally {

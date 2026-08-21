@@ -45,6 +45,48 @@ describe('SessionItem', () => {
     expect(screen.getByText('One result')).toBeTruthy();
   });
 
+  it('presents expanded tool request and response in one minimal structured region', () => {
+    render(<SessionItem
+      item={{
+        id: 'tool-details', ordinal: 5, kind: 'tool', timestamp: '2026-08-17T00:00:00Z',
+        title: 'mcp__jira__get_issue', toolName: 'mcp__jira__get_issue', status: 'completed', hasDetail: true,
+      }}
+      detail={{
+        id: 'tool-details',
+        toolInput: '{"key":"ABC-123","fields":["summary","status"]}',
+        toolOutput: '{"content":[{"type":"text","text":"{\\"ok\\":true,\\"issue\\":{\\"summary\\":\\"Improve session tools\\"}}"}]}',
+      }}
+      loadDetail={vi.fn()}
+    />);
+
+    fireEvent.click(screen.getByText('mcp__jira__get_issue').closest('button')!);
+
+    const panel = screen.getByLabelText('Tool details: mcp__jira__get_issue');
+    expect(panel.className).toBe('min-w-0');
+    expect(screen.queryByText('Tool exchange')).toBeNull();
+    expect(screen.getByText('Request')).toBeTruthy();
+    expect(screen.getByText('Response')).toBeTruthy();
+    const request = screen.getByLabelText('Tool request');
+    const response = screen.getByLabelText('Tool response');
+    expect(screen.getByText('Key')).toBeTruthy();
+    expect(screen.getByText('ABC-123')).toBeTruthy();
+    expect(screen.getByText('Fields')).toBeTruthy();
+    expect(screen.getByLabelText('2 list items')).toBeTruthy();
+    expect(screen.getByText('Ok')).toBeTruthy();
+    expect(screen.getByText('True')).toBeTruthy();
+    expect(screen.getByText('Issue')).toBeTruthy();
+    expect(screen.getByText('Summary')).toBeTruthy();
+    expect(screen.getByText('Improve session tools')).toBeTruthy();
+    expect(screen.queryByText('Content')).toBeNull();
+    expect(screen.queryByText('Type')).toBeNull();
+    expect(request.textContent).not.toContain('{');
+    expect(response.textContent).not.toContain('{');
+    expect(request.querySelector('pre')).toBeNull();
+    expect(request.className).not.toContain('border');
+    expect(response.querySelector('.rounded-md')).toBeNull();
+    expect(response.className).toContain('max-h-[28rem]');
+  });
+
   it('uses compact copy for assistant output while keeping user prompts at the normal size', () => {
     const { rerender } = render(<SessionItem
       item={{ id: 'assistant', ordinal: 1, kind: 'message', role: 'assistant', phase: 'commentary', text: 'Working on it', timestamp: '2026-08-17T00:00:00Z', hasDetail: false }}

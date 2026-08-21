@@ -12,8 +12,10 @@ export function createTestOrchestration(
 ) {
   const config: OrchestrationConfig = {
     repoRoot: root,
+    workspaceRoot: root,
     dbPath: path.join(root, 'workflows.db'),
     taskFlowsDir,
+    worktreesDir: path.join(root, '.worktrees'),
     codexHome: path.join(root, '.codex'),
     runnerId: 'server-test',
     agentConcurrency: 3,

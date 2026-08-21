@@ -17,8 +17,10 @@ export function createTestService(steps = ['implementer', 'verifier']): {
   fs.mkdirSync(workspace);
   const config: OrchestrationConfig = {
     repoRoot: root,
+    workspaceRoot: root,
     dbPath: path.join(root, 'workflows.db'),
     taskFlowsDir: path.join(root, 'task-flows'),
+    worktreesDir: path.join(root, '.worktrees'),
     codexHome: path.join(root, 'codex-home'),
     runnerId: 'test-runner',
     agentConcurrency: 3,

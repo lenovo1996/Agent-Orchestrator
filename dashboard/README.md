@@ -87,7 +87,9 @@ Các biến tùy chọn thường dùng:
 | --- | --- | --- |
 | `DEVTEAM_RUNNER_ID` | hostname | ID duy nhất của worker host |
 | `DEVTEAM_DB_PATH` | `.dev-team/workflows.db` | SQLite business database; nên dùng absolute path khi override |
+| `DEVTEAM_WORKSPACE_ROOT` | thư mục cha của `.dev-team` | Shared root chứa các workspace hợp lệ |
 | `DEVTEAM_TASK_FLOWS_DIR` | `.dev-team/task-flows` | Nơi lưu prompt, output, logs và session metadata |
+| `DEVTEAM_WORKTREES_DIR` | `.dev-team/.worktrees` | Nơi lưu Git worktree với absolute path dùng chung giữa host/container |
 | `DEVTEAM_AGENT_CONCURRENCY` | `3` | Số agent tối đa trên worker host |
 | `DEVTEAM_AGENT_TIMEOUT` | `6h` | Timeout local cho một agent process |
 | `DEVTEAM_BLOCKED_TTL` | `30d` | Thời gian chờ resume trước khi flow thành `expired` |

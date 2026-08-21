@@ -18,7 +18,7 @@ export class WorktreeManager {
     const flow = this.service.getFlow(flowId);
     if (!flow.useWorktree) return { ready: true, branch: null };
     await git(flow.workspacePath, ['rev-parse', '--git-dir']);
-    const worktreePath = path.join(this.service.config.repoRoot, '.worktrees', flowId);
+    const worktreePath = path.join(this.service.config.worktreesDir, flowId);
     const branch = `devteam/${flowId}`;
     fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
     if (fs.existsSync(worktreePath)) {

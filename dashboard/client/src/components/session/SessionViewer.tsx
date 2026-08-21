@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDownToLine, Radio, Sparkles } from 'lucide-react';
 import type {
   SessionAttemptSummary,
+  SessionAttemptUpdatedPayload,
   SessionItemDetail,
   SessionItemSummary,
   SessionSnapshot,
@@ -34,6 +35,14 @@ function sortItems(items: SessionItemSummary[]): SessionItemSummary[] {
     if (b.ordinal !== null) return 1;
     return a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id);
   });
+}
+
+function mergeAttempts(
+  attempts: SessionAttemptSummary[],
+  updated: SessionAttemptSummary,
+): SessionAttemptSummary[] {
+  return [...attempts.filter((attempt) => attempt.runId !== updated.runId), updated]
+    .sort((left, right) => left.startedAt.localeCompare(right.startedAt) || left.runId.localeCompare(right.runId));
 }
 
 function estimatedItemHeight(item: SessionItemSummary | undefined): number {
@@ -199,9 +208,34 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
         };
       });
     };
-    const updateAttempt = (payload: { workspaceName: string | null; flowId: string; step: string; attempt: SessionAttemptSummary }) => {
-      if (payload.attempt.runId !== runId || payload.flowId !== selectedFlowId || payload.step !== selectedStep || (payload.workspaceName || null) !== workspaceName) return;
-      setAttempts((current) => current.map((attempt) => attempt.runId === runId ? payload.attempt : attempt));
+    nearBottom.current = true;
+    setShowScrollToBottom(false);
+    setSnapshot(null);
+    socket.on('session:item-upsert', upsert);
+    socket.io.on('reconnect', connect);
+    connect();
+    return () => {
+      active = false;
+      socket.emit('session:unsubscribe', subscription);
+      socket.off('session:item-upsert', upsert);
+      socket.io.off('reconnect', connect);
+    };
+  }, [runId, selectedFlowId, selectedStep, workspaceName]);
+
+  useEffect(() => {
+    if (!selectedFlowId || !selectedStep) return;
+    const updateAttempt = (payload: SessionAttemptUpdatedPayload) => {
+      if (payload.flowId !== selectedFlowId || payload.step !== selectedStep
+        || (payload.workspaceName || null) !== workspaceName) return;
+
+      setAttempts((current) => mergeAttempts(current, payload.attempt));
+      if (!manualAttempt) {
+        const currentAttempt = attempts.find((attempt) => attempt.runId === runId);
+        if (!currentAttempt || payload.attempt.startedAt >= currentAttempt.startedAt) {
+          setRunId(payload.attempt.runId);
+        }
+      }
+      if (payload.attempt.runId !== runId) return;
       setSnapshot((current) => current ? {
         ...current,
         attempt: payload.attempt,
@@ -215,21 +249,11 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
       } : current);
     };
 
-    nearBottom.current = true;
-    setShowScrollToBottom(false);
-    setSnapshot(null);
-    socket.on('session:item-upsert', upsert);
     socket.on('session:attempt-updated', updateAttempt);
-    socket.io.on('reconnect', connect);
-    connect();
     return () => {
-      active = false;
-      socket.emit('session:unsubscribe', subscription);
-      socket.off('session:item-upsert', upsert);
       socket.off('session:attempt-updated', updateAttempt);
-      socket.io.off('reconnect', connect);
     };
-  }, [runId, selectedFlowId, selectedStep, workspaceName]);
+  }, [attempts, manualAttempt, runId, selectedFlowId, selectedStep, workspaceName]);
 
   const visibleItems = useMemo(() => (snapshot?.items || []).filter((item) => {
     if (item.kind === 'reasoning') return showReasoning;

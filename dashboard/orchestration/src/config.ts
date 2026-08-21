@@ -4,8 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 export interface OrchestrationConfig {
   repoRoot: string;
+  workspaceRoot: string;
   dbPath: string;
   taskFlowsDir: string;
+  worktreesDir: string;
   codexHome: string;
   runnerId: string;
   agentConcurrency: number;
@@ -42,9 +44,15 @@ export function loadOrchestrationConfig(
 
   return {
     repoRoot,
+    workspaceRoot: path.resolve(
+      overrides.workspaceRoot || process.env.DEVTEAM_WORKSPACE_ROOT || path.dirname(repoRoot),
+    ),
     dbPath: path.resolve(overrides.dbPath || process.env.DEVTEAM_DB_PATH || path.join(repoRoot, 'workflows.db')),
     taskFlowsDir: path.resolve(
       overrides.taskFlowsDir || process.env.DEVTEAM_TASK_FLOWS_DIR || path.join(repoRoot, 'task-flows'),
+    ),
+    worktreesDir: path.resolve(
+      overrides.worktreesDir || process.env.DEVTEAM_WORKTREES_DIR || path.join(repoRoot, '.worktrees'),
     ),
     codexHome: path.resolve(
       overrides.codexHome || process.env.DASHBOARD_CODEX_HOME || process.env.CODEX_HOME || path.join(os.homedir(), '.codex'),

@@ -36,8 +36,10 @@ services:
       INNGEST_BASE_URL: http://127.0.0.1:8288
       INNGEST_GATEWAY_URL: ws://127.0.0.1:8289/v0/connect
       DEVTEAM_DB_PATH: /devteam-state/workflows.db
+      DEVTEAM_WORKSPACE_ROOT: ${WORKSPACE_PATH:-..}
       # Keep artifact paths identical in Docker and in the host app-server.
       DEVTEAM_TASK_FLOWS_DIR: ${WORKSPACE_PATH:-..}/.dev-team/task-flows
+      DEVTEAM_WORKTREES_DIR: ${WORKSPACE_PATH:-..}/.dev-team/.worktrees
       DEVTEAM_WORKER_HEALTH_URL: ${DEVTEAM_WORKER_HEALTH_URL:-http://127.0.0.1:3011}
       CODEX_APP_SERVER_URL: ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:9876}
       DASHBOARD_APP_SERVER_AUTO_APPROVE: ${DASHBOARD_APP_SERVER_AUTO_APPROVE:-true}
@@ -88,8 +90,10 @@ services:
       INNGEST_BASE_URL: http://127.0.0.1:8288
       INNGEST_GATEWAY_URL: ws://127.0.0.1:8289/v0/connect
       DEVTEAM_DB_PATH: /devteam-state/workflows.db
+      DEVTEAM_WORKSPACE_ROOT: ${WORKSPACE_PATH:-..}
       # Keep artifact paths identical in Docker and in the host app-server.
       DEVTEAM_TASK_FLOWS_DIR: ${WORKSPACE_PATH:-..}/.dev-team/task-flows
+      DEVTEAM_WORKTREES_DIR: ${WORKSPACE_PATH:-..}/.dev-team/.worktrees
       DEVTEAM_WORKER_HEALTH_PORT: ${DEVTEAM_WORKER_HEALTH_PORT:-3011}
       CODEX_APP_SERVER_URL: ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:9876}
       DASHBOARD_APP_SERVER_AUTO_APPROVE: ${DASHBOARD_APP_SERVER_AUTO_APPROVE:-true}

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SessionSnapshot, WorkflowState } from '@devteam-dashboard/shared';
 import { useDashboardStore } from '@/store/use-dashboard-store';
 import { SessionViewer } from './SessionViewer';
@@ -258,6 +258,32 @@ describe('SessionViewer', () => {
     render(<SessionViewer />);
     expect(await screen.findByText('Session data unavailable — flow created before Session Viewer.')).toBeTruthy();
     expect(screen.queryByText(/Runtime Log|Raw|Logs/)).toBeNull();
+  });
+
+  it('opens a newly created session attempt from realtime metadata without a page reload', async () => {
+    global.fetch = vi.fn(async (input: string | URL | Request) => String(input).includes(`/${latest.runId}`)
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : new Response(JSON.stringify({ enabled: true, attempts: [] }), { status: 200 })) as typeof fetch;
+
+    render(<SessionViewer />);
+    expect(await screen.findByText('Session data unavailable — flow created before Session Viewer.')).toBeTruthy();
+
+    await act(async () => {
+      socketMock.handlers['session:attempt-updated']({
+        workspaceName: null,
+        flowId: 'flow_001',
+        step: 'implementer',
+        attempt: latest,
+      });
+    });
+
+    expect(await screen.findByText('Newest final')).toBeTruthy();
+    expect(socketMock.emit).toHaveBeenCalledWith('session:subscribe', {
+      workspaceName: null,
+      flowId: 'flow_001',
+      step: 'implementer',
+      runId: latest.runId,
+    });
   });
 
   it('renders a pre-thread failure from structured metadata without stderr tail', async () => {

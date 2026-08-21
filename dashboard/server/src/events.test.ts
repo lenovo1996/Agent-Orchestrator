@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setupSocketEvents } from './events.js';
 import { createTestOrchestration } from './test-helpers.js';
@@ -76,6 +77,84 @@ describe('SQLite domain event realtime projection', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(roomEvents).toHaveLength(1);
+    closeEvents();
+    orchestration.database.close();
+  });
+
+  it('broadcasts a session attempt before a run is subscribed, including watcher attach races', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'session-attempt-events-'));
+    roots.push(root);
+    const orchestration = createTestOrchestration(root, path.join(root, 'task-flows'), [
+      { flowId: 'flow_001', workspaceId: 'workspace-1', workspaceName: 'Workspace 1' },
+    ]);
+    const attempt = {
+      schemaVersion: 2 as const,
+      runId: 'aaaaaaaa-1111-4222-8333-444444444444',
+      attemptId: 'attempt-realtime',
+      inngestRunId: 'inngest-realtime',
+      inngestAttempt: 0,
+      flowId: 'flow_001',
+      step: 'implementer',
+      threadId: null,
+      status: 'starting' as const,
+      startedAt: '2026-08-21T00:00:00.000Z',
+      finishedAt: null,
+      exitCode: null,
+      usage: null,
+      errorSummary: null,
+    };
+    const watcher = Object.assign(new EventEmitter(), {
+      addFlow: vi.fn(),
+      removeFlow: vi.fn(),
+    });
+    const sessionService = {
+      getAttempt: vi.fn(() => attempt),
+      list: vi.fn(() => [attempt]),
+    };
+    const roomEvents: Array<{ room: string; event: string; payload: any }> = [];
+    const io = {
+      on: vi.fn(),
+      to: vi.fn((room: string) => ({
+        emit: (event: string, payload: any) => roomEvents.push({ room, event, payload }),
+      })),
+    };
+
+    const closeEvents = setupSocketEvents(
+      io as any,
+      orchestration.service,
+      watcher as any,
+      sessionService as any,
+    );
+    watcher.emit('session-attempt-changed', 'flow_001', 'implementer', attempt.runId);
+
+    expect(sessionService.getAttempt).toHaveBeenCalledWith(
+      'flow_001', 'implementer', attempt.runId, 'Workspace 1',
+    );
+    expect(roomEvents).toContainEqual({
+      room: 'workspace:workspace-1',
+      event: 'session:attempt-updated',
+      payload: {
+        workspaceName: 'Workspace 1',
+        flowId: 'flow_001',
+        step: 'implementer',
+        attempt,
+      },
+    });
+
+    roomEvents.length = 0;
+    orchestration.service.setWorktree('flow_001', null, null);
+    await waitFor(() => expect(roomEvents.some((entry) => entry.event === 'flow:updated')).toBe(true));
+    expect(roomEvents).toContainEqual({
+      room: 'workspace:workspace-1',
+      event: 'session:attempt-updated',
+      payload: {
+        workspaceName: 'Workspace 1',
+        flowId: 'flow_001',
+        step: 'implementer',
+        attempt,
+      },
+    });
+
     closeEvents();
     orchestration.database.close();
   });

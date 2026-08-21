@@ -54,7 +54,7 @@ app.use(express.json());
 app.use('/api', flowsRouter(config, orchestration));
 app.use('/api', workflowsRouter(orchestration.database));
 app.use('/api', agentsRouter(orchestration.database));
-app.use('/api', workspacesRouter(orchestration.database));
+app.use('/api', workspacesRouter(orchestration.database, orchestration.config.workspaceRoot));
 app.use('/api', sessionsRouter(config, sessionService));
 app.use('/api', improvePromptRouter());
 app.use('/api', agentInteractionRouter(orchestration.service, orchestration.runner));

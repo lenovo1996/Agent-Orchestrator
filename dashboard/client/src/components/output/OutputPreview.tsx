@@ -5,7 +5,12 @@ import { useDashboardStore } from '@/store/use-dashboard-store';
 import { socket } from '@/lib/socket';
 import { getStepDisplayName } from '@/lib/constants';
 import { FileText, Clock, HardDrive, RefreshCw } from 'lucide-react';
-import type { AgentStep, FileMetadata, OutputUpdatedPayload } from '@devteam-dashboard/shared';
+import type {
+  AgentStep,
+  FileMetadata,
+  OutputCreatedPayload,
+  OutputUpdatedPayload,
+} from '@devteam-dashboard/shared';
 
 // In dev mode, Vite proxy handles /api routing so we use empty string (relative path).
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -64,19 +69,25 @@ export function OutputPreview() {
     }
   }, [selectedFlowId, selectedStep]);
 
-  // Fetch output when selected step changes
+  // Fetch output when selection or step lifecycle changes. The final state change
+  // also covers very fast agents that write before the artifact watcher attaches.
   useEffect(() => {
     if (!selectedFlowId || !selectedStep) {
       setOutput(null);
       return;
     }
     fetchOutput();
-  }, [selectedFlowId, selectedStep, fetchOutput]);
+  }, [selectedFlowId, selectedStep, stepStatus, fetchOutput]);
 
-  // Refresh on output:updated event for current step
+  // Refresh on the first file creation, then apply later content updates directly.
   useEffect(() => {
     if (!selectedFlowId || !selectedStep) return;
 
+    const handleOutputCreated = (payload: OutputCreatedPayload) => {
+      if (payload.flowId === selectedFlowId && payload.step === selectedStep) {
+        void fetchOutput();
+      }
+    };
     const handleOutputUpdated = (payload: OutputUpdatedPayload) => {
       if (payload.flowId === selectedFlowId && payload.step === selectedStep) {
         setOutput({
@@ -87,12 +98,14 @@ export function OutputPreview() {
       }
     };
 
+    socket.on('output:created', handleOutputCreated);
     socket.on('output:updated', handleOutputUpdated);
 
     return () => {
+      socket.off('output:created', handleOutputCreated);
       socket.off('output:updated', handleOutputUpdated);
     };
-  }, [selectedFlowId, selectedStep]);
+  }, [fetchOutput, selectedFlowId, selectedStep]);
 
   // Placeholder: no step selected
   if (!selectedFlowId || !selectedStep) {
@@ -173,7 +186,7 @@ export function OutputPreview() {
 
       {/* Markdown content */}
       <div className="flex-1 overflow-y-auto p-4">
-        <article className="prose prose-invert prose-sm max-w-none
+        <article className="prose prose-sm max-w-none text-foreground dark:prose-invert
           prose-headings:text-foreground prose-headings:font-semibold
           prose-h1:text-xl prose-h1:border-b prose-h1:border-border prose-h1:pb-2
           prose-h2:text-lg
@@ -185,9 +198,9 @@ export function OutputPreview() {
           prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-pre:rounded-lg
           prose-blockquote:border-l-blue-500 prose-blockquote:text-muted-foreground
           prose-li:text-muted-foreground
-          prose-table:text-sm
+          prose-table:text-sm prose-table:text-foreground
           prose-th:text-foreground prose-th:bg-muted prose-th:px-3 prose-th:py-2
-          prose-td:px-3 prose-td:py-2 prose-td:border-border
+          prose-td:text-foreground prose-td:px-3 prose-td:py-2 prose-td:border-border
           prose-tr:border-border
           prose-hr:border-border
         ">
