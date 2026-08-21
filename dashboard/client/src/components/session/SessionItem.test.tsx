@@ -46,6 +46,7 @@ describe('SessionItem', () => {
   });
 
   it('presents expanded tool request and response in one minimal structured region', () => {
+    const fullCommand = 'npm run test --workspace=client -- src/components/session/SessionItem.test.tsx --reporter=verbose --coverage --runInBand';
     render(<SessionItem
       item={{
         id: 'tool-details', ordinal: 5, kind: 'tool', timestamp: '2026-08-17T00:00:00Z',
@@ -53,8 +54,8 @@ describe('SessionItem', () => {
       }}
       detail={{
         id: 'tool-details',
-        toolInput: '{"key":"ABC-123","fields":["summary","status"]}',
-        toolOutput: '{"content":[{"type":"text","text":"{\\"ok\\":true,\\"issue\\":{\\"summary\\":\\"Improve session tools\\"}}"}]}',
+        toolInput: JSON.stringify({ cmd: fullCommand, key: 'ABC-123', fields: ['summary', 'status'] }),
+        toolOutput: '[{"type":"text","text":"{\\"ok\\":true,\\"issue\\":{\\"summary\\":\\"Improve session tools\\"}}"}]',
       }}
       loadDetail={vi.fn()}
     />);
@@ -63,9 +64,10 @@ describe('SessionItem', () => {
 
     const panel = screen.getByLabelText('Tool details: mcp__jira__get_issue');
     expect(panel.className).toBe('min-w-0');
+    expect(panel.parentElement?.className).not.toContain('sm:pl-');
     expect(screen.queryByText('Tool exchange')).toBeNull();
-    expect(screen.getByText('Request')).toBeTruthy();
-    expect(screen.getByText('Response')).toBeTruthy();
+    expect(screen.getByLabelText('Request')).toBeTruthy();
+    expect(screen.getByLabelText('Response')).toBeTruthy();
     const request = screen.getByLabelText('Tool request');
     const response = screen.getByLabelText('Tool response');
     expect(screen.getByText('Key')).toBeTruthy();
@@ -79,6 +81,11 @@ describe('SessionItem', () => {
     expect(screen.getByText('Improve session tools')).toBeTruthy();
     expect(screen.queryByText('Content')).toBeNull();
     expect(screen.queryByText('Type')).toBeNull();
+    expect(screen.queryByText('#1')).toBeNull();
+    expect(screen.getByText('Cmd')).toBeTruthy();
+    const compactCommand = screen.getByTitle(fullCommand);
+    expect(compactCommand.textContent?.length).toBeLessThan(fullCommand.length);
+    expect(compactCommand.textContent).toContain('…');
     expect(request.textContent).not.toContain('{');
     expect(response.textContent).not.toContain('{');
     expect(request.querySelector('pre')).toBeNull();

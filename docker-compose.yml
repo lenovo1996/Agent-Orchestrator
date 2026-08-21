@@ -25,6 +25,7 @@ services:
       dockerfile: Dockerfile
     command: npm run dev:server
     working_dir: /app/dashboard
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
     restart: unless-stopped
     network_mode: host
     environment:
@@ -48,6 +49,9 @@ services:
       DEVTEAM_BLOCKED_TTL: ${DEVTEAM_BLOCKED_TTL:-30d}
       CODEX_HOME: /codex-home
       DASHBOARD_CODEX_HOME: /codex-home
+      DEVTEAM_HOST_UID: ${HOST_UID:?set HOST_UID in .env}
+      DEVTEAM_HOST_GID: ${HOST_GID:?set HOST_GID in .env}
+      HOME: /tmp
     volumes:
       # Mount codex home from host
       - ${CODEX_HOME:-~/.codex}:/codex-home:rw
@@ -70,6 +74,8 @@ services:
     network_mode: host
     environment:
       VITE_API_URL: http://127.0.0.1:3001
+    volumes:
+      - ./dashboard/client/src:/app/dashboard/client/src:rw
     depends_on:
       - server
 
@@ -80,6 +86,7 @@ services:
       dockerfile: Dockerfile
     command: npm run dev:worker
     working_dir: /app/dashboard
+    user: "${HOST_UID:?set HOST_UID in .env}:${HOST_GID:?set HOST_GID in .env}"
     restart: unless-stopped
     network_mode: host
     environment:
@@ -100,7 +107,11 @@ services:
       DEVTEAM_AGENT_CONCURRENCY: ${DEVTEAM_AGENT_CONCURRENCY:-3}
       DEVTEAM_AGENT_TIMEOUT: ${DEVTEAM_AGENT_TIMEOUT:-6h}
       DEVTEAM_BLOCKED_TTL: ${DEVTEAM_BLOCKED_TTL:-30d}
+      CODEX_HOME: /codex-home
       DASHBOARD_CODEX_HOME: /codex-home
+      DEVTEAM_HOST_UID: ${HOST_UID:?set HOST_UID in .env}
+      DEVTEAM_HOST_GID: ${HOST_GID:?set HOST_GID in .env}
+      HOME: /tmp
     volumes:
       # Mount codex home from host
       - ${CODEX_HOME:-~/.codex}:/codex-home:rw

@@ -70,6 +70,7 @@ export function createInngestRuntime(dependencies: {
         { scope: 'env', key: 'event.data.runnerId', limit: config.agentConcurrency },
         { key: 'event.data.workspaceKey', limit: 1 },
       ],
+      cancelOn: [{ event: 'devteam/flow.cancel-requested', match: 'data.flowId' }],
       timeouts: { finish: '8h' },
     },
     async ({ event, runId, attempt }) => {

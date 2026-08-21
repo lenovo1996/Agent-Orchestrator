@@ -18,6 +18,19 @@ function writeDone(flowId: string, step: string): void {
 }
 
 describe('Inngest coordinator', () => {
+  it('cancels an invoked agent step when its flow is stopped', () => {
+    const { runAgentStep } = createInngestRuntime({
+      service: context.service,
+      runner: { supervisor: { terminateFlow: async () => undefined } } as unknown as AgentRunner,
+      worktrees: {} as WorktreeManager,
+      config: context.config,
+    });
+
+    expect(runAgentStep.opts.cancelOn).toEqual([
+      { event: 'devteam/flow.cancel-requested', match: 'data.flowId' },
+    ]);
+  });
+
   it('runs a dynamic DONE sequence to completion with stable step IDs', async () => {
     const command = createFlow(context.service);
     const invoked: string[] = [];

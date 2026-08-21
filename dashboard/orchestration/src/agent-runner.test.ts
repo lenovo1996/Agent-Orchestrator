@@ -1,9 +1,26 @@
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentRunner } from './agent-runner.js';
+import type { AppServerClient } from './appserver-client.js';
 import { PermanentAgentError, RetriableAgentError } from './errors.js';
 import { createFlow, createTestService } from './test-helpers.js';
+
+class FakeAppServerClient extends EventEmitter {
+  readonly connected = true;
+  readonly createThread = vi.fn(async () => ({
+    threadId: 'thread-1', sessionId: 'session-1', model: 'test-model', cwd: '/workspace',
+  }));
+  readonly startTurn = vi.fn(async () => ({ turnId: 'turn-1', status: 'inProgress' }));
+  readonly interruptTurn = vi.fn(async (threadId: string, turnId: string) => {
+    this.emit('item:completed', threadId, turnId, {
+      type: 'agentMessage',
+      text: '## Status\nDONE\n\nTests: 1 passed, 0 failed',
+    });
+    this.emit('turn:completed', threadId, turnId);
+  });
+}
 
 let context: ReturnType<typeof createTestService>;
 let runner: AgentRunner;
@@ -65,6 +82,24 @@ function invocation(inngestRunId = 'child-run-1', inngestAttempt = 0) {
 }
 
 describe('AgentRunner', () => {
+  it('registers an app-server turn so stopping the flow interrupts it', async () => {
+    context.database.run("UPDATE agents SET runtime = 'appserver' WHERE id = 'implementer'");
+    const client = new FakeAppServerClient();
+    (runner as unknown as { _appServerClient: AppServerClient | null })._appServerClient = client as unknown as AppServerClient;
+    runner.supervisor.setAppServerClient(client as unknown as AppServerClient);
+    const input = invocation();
+
+    const execution = runner.execute(input);
+    await vi.waitFor(() => expect(client.startTurn).toHaveBeenCalledOnce());
+    await runner.supervisor.terminateFlow(input.flowId);
+
+    await expect(execution).resolves.toMatchObject({ status: 'DONE' });
+    expect(client.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-1');
+
+    await runner.supervisor.terminateFlow(input.flowId);
+    expect(client.interruptTurn).toHaveBeenCalledOnce();
+  });
+
   it('runs a foreground attempt and persists DONE', async () => {
     const input = invocation();
     const result = await runner.execute(input);

@@ -77,15 +77,21 @@ function toolContentValue(value: unknown): unknown {
   return value;
 }
 
+function normalizedContentList(content: unknown[]): unknown {
+  const meaningful = content
+    .map(toolContentValue)
+    .filter((entry) => typeof entry !== 'string' || !/^Script completed\.?$/i.test(entry.trim()));
+  if (meaningful.length === 0) return null;
+  return meaningful.length === 1 ? meaningful[0] : meaningful;
+}
+
 function normalizedToolPayload(value: string, direction: 'request' | 'response'): unknown {
   const parsed = parseToolValue(value);
-  if (direction === 'request' || !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return parsed;
+  if (direction === 'request' || !parsed || typeof parsed !== 'object') return parsed;
+  if (Array.isArray(parsed)) return normalizedContentList(parsed);
   const response = parsed as Record<string, unknown>;
   if (response.isError !== true && response.structuredContent !== undefined) return response.structuredContent;
-  if (Array.isArray(response.content)) {
-    const content = response.content.map(toolContentValue);
-    return content.length === 1 ? content[0] : content;
-  }
+  if (Array.isArray(response.content)) return normalizedContentList(response.content);
   return parsed;
 }
 
@@ -97,7 +103,7 @@ function fieldLabel(key: string): string {
   return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : key;
 }
 
-function PrimitiveToolValue({ value }: { value: string | number | boolean | null }) {
+function PrimitiveToolValue({ value, compact = false }: { value: string | number | boolean | null; compact?: boolean }) {
   if (value === null) return <span className="italic text-muted-foreground">No value</span>;
   if (typeof value === 'boolean') {
     return (
@@ -111,6 +117,11 @@ function PrimitiveToolValue({ value }: { value: string | number | boolean | null
   if (typeof value === 'number') {
     return <span className="font-semibold tabular-nums text-violet-700 dark:text-violet-300">{value}</span>;
   }
+  if (compact) {
+    const normalized = value.replace(/\s+/g, ' ').trim();
+    const summary = normalized.length > 88 ? `${normalized.slice(0, 88)}…` : normalized;
+    return <code className="block max-w-full truncate text-[10px] text-foreground" title={value}>{summary || 'Empty text'}</code>;
+  }
   if (value.includes('\n') || value.length > 160) {
     return (
       <pre className="max-h-64 min-w-0 overflow-auto whitespace-pre-wrap break-words border-l border-border/70 py-1 pl-3 text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]">
@@ -121,13 +132,23 @@ function PrimitiveToolValue({ value }: { value: string | number | boolean | null
   return <span className="break-words text-foreground [overflow-wrap:anywhere]">{value || 'Empty text'}</span>;
 }
 
-function StructuredToolValue({ value, depth = 0 }: { value: unknown; depth?: number }) {
+function StructuredToolValue({
+  value,
+  depth = 0,
+  compact = false,
+  showIndexes = true,
+}: {
+  value: unknown;
+  depth?: number;
+  compact?: boolean;
+  showIndexes?: boolean;
+}) {
   if (typeof value === 'string' && /^[\s]*[\[{]/.test(value)) {
     const parsed = parseToolValue(value);
-    if (parsed !== value) return <StructuredToolValue value={parsed} depth={depth} />;
+    if (parsed !== value) return <StructuredToolValue value={parsed} depth={depth} compact={compact} showIndexes={showIndexes} />;
   }
   if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) {
-    return <PrimitiveToolValue value={value as string | number | boolean | null} />;
+    return <PrimitiveToolValue value={value as string | number | boolean | null} compact={compact} />;
   }
 
   if (Array.isArray(value)) {
@@ -139,7 +160,7 @@ function StructuredToolValue({ value, depth = 0 }: { value: unknown; depth?: num
           {value.map((entry, index) => (
             <li key={index} className="inline-flex items-center gap-1.5">
               <span className="text-muted-foreground/50" aria-hidden="true">•</span>
-              <PrimitiveToolValue value={entry as string | number | boolean | null} />
+              <PrimitiveToolValue value={entry as string | number | boolean | null} compact={compact} />
             </li>
           ))}
         </ul>
@@ -149,17 +170,19 @@ function StructuredToolValue({ value, depth = 0 }: { value: unknown; depth?: num
     return (
       <ol className="space-y-2 border-l border-border/60 pl-3" aria-label={`${value.length} structured list items`}>
         {value.map((entry, index) => (
-          <li key={index} className="grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] gap-2">
-            <span className="pt-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground">#{index + 1}</span>
-            <div className="min-w-0"><StructuredToolValue value={entry} depth={depth + 1} /></div>
+          index === 0 ? (<></>) : (
+          <li key={index} className={showIndexes ? 'grid min-w-0 grid-cols-[2rem_minmax(0,1fr)] gap-2' : 'min-w-0'}>
+            {showIndexes && <span className="pt-0.5 text-[9px] font-semibold tabular-nums text-muted-foreground">#{index + 1}</span>}
+            <div className="min-w-0"><StructuredToolValue value={entry} depth={depth + 1} compact={compact} showIndexes={showIndexes} /></div>
           </li>
-        ))}
+        )))}
       </ol>
     );
   }
 
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>);
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key.toLowerCase() !== 'type');
     if (entries.length === 0) return <span className="italic text-muted-foreground">Empty object</span>;
     if (depth >= 6) return <span className="text-muted-foreground">{entries.length} nested fields</span>;
     return (
@@ -167,10 +190,10 @@ function StructuredToolValue({ value, depth = 0 }: { value: unknown; depth?: num
         {entries.map(([key, entry]) => (
           <div
             key={key}
-            className="grid min-w-0 gap-1 py-1 sm:grid-cols-[minmax(6.5rem,0.35fr)_minmax(0,1fr)] sm:gap-3"
+            className="grid min-w-0 gap-1 py-1 sm:grid-cols-[minmax(2.5rem,0.1fr)_minmax(0,1fr)] sm:gap-3"
           >
             <dt className="break-words text-[10px] font-semibold text-muted-foreground" title={key}>{fieldLabel(key)}</dt>
-            <dd className="min-w-0 text-[11px]"><StructuredToolValue value={entry} depth={depth + 1} /></dd>
+            <dd className="min-w-0 text-[11px]"><StructuredToolValue value={entry} depth={depth + 1} compact={compact} showIndexes={showIndexes} /></dd>
           </div>
         ))}
       </dl>
@@ -193,12 +216,15 @@ function ToolDetailSection({
   const parsed = value ? normalizedToolPayload(value, direction) : null;
 
   return (
-    <div className="grid min-w-0 gap-2 py-2.5 sm:grid-cols-[5.5rem_minmax(0,1fr)] sm:gap-3">
-      <div className={`flex items-center gap-1.5 self-start text-[9px] font-bold uppercase tracking-[0.16em] ${request
+    <div className="grid min-w-0 grid-cols-[1.25rem_minmax(0,1fr)] gap-2 py-2.5">
+      <div
+        aria-label={label}
+        title={label}
+        className={`flex items-center self-start pt-0.5 ${request
         ? 'text-cyan-700 dark:text-cyan-300'
-        : 'text-emerald-700 dark:text-emerald-300'}`}>
+        : 'text-emerald-700 dark:text-emerald-300'}`}
+      >
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-        {label}
       </div>
       <div
         aria-label={`Tool ${direction}`}
@@ -206,7 +232,7 @@ function ToolDetailSection({
         className="max-h-[28rem] min-w-0 overflow-auto py-0.5 text-[11px] leading-5 text-foreground"
       >
         {value
-          ? <StructuredToolValue value={parsed} />
+          ? <StructuredToolValue value={parsed} compact={request} showIndexes={request} />
           : <span className="block px-2 py-1.5 italic text-muted-foreground">{request ? 'No request payload' : 'Waiting for tool response…'}</span>}
       </div>
     </div>
@@ -220,7 +246,7 @@ function ToolDetailBody({ item, detail }: { item: SessionItemSummary; detail?: S
   const name = item.toolName || item.title || 'tool';
 
   return (
-    <div className="border-t border-border/60 bg-muted/[0.12] px-3 pb-2 pt-1.5 sm:pl-[5.75rem]">
+    <div className="border-t border-border/60 bg-muted/[0.12] px-3 pb-2 pt-1.5">
       <section
         aria-label={`Tool details: ${name}`}
         className="min-w-0"

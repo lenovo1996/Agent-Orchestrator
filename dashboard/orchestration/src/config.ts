@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,8 @@ export interface OrchestrationConfig {
   inngestBaseUrl: string;
   inngestGatewayUrl: string;
   workerHealthUrl: string;
+  expectedUid?: number;
+  expectedGid?: number;
 }
 
 function defaultRepoRoot(): string {
@@ -29,6 +32,43 @@ export function parseDuration(value: string): number {
   if (!match) throw new Error(`Invalid duration: ${value}`);
   const units: Record<string, number> = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
   return Number(match[1]) * units[match[2].toLowerCase()];
+}
+
+function parseOptionalId(value: string | undefined, name: string): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
+  return parsed;
+}
+
+function validateWritableDirectory(directory: string, name: string, create: boolean): void {
+  try {
+    if (create) fs.mkdirSync(directory, { recursive: true, mode: 0o775 });
+    const stat = fs.statSync(directory);
+    if (!stat.isDirectory()) throw new Error('path is not a directory');
+    fs.accessSync(directory, fs.constants.R_OK | fs.constants.W_OK | fs.constants.X_OK);
+  } catch (error) {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : 'unknown';
+    const gid = typeof process.getgid === 'function' ? process.getgid() : 'unknown';
+    throw new Error(
+      `${name} is not writable by UID:GID ${uid}:${gid}: ${directory} (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+}
+
+export function validateRuntimeFilesystem(config: OrchestrationConfig): void {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  const gid = typeof process.getgid === 'function' ? process.getgid() : undefined;
+  if (config.expectedUid !== undefined && uid !== config.expectedUid) {
+    throw new Error(`DEVTEAM_HOST_UID=${config.expectedUid} does not match process UID ${uid ?? 'unknown'}`);
+  }
+  if (config.expectedGid !== undefined && gid !== config.expectedGid) {
+    throw new Error(`DEVTEAM_HOST_GID=${config.expectedGid} does not match process GID ${gid ?? 'unknown'}`);
+  }
+
+  validateWritableDirectory(config.workspaceRoot, 'DEVTEAM_WORKSPACE_ROOT', false);
+  validateWritableDirectory(config.taskFlowsDir, 'DEVTEAM_TASK_FLOWS_DIR', true);
+  validateWritableDirectory(config.worktreesDir, 'DEVTEAM_WORKTREES_DIR', true);
 }
 
 export function loadOrchestrationConfig(
@@ -65,5 +105,13 @@ export function loadOrchestrationConfig(
     inngestBaseUrl: overrides.inngestBaseUrl || process.env.INNGEST_BASE_URL || 'http://127.0.0.1:8288',
     inngestGatewayUrl: overrides.inngestGatewayUrl || process.env.INNGEST_GATEWAY_URL || 'ws://127.0.0.1:8289/v0/connect',
     workerHealthUrl: overrides.workerHealthUrl || process.env.DEVTEAM_WORKER_HEALTH_URL || 'http://127.0.0.1:3011',
+    expectedUid: overrides.expectedUid ?? parseOptionalId(
+      process.env.DEVTEAM_HOST_UID || process.env.HOST_UID,
+      'DEVTEAM_HOST_UID',
+    ),
+    expectedGid: overrides.expectedGid ?? parseOptionalId(
+      process.env.DEVTEAM_HOST_GID || process.env.HOST_GID,
+      'DEVTEAM_HOST_GID',
+    ),
   };
 }

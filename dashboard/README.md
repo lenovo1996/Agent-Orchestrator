@@ -76,7 +76,13 @@ INNGEST_GATEWAY_URL=ws://127.0.0.1:8289/v0/connect
 DEVTEAM_AGENT_CONCURRENCY=3
 DEVTEAM_AGENT_TIMEOUT=6h
 DEVTEAM_BLOCKED_TTL=30d
+HOST_UID=<output-cua-id-u>
+HOST_GID=<output-cua-id-g>
 ```
+
+Lấy đúng UID/GID của user đang chạy Codex app-server bằng `id -u` và `id -g`.
+Docker Compose dùng hai giá trị này cho `server` và `worker` để file trong
+`task-flows`/`.worktrees` không bị tạo dưới quyền `root`.
 
 Không commit `.env`. Inngest container, worker, dashboard server và CLI phải dùng
 cùng `INNGEST_EVENT_KEY`/`INNGEST_SIGNING_KEY`.
@@ -100,6 +106,8 @@ Các biến tùy chọn thường dùng:
 | `DASHBOARD_CORS_ORIGIN` | `*` | CORS origin trong development |
 | `DASHBOARD_CODEX_HOME` | `$CODEX_HOME` hoặc `~/.codex` | Native Codex session/rollout directory |
 | `DASHBOARD_SESSION_VIEWER_ENABLED` | `true` | Bật Session Viewer |
+| `HOST_UID` | Bắt buộc với Docker Compose | UID của user host chạy Codex app-server |
+| `HOST_GID` | Bắt buộc với Docker Compose | GID của user host chạy Codex app-server |
 
 ### 2. Cài Node dependencies và build lần đầu
 
@@ -293,6 +301,10 @@ workflow và agent configuration nếu đây là database mới.
 Kiểm tra CLI runtime tương ứng có trong `PATH` của terminal worker, đã authenticate,
 và worker có quyền truy cập workspace cùng `DASHBOARD_CODEX_HOME`. Agent CLI chạy
 trên host của worker, không chạy bên trong container Inngest.
+
+Nếu agent báo `Permission denied` khi ghi `task-flows`, xác nhận `HOST_UID` và
+`HOST_GID` trong `.env` khớp `id -u`/`id -g`. Worker và server sẽ fail startup nếu
+UID/GID hoặc các shared path không hợp lệ; không dùng `chmod 777` để bỏ qua lỗi này.
 
 ## Packages
 

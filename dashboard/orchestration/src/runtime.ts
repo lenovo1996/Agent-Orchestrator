@@ -1,6 +1,6 @@
 import type { FlowCommandResponse } from '@devteam-dashboard/shared';
 import { AgentRunner } from './agent-runner.js';
-import { loadOrchestrationConfig, type OrchestrationConfig } from './config.js';
+import { loadOrchestrationConfig, type OrchestrationConfig, validateRuntimeFilesystem } from './config.js';
 import { OrchestrationDatabase } from './database.js';
 import { InngestDriver, OutboxDispatcher } from './driver.js';
 import { createInngestRuntime } from './inngest.js';
@@ -17,6 +17,7 @@ export class OrchestrationRuntime {
   readonly outbox: OutboxDispatcher;
 
   constructor(readonly config: OrchestrationConfig) {
+    validateRuntimeFilesystem(config);
     this.database = new OrchestrationDatabase(config.dbPath);
     this.service = new OrchestrationService(this.database, config);
     this.runner = new AgentRunner(this.service);

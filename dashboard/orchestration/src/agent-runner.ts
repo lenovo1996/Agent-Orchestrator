@@ -595,55 +595,62 @@ export class AgentRunner {
       const turnInfo = await client.startTurn(threadInfo.threadId, prompt, {
         model: agent.model || undefined,
       });
+      this.supervisor.registerActiveThread(input.flowId, input.step, threadInfo.threadId, turnInfo.turnId);
 
-      // Wait for turn completion — only for the specific turn we started
-      const exitCode = await new Promise<number>((resolve) => {
-        const onCompleted = (tid: string, completedTurnId: string) => {
-          if (tid === threadInfo.threadId && completedTurnId === turnInfo.turnId) {
+      try {
+        // Wait for turn completion — only for the specific turn we started
+        const exitCode = await new Promise<number>((resolve) => {
+          let settled = false;
+          let timeout: ReturnType<typeof setTimeout> | undefined;
+          const finish = (code: number) => {
+            if (settled) return;
+            settled = true;
             client.removeListener('turn:completed', onCompleted);
             client.removeListener('error', onError);
-            resolve(0);
+            if (timeout) clearTimeout(timeout);
+            resolve(code);
+          };
+          const onCompleted = (tid: string, completedTurnId: string) => {
+            if (tid === threadInfo.threadId && completedTurnId === turnInfo.turnId) finish(0);
+          };
+          const onError = (tid: string | null, message: string) => {
+            if (tid === threadInfo.threadId || tid === null) {
+              bridge.fail(message);
+              finish(1);
+            }
+          };
+          client.on('turn:completed', onCompleted);
+          client.on('error', onError);
+
+          timeout = setTimeout(() => {
+            bridge.fail('Agent turn exceeded local timeout');
+            finish(1);
+          }, this.service.config.agentTimeoutMs);
+          timeout.unref();
+        });
+
+        bridge.complete(exitCode);
+
+        // If agent didn't write the output file directly (common with app-server),
+        // write the captured agent message as the output.
+        if (!fs.existsSync(outputFile) || fs.statSync(outputFile).mtimeMs <= previousMtime) {
+          const agentOutput = bridge.finalAgentMessage;
+          if (agentOutput) {
+            fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+            fs.writeFileSync(outputFile, agentOutput + '\n', { mode: 0o600 });
           }
-        };
-        const onError = (tid: string | null, message: string) => {
-          if (tid === threadInfo.threadId || tid === null) {
-            client.removeListener('turn:completed', onCompleted);
-            client.removeListener('error', onError);
-            bridge.fail(message);
-            resolve(1);
-          }
-        };
-        client.on('turn:completed', onCompleted);
-        client.on('error', onError);
-
-        // Timeout
-        setTimeout(() => {
-          client.removeListener('turn:completed', onCompleted);
-          client.removeListener('error', onError);
-          bridge.fail('Agent turn exceeded local timeout');
-          resolve(1);
-        }, this.service.config.agentTimeoutMs);
-      });
-
-      bridge.complete(exitCode);
-
-      // If agent didn't write the output file directly (common with app-server),
-      // write the captured agent message as the output.
-      if (!fs.existsSync(outputFile) || fs.statSync(outputFile).mtimeMs <= previousMtime) {
-        const agentOutput = bridge.finalAgentMessage;
-        if (agentOutput) {
-          fs.mkdirSync(path.dirname(outputFile), { recursive: true });
-          fs.writeFileSync(outputFile, agentOutput + '\n', { mode: 0o600 });
         }
-      }
 
-      const domainResult = this.readResult(input.flowId, input.step, attempt, previousMtime);
-      if (exitCode !== 0 && domainResult.status !== 'BLOCKED') {
-        throw new RetriableAgentError(`Agent turn failed with exit code ${exitCode}`, 'process');
+        const domainResult = this.readResult(input.flowId, input.step, attempt, previousMtime);
+        if (exitCode !== 0 && domainResult.status !== 'BLOCKED') {
+          throw new RetriableAgentError(`Agent turn failed with exit code ${exitCode}`, 'process');
+        }
+        this.updateMemory(input.flowId, input.step);
+        this.service.finishAttempt(attempt.id, 'completed', exitCode);
+        return domainResult;
+      } finally {
+        this.supervisor.unregisterActiveThread(input.flowId, input.step);
       }
-      this.updateMemory(input.flowId, input.step);
-      this.service.finishAttempt(attempt.id, 'completed', exitCode);
-      return domainResult;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const stage = error instanceof RetriableAgentError ? error.stage : 'process';

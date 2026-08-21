@@ -86,20 +86,41 @@ export class AppServerClient extends EventEmitter {
   }
 
   async connect(): Promise<void> {
-    if (this.ws) return;
+    if (this._connected) return;
+    if (this.ws) {
+      throw new Error('App-server connection is already in progress');
+    }
     this.closed = false;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(this.config.url);
       this.ws = ws;
+      let settled = false;
+
+      const resolveConnection = (): void => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      const rejectConnection = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      };
 
       ws.on('open', () => {
-        this._connected = true;
-        this.emit('connected');
         // Send initialize handshake
         this.request('initialize', {
           clientInfo: { name: 'devteam-dashboard', title: 'DevTeam Dashboard', version: '0.1.0' },
           capabilities: { experimentalApi: true, requestAttestation: false },
-        }).then(() => resolve()).catch(reject);
+        }).then(() => {
+          this._connected = true;
+          this.emit('connected');
+          resolveConnection();
+        }).catch((error: unknown) => {
+          rejectConnection(error instanceof Error ? error : new Error(String(error)));
+          ws.close();
+        });
       });
 
       ws.on('message', (data) => {
@@ -116,12 +137,15 @@ export class AppServerClient extends EventEmitter {
         this._connected = false;
         this.emit('disconnected');
         this.rejectAllPending('Connection closed');
-        this.ws = null;
+        if (this.ws === ws) this.ws = null;
+        rejectConnection(new Error('App-server connection closed before initialization'));
         if (!this.closed) this.scheduleReconnect();
       });
 
       ws.on('error', (err) => {
-        this.emit('error', null, (err as Error).message);
+        const error = err instanceof Error ? err : new Error(String(err));
+        this.emitError(null, error.message);
+        rejectConnection(error);
         // 'close' will follow
       });
     });
@@ -338,7 +362,7 @@ export class AppServerClient extends EventEmitter {
       }
       case 'error': {
         const error = params.error as { message: string } | undefined;
-        this.emit('error', threadId ?? null, error?.message ?? 'Unknown error');
+        this.emitError(threadId ?? null, error?.message ?? 'Unknown error');
         break;
       }
     }
@@ -373,6 +397,15 @@ export class AppServerClient extends EventEmitter {
       reject(new Error(reason));
     }
     this.pending.clear();
+  }
+
+  private emitError(threadId: string | null, message: string): void {
+    // EventEmitter treats the `error` event specially and throws when there is
+    // no listener. A transport failure can happen before a session bridge has
+    // registered its listener, so only publish it when it can be consumed.
+    if (this.listenerCount('error') > 0) {
+      this.emit('error', threadId, message);
+    }
   }
 
   private scheduleReconnect(): void {
