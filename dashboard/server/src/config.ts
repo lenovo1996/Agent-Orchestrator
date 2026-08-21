@@ -46,7 +46,8 @@ function findRepoRoot(): string {
 /**
  * Load dashboard configuration from team.json and environment variables.
  *
- * - Reads `team.json` to determine outputRoot path for task-flows directory.
+ * - Reads `DEVTEAM_TASK_FLOWS_DIR`, falling back to `team.json`, to determine
+ *   the task-flows directory.
  * - Loads env vars: DASHBOARD_PORT, DASHBOARD_HOST, DASHBOARD_CORS_ORIGIN.
  * - Creates task-flows directory if it doesn't exist, logs a warning.
  */
@@ -64,7 +65,9 @@ export function loadConfig(overrides: { repoRoot?: string } = {}): DashboardConf
     );
   }
 
-  const outputRoot = path.resolve(repoRoot, teamConfig.outputRoot || 'task-flows');
+  const outputRoot = path.resolve(
+    process.env.DEVTEAM_TASK_FLOWS_DIR || path.join(repoRoot, teamConfig.outputRoot || 'task-flows'),
+  );
 
   // Ensure task-flows directory exists (Requirement 1.4)
   if (!fs.existsSync(outputRoot)) {

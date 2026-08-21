@@ -15,6 +15,7 @@ describe('config', () => {
     delete process.env.DASHBOARD_CORS_ORIGIN;
     delete process.env.DASHBOARD_CODEX_HOME;
     delete process.env.DASHBOARD_SESSION_VIEWER_ENABLED;
+    delete process.env.DEVTEAM_TASK_FLOWS_DIR;
     delete process.env.CODEX_HOME;
     delete process.env.NODE_ENV;
 
@@ -63,6 +64,17 @@ describe('config', () => {
     const config = loadConfig({ repoRoot: tmpDir });
     expect(config.taskFlowsDir).toMatch(/task-flows$/);
     expect(fs.existsSync(config.taskFlowsDir)).toBe(true);
+  });
+
+  it('should prefer DEVTEAM_TASK_FLOWS_DIR over team.json outputRoot', async () => {
+    const configuredDir = path.join(tmpDir, 'host-visible-task-flows');
+    process.env.DEVTEAM_TASK_FLOWS_DIR = configuredDir;
+
+    const { loadConfig } = await import('./config.js');
+    const config = loadConfig({ repoRoot: tmpDir });
+
+    expect(config.taskFlowsDir).toBe(configuredDir);
+    expect(fs.existsSync(configuredDir)).toBe(true);
   });
 
   it('should resolve scriptDir from root directory', async () => {
