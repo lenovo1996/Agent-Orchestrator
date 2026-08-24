@@ -24,20 +24,17 @@ async function request(app: express.Express, method: string, url: string, body: 
   }
 }
 
-describe('workspace path validation', () => {
+describe('workspace path handling', () => {
   let root: string;
-  let sharedRoot: string;
   let orchestration: ReturnType<typeof createTestOrchestration>;
   let app: express.Express;
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'workspace-routes-'));
-    sharedRoot = path.join(root, 'shared');
-    fs.mkdirSync(sharedRoot);
     orchestration = createTestOrchestration(root, path.join(root, 'task-flows'), []);
     app = express();
     app.use(express.json());
-    app.use('/api', workspacesRouter(orchestration.database, sharedRoot));
+    app.use('/api', workspacesRouter(orchestration.database));
   });
 
   afterEach(() => {
@@ -49,15 +46,23 @@ describe('workspace path validation', () => {
     return request(app, 'POST', '/api/workspaces', { id, name: 'Workspace', path: workspacePath });
   }
 
-  it('stores the canonical path of a readable directory inside the shared root', async () => {
-    const directory = path.join(sharedRoot, 'project');
-    fs.mkdirSync(directory);
+  it('stores a normalized absolute path without checking whether it exists', async () => {
+    const workspacePath = path.join(root, 'missing-parent', '..', 'missing-workspace');
+    expect(fs.existsSync(workspacePath)).toBe(false);
 
-    const response = await createWorkspace(path.join(directory, '.'));
+    const response = await createWorkspace(workspacePath);
 
     expect(response.status).toBe(201);
     expect(orchestration.database.get<{ path: string }>('SELECT path FROM workspaces WHERE id = ?', 'workspace-1')?.path)
-      .toBe(fs.realpathSync(directory));
+      .toBe(path.normalize(workspacePath));
+  });
+
+  it('accepts an absolute path outside the DevTeam project directory', async () => {
+    const externalPath = path.join(os.tmpdir(), 'external-workspace-that-need-not-exist');
+
+    const response = await createWorkspace(externalPath);
+
+    expect(response.status).toBe(201);
   });
 
   it('rejects relative paths', async () => {
@@ -68,60 +73,16 @@ describe('workspace path validation', () => {
     expect(response.body.error).toContain('absolute path');
   });
 
-  it('rejects missing directories', async () => {
-    const response = await createWorkspace(path.join(sharedRoot, 'missing'));
+  it('updates to a missing absolute path without checking the filesystem', async () => {
+    await createWorkspace(path.join(root, 'original-missing'));
+    const replacement = path.join(os.tmpdir(), 'replacement-workspace-that-need-not-exist');
 
-    expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ code: 'invalid_workspace_path' });
-    expect(response.body.error).toContain('does not exist');
-  });
-
-  it('rejects files and directories outside the shared root', async () => {
-    const file = path.join(sharedRoot, 'file.txt');
-    const outside = path.join(root, 'outside');
-    fs.writeFileSync(file, 'not a directory');
-    fs.mkdirSync(outside);
-
-    const fileResponse = await createWorkspace(file, 'workspace-file');
-    const outsideResponse = await createWorkspace(outside, 'workspace-outside');
-
-    expect(fileResponse.status).toBe(400);
-    expect(fileResponse.body.error).toContain('must be a directory');
-    expect(outsideResponse.status).toBe(400);
-    expect(outsideResponse.body.error).toContain('must be inside shared root');
-  });
-
-  it('rejects a symlink inside the shared root when it resolves outside', async () => {
-    const outside = path.join(root, 'outside');
-    const link = path.join(sharedRoot, 'escaped-link');
-    fs.mkdirSync(outside);
-    fs.symlinkSync(outside, link);
-
-    const response = await createWorkspace(link);
-
-    expect(response.status).toBe(400);
-    expect(response.body.error).toContain('must be inside shared root');
-  });
-
-  it('validates updates and preserves the previous path after rejection', async () => {
-    const original = path.join(sharedRoot, 'original');
-    const replacement = path.join(sharedRoot, 'replacement');
-    const outside = path.join(root, 'outside');
-    fs.mkdirSync(original);
-    fs.mkdirSync(replacement);
-    fs.mkdirSync(outside);
-    await createWorkspace(original);
-
-    const rejected = await request(app, 'PUT', '/api/workspaces/workspace-1', {
-      name: 'Workspace', path: outside,
-    });
-    const accepted = await request(app, 'PUT', '/api/workspaces/workspace-1', {
+    const response = await request(app, 'PUT', '/api/workspaces/workspace-1', {
       name: 'Workspace', path: replacement,
     });
 
-    expect(rejected.status).toBe(400);
-    expect(accepted.status).toBe(200);
+    expect(response.status).toBe(200);
     expect(orchestration.database.get<{ path: string }>('SELECT path FROM workspaces WHERE id = ?', 'workspace-1')?.path)
-      .toBe(fs.realpathSync(replacement));
+      .toBe(path.normalize(replacement));
   });
 });

@@ -83,6 +83,12 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
         </div>
 
         <div className="mt-1.5 flex min-w-0 items-center gap-1.5 pl-3.5 text-[9px] text-muted-foreground">
+          <StepIndicator steps={flow.steps} stepOrder={flow.stepOrder} />
+
+          <span className="flex w-12 shrink-0 items-center justify-end gap-0.5 truncate font-mono" title="Flow duration">
+            <Clock3 className="h-2.5 w-2.5" />{flowDuration(flow)}
+          </span>
+
           {flow.status === 'blocked' && flow.blockedReason && (
             <span className="shrink-0" aria-label="Blocked" title={flow.blockedReason}>
               <AlertTriangle className="h-3 w-3 text-purple-500" />
@@ -93,10 +99,6 @@ export function FlowCard({ flow, isSelected, onSelect }: FlowCardProps) {
               <Wrench className="h-2.5 w-2.5" />{totalNeedsFix}
             </span>
           )}
-          <StepIndicator steps={flow.steps} stepOrder={flow.stepOrder} />
-          <span className="flex w-12 shrink-0 items-center justify-end gap-0.5 truncate font-mono" title="Flow duration">
-            <Clock3 className="h-2.5 w-2.5" />{flowDuration(flow)}
-          </span>
         </div>
       </button>
 
