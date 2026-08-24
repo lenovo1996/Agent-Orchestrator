@@ -39,12 +39,17 @@ cleanup_capture_file() {
 }
 trap cleanup_capture_file EXIT
 
+CODEX_EXEC_ARGS=(exec --json -)
+if [[ -n "${DEVTEAM_RESUME_THREAD_ID:-}" ]]; then
+  CODEX_EXEC_ARGS=(exec resume --json "$DEVTEAM_RESUME_THREAD_ID" -)
+fi
+
 set +e
 codex \
   --dangerously-bypass-approvals-and-sandbox \
   -m "$CODEX_MODEL" \
   -c "model_reasoning_effort=\"$CODEX_REASONING\"" \
-  exec --json - < "$PROMPT_FILE" \
+  "${CODEX_EXEC_ARGS[@]}" < "$PROMPT_FILE" \
   2> >(tee -a "$STDERR_FILE" "$LOG_FILE" >&2) \
   | node "$CAPTURE_HELPER" stream \
       --work-dir "$WORK_DIR" \

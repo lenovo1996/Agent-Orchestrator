@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { Router } from 'express';
-import type { AgentRunner, OrchestrationService } from '@devteam-dashboard/orchestration';
+import type { AgentRunner, OrchestrationService, StepAttemptRecord } from '@devteam-dashboard/orchestration';
 
 function sendError(res: import('express').Response, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
@@ -11,6 +11,16 @@ function sendError(res: import('express').Response, error: unknown): void {
 
 function findRunningAttempt(service: OrchestrationService, flowId: string, step: string) {
   return service.runningAttempts(flowId).find((a) => a.step === step) || null;
+}
+
+function findAttempt(
+  service: OrchestrationService,
+  flowId: string,
+  step: string,
+  runId?: string,
+): StepAttemptRecord | null {
+  if (!runId) return findRunningAttempt(service, flowId, step);
+  return service.listAttempts(flowId, step).find((attempt) => attempt.sessionRunId === runId) || null;
 }
 
 function getAgentRuntime(service: OrchestrationService, step: string): string {
@@ -57,14 +67,15 @@ export function agentInteractionRouter(
 
   /**
    * POST /flows/:flowId/steps/:step/send-message
-   * Send a follow-up message to a running agent session.
+   * Send a follow-up message to the selected agent session.
    *
-   * - appserver runtime: send directly via WebSocket (steerTurn/startTurn)
-   * - codex runtime: queue message to file (delivered on next turn via resume)
+   * - finished session: queue an orchestration retry that resumes the selected attempt
+   * - running appserver session: send directly via WebSocket (steerTurn/startTurn)
+   * - running CLI session: queue the message for delivery after the current turn
    */
   router.post('/flows/:flowId/steps/:step/send-message', async (req, res) => {
     const { flowId, step } = req.params;
-    const { message } = req.body as { message?: string };
+    const { message, runId } = req.body as { message?: string; runId?: string };
 
     if (!message?.trim()) {
       res.status(400).json({ error: 'message is required' });
@@ -73,9 +84,27 @@ export function agentInteractionRouter(
 
     try {
       const flow = service.getFlow(flowId);
-      const attempt = findRunningAttempt(service, flowId, step);
+      const attempt = findAttempt(service, flowId, step, runId);
       if (!attempt) {
-        res.status(409).json({ error: `Step ${step} is not running` });
+        res.status(runId ? 404 : 409).json({
+          error: runId ? 'Session attempt not found' : `Step ${step} is not running`,
+        });
+        return;
+      }
+
+      if (attempt.status !== 'running') {
+        const command = service.retryFlow(flowId, {
+          step,
+          followUpMessage: message.trim(),
+          resumeThread: true,
+          sessionRunId: attempt.sessionRunId,
+        });
+        res.status(202).json({
+          success: true,
+          method: 'resume-queued',
+          commandId: command.commandId,
+          runId: attempt.sessionRunId,
+        });
         return;
       }
 
@@ -83,7 +112,7 @@ export function agentInteractionRouter(
       const metadataPath = path.join(
         artifactDir, 'sessions', step, `${attempt.sessionRunId}.json`,
       );
-      let metadata: { threadId?: string };
+      let metadata: { threadId?: string; turnId?: string };
       try {
         metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
       } catch {
@@ -106,8 +135,13 @@ export function agentInteractionRouter(
           return;
         }
         try {
-          const result = await client.steerTurn(metadata.threadId, '', message.trim());
-          res.json({ success: true, turnId: result.turnId, method: 'steer' });
+          if (metadata.turnId) {
+            const result = await client.steerTurn(metadata.threadId, metadata.turnId, message.trim());
+            res.json({ success: true, turnId: result.turnId, method: 'steer' });
+          } else {
+            const result = await client.startTurn(metadata.threadId, message.trim());
+            res.json({ success: true, turnId: result.turnId, method: 'new-turn' });
+          }
         } catch {
           const result = await client.startTurn(metadata.threadId, message.trim());
           res.json({ success: true, turnId: result.turnId, method: 'new-turn' });

@@ -140,6 +140,54 @@ describe('SessionViewer', () => {
     expect(screen.queryByText('Newest final')).toBeNull();
   });
 
+  it('keeps chat available for a finished session and sends the selected run ID', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/send-message')) {
+        return new Response(JSON.stringify({
+          success: true,
+          method: 'resume-queued',
+          commandId: 'command-1',
+          runId: latest.runId,
+        }), { status: 202 });
+      }
+      if (url.includes(`/${latest.runId}`)) {
+        return new Response(JSON.stringify(snapshot), { status: 200 });
+      }
+      return new Response(JSON.stringify({ enabled: true, attempts: [first, latest] }), { status: 200 });
+    });
+    global.fetch = fetchMock as typeof fetch;
+    const current = useDashboardStore.getState().flows.flow_001;
+    useDashboardStore.setState({
+      flows: {
+        flow_001: {
+          ...current,
+          status: 'blocked',
+          currentStep: 'implementer',
+          steps: { implementer: 'blocked' },
+        },
+      },
+    });
+
+    render(<SessionViewer />);
+    expect(await screen.findByText('Newest final')).toBeTruthy();
+    expect(screen.queryByRole('status', { name: 'Working...' })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Message agent'), { target: { value: 'Continue this attempt' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/flows/flow_001/steps/implementer/send-message',
+      expect.objectContaining({ method: 'POST' }),
+    ));
+    const sendCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/send-message'));
+    expect(JSON.parse(String(sendCall?.[1]?.body))).toEqual({
+      message: 'Continue this attempt',
+      runId: latest.runId,
+    });
+    await waitFor(() => expect((screen.getByLabelText('Message agent') as HTMLTextAreaElement).value).toBe(''));
+  });
+
   it('shows an animated working indicator for an active attempt and removes it when the attempt completes', async () => {
     const runningAttempt = {
       ...latest,
@@ -362,6 +410,7 @@ describe('SessionViewer', () => {
     expect(await screen.findByText('Codex failed before a session was created')).toBeTruthy();
     expect(screen.getByText('Authentication failed')).toBeTruthy();
     expect(screen.getByText('Exit code: 1')).toBeTruthy();
+    expect(screen.getByLabelText('Message agent')).toBeTruthy();
     expect(screen.queryByText(/stderr|Runtime Log/i)).toBeNull();
   });
 });

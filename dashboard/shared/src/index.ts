@@ -113,6 +113,8 @@ export interface RetryFlowRequest {
   clearOutput?: boolean;
   prompt?: string;
   resumeThread?: boolean;
+  sessionRunId?: string;
+  followUpMessage?: string;
 }
 
 export interface FlowCommandResponse {
@@ -313,12 +315,15 @@ export interface ClientToServerEvents {
 
 export interface AgentMessageRequest {
   message: string;
+  runId?: string;
 }
 
 export interface AgentMessageResponse {
   success: boolean;
-  turnId: string;
-  method: 'steer' | 'new-turn';
+  turnId?: string;
+  commandId?: string;
+  runId?: string;
+  method: 'steer' | 'new-turn' | 'queued' | 'resume-queued';
 }
 
 export interface AgentInterruptResponse {

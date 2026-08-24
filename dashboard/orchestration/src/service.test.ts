@@ -173,6 +173,60 @@ describe('OrchestrationService commands and transitions', () => {
     expect(context.service.listAttempts(command.flowId).map((attempt) => attempt.id)).toEqual(['attempt-old']);
   });
 
+  it('resumes the exact session attempt selected by a retry message', () => {
+    const command = createFlow(context.service);
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-1', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    for (const [id, runId, technicalAttempt] of [
+      ['attempt-old', 'session-old', 0],
+      ['attempt-new', 'session-new', 1],
+    ] as const) {
+      context.service.createAttempt({
+        id,
+        flowId: command.flowId,
+        step: 'implementer',
+        cycle: 1,
+        technicalAttempt,
+        inngestRunId: `child-${id}`,
+        inngestAttempt: technicalAttempt,
+        sessionRunId: runId,
+        runnerId: 'test-runner',
+      });
+      context.service.markAttemptRunning(id, 0, 0);
+      context.service.finishAttempt(id, 'completed', 0);
+    }
+    context.service.failFlow(command.flowId, 'finished for retry', 'implementer', command.commandId);
+
+    const retry = context.service.retryFlow(command.flowId, {
+      step: 'implementer',
+      followUpMessage: 'Continue the older attempt',
+      resumeThread: true,
+      sessionRunId: 'session-old',
+    });
+    expect(context.service.latestRetryCommand(command.flowId)).toEqual({
+      step: 'implementer',
+      clearOutput: false,
+      resumeThread: true,
+      sessionRunId: 'session-old',
+      followUpMessage: 'Continue the older attempt',
+    });
+    expect(context.service.getFlow(command.flowId).customPrompt).toBe('Implement the test task');
+    context.service.claimCoordinator(retry.commandId, command.flowId, 'run-2', 'test-runner');
+    const queued = context.service.queueStep(command.flowId, 'implementer');
+    const resumed = context.service.resumeAttempt(
+      command.flowId,
+      'implementer',
+      queued.cycle,
+      'child-resume',
+      0,
+      'test-runner',
+      'session-old',
+    );
+
+    expect(resumed).toMatchObject({ id: 'attempt-old', sessionRunId: 'session-old', status: 'running' });
+    expect(context.service.attempt('attempt-new').status).toBe('completed');
+  });
+
   it('rejects deleting a terminal dependency while a dependent flow exists', () => {
     const dependency = createFlow(context.service, 'dependency-start');
     const dependent = context.service.createFlow({
