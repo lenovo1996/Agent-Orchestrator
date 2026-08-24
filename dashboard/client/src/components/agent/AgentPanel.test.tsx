@@ -28,13 +28,15 @@ const steps = ['clarifier', 'architect', 'planner', 'implementer', 'verifier'];
 const startedAt = '2026-08-18T00:00:00.000Z';
 const flow: WorkflowState = {
   flowId: 'flow_graph', workspaceId: 'ws_1', workspaceName: 'Workspace', workflowId: 'wf_1', jiraKey: 'GRAPH-1',
+  workflowContext: '',
   stepOrder: steps, status: 'running', currentStep: 'planner', generation: 1, revision: 1,
   useWorktree: false, worktreeBranch: null, blockedReason: null, errorSummary: null,
   createdAt: startedAt, startedAt, finishedAt: null,
   steps: { clarifier: 'done', architect: 'done', planner: 'running', implementer: 'waiting', verifier: 'waiting' },
   stepDetails: steps.map((step, position) => ({
     step, position, status: position < 2 ? 'done' : position === 2 ? 'running' : 'waiting', cycle: 1,
-    technicalRetryCount: step === 'planner' ? 1 : 0, needsFixCount: 0, outputPath: `output/${step}.md`,
+    technicalRetryCount: step === 'planner' ? 1 : 0, needsFixCount: 0, onNeedsFix: null,
+    outputPath: `output/${step}.md`,
     startedAt: position <= 2 ? startedAt : null, finishedAt: position < 2 ? startedAt : null, updatedAt: startedAt,
   })),
   dependencies: [],

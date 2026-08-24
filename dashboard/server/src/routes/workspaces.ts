@@ -5,43 +5,19 @@ import type { OrchestrationDatabase } from '@devteam-dashboard/orchestration';
 
 class WorkspacePathValidationError extends Error {}
 
-function canonicalDirectory(directory: string, label: string): string {
-  if (!path.isAbsolute(directory)) {
-    throw new WorkspacePathValidationError(`${label} must be an absolute path`);
-  }
-
-  let canonical: string;
-  try {
-    canonical = fs.realpathSync(directory);
-  } catch {
-    throw new WorkspacePathValidationError(`${label} does not exist`);
-  }
-  if (!fs.statSync(canonical).isDirectory()) {
-    throw new WorkspacePathValidationError(`${label} must be a directory`);
-  }
-  try {
-    fs.accessSync(canonical, fs.constants.R_OK | fs.constants.X_OK);
-  } catch {
-    throw new WorkspacePathValidationError(`${label} must be readable and traversable`);
-  }
-  return canonical;
-}
-
-function validateWorkspacePath(candidate: unknown, canonicalRoot: string): string {
+function normalizeWorkspacePath(candidate: unknown): string {
   if (typeof candidate !== 'string' || !candidate.trim()) {
     throw new WorkspacePathValidationError('Workspace path is required');
   }
-  const canonical = canonicalDirectory(candidate.trim(), 'Workspace path');
-  const relative = path.relative(canonicalRoot, canonical);
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new WorkspacePathValidationError(`Workspace path must be inside shared root: ${canonicalRoot}`);
+  const requestedPath = candidate.trim();
+  if (!path.isAbsolute(requestedPath)) {
+    throw new WorkspacePathValidationError('Workspace path must be an absolute path');
   }
-  return canonical;
+  return path.normalize(requestedPath);
 }
 
-export function workspacesRouter(database: OrchestrationDatabase, workspaceRoot: string): Router {
+export function workspacesRouter(database: OrchestrationDatabase): Router {
   const router = Router();
-  const canonicalRoot = canonicalDirectory(workspaceRoot, 'Shared workspace root');
 
   router.get('/workspaces', (_req, res) => {
     res.json(database.all('SELECT * FROM workspaces ORDER BY name'));
@@ -55,7 +31,7 @@ export function workspacesRouter(database: OrchestrationDatabase, workspaceRoot:
     }
     let workspacePath: string;
     try {
-      workspacePath = validateWorkspacePath(requestedPath, canonicalRoot);
+      workspacePath = normalizeWorkspacePath(requestedPath);
     } catch (error) {
       if (error instanceof WorkspacePathValidationError) {
         res.status(400).json({ error: error.message, code: 'invalid_workspace_path' });
@@ -79,7 +55,7 @@ export function workspacesRouter(database: OrchestrationDatabase, workspaceRoot:
     }
     let workspacePath: string;
     try {
-      workspacePath = validateWorkspacePath(requestedPath, canonicalRoot);
+      workspacePath = normalizeWorkspacePath(requestedPath);
     } catch (error) {
       if (error instanceof WorkspacePathValidationError) {
         res.status(400).json({ error: error.message, code: 'invalid_workspace_path' });

@@ -50,6 +50,50 @@ describe('OrchestrationService commands and transitions', () => {
     ]);
   });
 
+  it('snapshots workflow context and routes NEEDS_FIX to the configured step', () => {
+    context.database.run(`
+      UPDATE workflows SET context = ?, needs_fix_map = ? WHERE id = 'workflow-1'
+    `, 'Preserve the approved workflow policy.', JSON.stringify({ verifier: 'implementer' }));
+    const command = createFlow(context.service);
+    const flow = context.service.getFlow(command.flowId);
+    expect(flow.workflowContext).toBe('Preserve the approved workflow policy.');
+    expect(flow.stepDetails[1]).toMatchObject({ step: 'verifier', onNeedsFix: 'implementer' });
+
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-policy', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    context.service.projectAgentResult(command.flowId, 'implementer', {
+      status: 'DONE', attemptId: 'implementation',
+    });
+    context.service.queueStep(command.flowId, 'verifier');
+    expect(context.service.projectAgentResult(command.flowId, 'verifier', {
+      status: 'NEEDS_FIX', attemptId: 'verification',
+    })).toMatchObject({ outcome: 'rewind', nextIndex: 0 });
+  });
+
+  it('blocks a read-only audit when its NEEDS_FIX policy is block', () => {
+    context.database.run(`
+      UPDATE workflows SET needs_fix_map = ? WHERE id = 'workflow-1'
+    `, JSON.stringify({ verifier: 'block' }));
+    const command = createFlow(context.service);
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-audit', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    context.service.projectAgentResult(command.flowId, 'implementer', {
+      status: 'DONE', attemptId: 'review',
+    });
+    context.service.queueStep(command.flowId, 'verifier');
+
+    expect(context.service.projectAgentResult(command.flowId, 'verifier', {
+      status: 'NEEDS_FIX', attemptId: 'audit',
+    })).toMatchObject({ outcome: 'blocked', nextIndex: 1 });
+    expect(context.service.getFlow(command.flowId)).toMatchObject({
+      status: 'blocked',
+      blockedReason: 'Quality gate verifier requires changes',
+    });
+    expect(context.service.getFlow(command.flowId).stepDetails[1]).toMatchObject({
+      status: 'needs_fix', needsFixCount: 1,
+    });
+  });
+
   it('uses the workspace as the concurrency key even for separate worktrees', () => {
     const first = context.service.createFlow({
       workflowId: 'workflow-1', workspaceId: 'workspace-1', prompt: 'first', useWorktree: true,
@@ -171,6 +215,60 @@ describe('OrchestrationService commands and transitions', () => {
       status: 'queued', generation: 2, currentStep: 'implementer',
     });
     expect(context.service.listAttempts(command.flowId).map((attempt) => attempt.id)).toEqual(['attempt-old']);
+  });
+
+  it('resumes the exact session attempt selected by a retry message', () => {
+    const command = createFlow(context.service);
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-1', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    for (const [id, runId, technicalAttempt] of [
+      ['attempt-old', 'session-old', 0],
+      ['attempt-new', 'session-new', 1],
+    ] as const) {
+      context.service.createAttempt({
+        id,
+        flowId: command.flowId,
+        step: 'implementer',
+        cycle: 1,
+        technicalAttempt,
+        inngestRunId: `child-${id}`,
+        inngestAttempt: technicalAttempt,
+        sessionRunId: runId,
+        runnerId: 'test-runner',
+      });
+      context.service.markAttemptRunning(id, 0, 0);
+      context.service.finishAttempt(id, 'completed', 0);
+    }
+    context.service.failFlow(command.flowId, 'finished for retry', 'implementer', command.commandId);
+
+    const retry = context.service.retryFlow(command.flowId, {
+      step: 'implementer',
+      followUpMessage: 'Continue the older attempt',
+      resumeThread: true,
+      sessionRunId: 'session-old',
+    });
+    expect(context.service.latestRetryCommand(command.flowId)).toEqual({
+      step: 'implementer',
+      clearOutput: false,
+      resumeThread: true,
+      sessionRunId: 'session-old',
+      followUpMessage: 'Continue the older attempt',
+    });
+    expect(context.service.getFlow(command.flowId).customPrompt).toBe('Implement the test task');
+    context.service.claimCoordinator(retry.commandId, command.flowId, 'run-2', 'test-runner');
+    const queued = context.service.queueStep(command.flowId, 'implementer');
+    const resumed = context.service.resumeAttempt(
+      command.flowId,
+      'implementer',
+      queued.cycle,
+      'child-resume',
+      0,
+      'test-runner',
+      'session-old',
+    );
+
+    expect(resumed).toMatchObject({ id: 'attempt-old', sessionRunId: 'session-old', status: 'running' });
+    expect(context.service.attempt('attempt-new').status).toBe('completed');
   });
 
   it('rejects deleting a terminal dependency while a dependent flow exists', () => {

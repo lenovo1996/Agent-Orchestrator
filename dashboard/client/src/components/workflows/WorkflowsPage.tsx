@@ -5,6 +5,19 @@ import { cn } from '@/lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+function parseNeedsFix(value: string): Record<string, string> {
+  if (!value.trim()) return {};
+  return Object.fromEntries(value.split(',').map((entry) => {
+    const [gate, target, ...rest] = entry.split('=').map((part) => part.trim());
+    if (!gate || !target || rest.length) throw new Error(`Invalid feedback route: ${entry.trim()}`);
+    return [gate, target];
+  }));
+}
+
+function formatNeedsFix(value: Record<string, string>): string {
+  return Object.entries(value).map(([gate, target]) => `${gate}=${target}`).join(', ');
+}
+
 export function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,6 +30,9 @@ export function WorkflowsPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [steps, setSteps] = useState('');
+  const [context, setContext] = useState('');
+  const [needsFix, setNeedsFix] = useState('');
+  const [version, setVersion] = useState(1);
 
   const fetchWorkflows = async () => {
     try {
@@ -56,7 +72,10 @@ export function WorkflowsPage() {
         id: currentId || `wf_${Date.now()}`,
         name,
         description,
-        steps: stepArray
+        steps: stepArray,
+        context,
+        needsFix: parseNeedsFix(needsFix),
+        version,
       };
 
       const url = currentId ? `${API_BASE}/api/workflows/${currentId}` : `${API_BASE}/api/workflows`;
@@ -97,6 +116,9 @@ export function WorkflowsPage() {
     setName('');
     setDescription('');
     setSteps('');
+    setContext('');
+    setNeedsFix('');
+    setVersion(1);
     setIsEditing(false);
   };
 
@@ -105,6 +127,9 @@ export function WorkflowsPage() {
     setName(wf.name);
     setDescription(wf.description);
     setSteps(wf.steps.join(', '));
+    setContext(wf.context);
+    setNeedsFix(formatNeedsFix(wf.needsFix));
+    setVersion(wf.version);
     setIsEditing(true);
   };
 
@@ -206,6 +231,40 @@ export function WorkflowsPage() {
             )}
           </div>
 
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground/90">Workflow Policy</label>
+            <textarea
+              value={context}
+              onChange={e => setContext(e.target.value)}
+              rows={4}
+              placeholder="Policy and constraints injected into every agent prompt in this workflow"
+              className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all font-mono hover:bg-background"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_8rem] gap-7">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground/90">NEEDS_FIX Routing</label>
+              <input
+                value={needsFix}
+                onChange={e => setNeedsFix(e.target.value)}
+                placeholder="code_reviewer=implementer, qa_verifier=implementer"
+                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all font-mono hover:bg-background"
+              />
+              <p className="text-xs text-muted-foreground">Use <code>gate=block</code> for read-only audit workflows.</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground/90">Version</label>
+              <input
+                type="number"
+                min={1}
+                value={version}
+                onChange={e => setVersion(Number(e.target.value) || 1)}
+                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
+              />
+            </div>
+          </div>
+
           <div className="flex gap-3 justify-end pt-5 border-t border-border/50">
             <button type="button" onClick={resetForm} className="px-5 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-xl transition-all">
               Cancel
@@ -266,6 +325,10 @@ export function WorkflowsPage() {
                 <p className="text-sm text-muted-foreground mb-6 line-clamp-2 leading-relaxed relative z-10">{wf.description}</p>
               )}
 
+              {wf.context && (
+                <p className="text-xs text-muted-foreground mb-4 line-clamp-3 leading-relaxed relative z-10">{wf.context}</p>
+              )}
+
               <div className="mt-auto pt-5 border-t border-border/40 relative z-10">
                 <div className="flex items-center gap-2 mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   <ListTree className="w-3.5 h-3.5" />
@@ -283,6 +346,11 @@ export function WorkflowsPage() {
                     </div>
                   ))}
                 </div>
+                {Object.keys(wf.needsFix).length > 0 && (
+                  <div className="mt-3 text-[11px] text-muted-foreground font-mono">
+                    NEEDS_FIX: {formatNeedsFix(wf.needsFix)}
+                  </div>
+                )}
               </div>
             </div>
           ))}

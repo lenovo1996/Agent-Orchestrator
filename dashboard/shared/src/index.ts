@@ -31,6 +31,9 @@ export interface CustomWorkflow {
   name: string;
   description: string;
   steps: string[];
+  context: string;
+  needsFix: Record<string, string>;
+  version: number;
 }
 
 export interface AgentConfig {
@@ -53,6 +56,7 @@ export interface FlowStepState {
   cycle: number;
   technicalRetryCount: number;
   needsFixCount: number;
+  onNeedsFix: string | null;
   outputPath: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -66,6 +70,7 @@ export interface WorkflowState {
   workflowId: string;
   jiraKey: string | null;
   customPrompt?: string;
+  workflowContext: string;
   stepOrder: string[];
   status: FlowStatus;
   currentStep: AgentStep | null;
@@ -113,6 +118,8 @@ export interface RetryFlowRequest {
   clearOutput?: boolean;
   prompt?: string;
   resumeThread?: boolean;
+  sessionRunId?: string;
+  followUpMessage?: string;
 }
 
 export interface FlowCommandResponse {
@@ -313,12 +320,15 @@ export interface ClientToServerEvents {
 
 export interface AgentMessageRequest {
   message: string;
+  runId?: string;
 }
 
 export interface AgentMessageResponse {
   success: boolean;
-  turnId: string;
-  method: 'steer' | 'new-turn';
+  turnId?: string;
+  commandId?: string;
+  runId?: string;
+  method: 'steer' | 'new-turn' | 'queued' | 'resume-queued';
 }
 
 export interface AgentInterruptResponse {

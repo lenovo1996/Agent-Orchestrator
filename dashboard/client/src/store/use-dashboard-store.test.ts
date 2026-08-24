@@ -13,6 +13,7 @@ function workflow(
     workspaceName: 'Workspace',
     workflowId: 'wf_1',
     jiraKey: 'JH-001',
+    workflowContext: '',
     stepOrder: Object.keys(steps),
     status: 'running',
     currentStep,
@@ -27,7 +28,7 @@ function workflow(
     finishedAt: null,
     steps,
     stepDetails: Object.entries(steps).map(([step, status], position) => ({
-      step, position, status, cycle: 1, technicalRetryCount: 0, needsFixCount: 0,
+      step, position, status, cycle: 1, technicalRetryCount: 0, needsFixCount: 0, onNeedsFix: null,
       outputPath: `output/${step}.md`, startedAt: null, finishedAt: null,
       updatedAt: '2026-01-01T00:00:00Z',
     })),

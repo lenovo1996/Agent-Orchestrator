@@ -100,9 +100,12 @@ export class AppServerSessionBridge extends EventEmitter {
     if (!resetMetadata) {
       try {
         const existing = JSON.parse(fs.readFileSync(this.metadataPath, 'utf8')) as SessionMetadata;
-        if (existing.runId === this.config.sessionRunId && existing.threadId) {
+        if (existing.runId === this.config.sessionRunId) {
           this.metadata = {
             ...existing,
+            attemptId: this.config.attemptId,
+            inngestRunId: this.config.inngestRunId,
+            inngestAttempt: this.config.inngestAttempt,
             turnId: existing.turnId || null,
             status: 'running',
             finishedAt: null,

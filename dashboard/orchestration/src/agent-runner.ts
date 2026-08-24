@@ -160,6 +160,10 @@ export class AgentRunner {
     }
   }
 
+  private agentCanWrite(tools: string[]): boolean {
+    return tools.some((tool) => ['write', 'edit', 'apply_patch'].includes(tool));
+  }
+
   private buildPrompt(flowId: string, step: string): string {
     const flow = this.service.getFlow(flowId);
     const agent = this.service.getAgent(step);
@@ -184,6 +188,9 @@ export class AgentRunner {
       `- Workspace dir: ${effectiveWorkspace}`,
       `- Work dir: ${workDirectory}`,
     ];
+    if (flow.workflowContext) {
+      parts.push('', '## Workflow Policy', '', flow.workflowContext);
+    }
     if (flow.worktreePath) parts.push(`- Main workspace: ${flow.workspacePath} (do not modify directly)`);
     if (flow.customPrompt) parts.push('', '## Custom Requirement', '', flow.customPrompt);
     const taskId = flow.jiraKey && /^[A-Za-z0-9._-]+$/.test(flow.jiraKey) ? flow.jiraKey : flow.flowId;
@@ -200,7 +207,10 @@ export class AgentRunner {
       parts.push('', '## Previous Outputs', '', ...previousOutputs.map((file) => `- ${file}`));
     }
     const output = this.service.outputFile(flowId, step);
-    parts.push('', '## Your Output', '', `Write your output to: ${output}`, '', 'Follow the instructions exactly.');
+    const outputInstruction = this.agentCanWrite(agent.tools)
+      ? `Write your output to: ${output}`
+      : `Return the complete report in your final response. The orchestrator will persist it to: ${output}`;
+    parts.push('', '## Your Output', '', outputInstruction, '', 'Follow the instructions exactly.');
     return parts.join('\n').replaceAll('{{REPO_ROOT}}', effectiveWorkspace)
       .replaceAll('{{TASK_ID}}', flow.jiraKey || flow.flowId)
       .replaceAll('{{TASK_NAME}}', flow.jiraKey || flow.flowId);
@@ -347,6 +357,7 @@ export class AgentRunner {
       const resumed = this.service.resumeAttempt(
         input.flowId, input.step, input.cycle,
         input.inngestRunId, input.inngestAttempt, input.runnerId,
+        retryCommand.sessionRunId,
       );
       if (resumed) {
         attempt = resumed;
@@ -407,7 +418,10 @@ export class AgentRunner {
     fs.mkdirSync(path.join(workDirectory, 'sessions', input.step), { recursive: true });
     const promptFile = path.join(promptDirectory, `${input.step}-cycle-${input.cycle}-attempt-${input.inngestAttempt}.txt`);
     this.prepareMemory(input.flowId, input.step);
-    fs.writeFileSync(promptFile, `${this.buildPrompt(input.flowId, input.step)}\n`, { mode: 0o600 });
+    const prompt = shouldResume && retryCommand
+      ? retryCommand.followUpMessage || flow.customPrompt || 'Please continue from where you left off.'
+      : this.buildPrompt(input.flowId, input.step);
+    fs.writeFileSync(promptFile, `${prompt}\n`, { mode: 0o600 });
     const outputFile = this.service.outputFile(input.flowId, input.step);
     let previousMtime = 0;
     try { previousMtime = fs.statSync(outputFile).mtimeMs; } catch { /* first attempt */ }
@@ -428,6 +442,14 @@ export class AgentRunner {
     if (agent.model) env.AGENT_MODEL = agent.model;
     if (agent.thinking) env.AGENT_REASONING = agent.thinking;
     if (agent.runtimeCommand) env.AGENT_COMMAND = agent.runtimeCommand;
+    if (isResumed) {
+      const existing = this.service.latestAttemptWithThread(
+        input.flowId,
+        input.step,
+        attempt.sessionRunId,
+      );
+      if (existing) env.DEVTEAM_RESUME_THREAD_ID = existing.threadId;
+    }
 
     let combinedOutput = '';
     let child;
@@ -497,13 +519,18 @@ export class AgentRunner {
   ): Promise<AgentStepResult> {
     const flow = this.service.getFlow(input.flowId);
     const agent = this.service.getAgent(input.step);
+    const sandbox = this.agentCanWrite(agent.tools) ? 'danger-full-access' : 'read-only';
     const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
     this.ensureWorkspaceTrusted(effectiveWorkspace);
     this.mergeMcpJsonToWorkspaceConfig(effectiveWorkspace);
     const workDirectory = this.service.artifactDirectory(flow);
     const outputFile = this.service.outputFile(input.flowId, input.step);
     let previousMtime = 0;
-    try { previousMtime = fs.statSync(outputFile).mtimeMs; } catch { /* first attempt */ }
+    let outputExisted = false;
+    try {
+      previousMtime = fs.statSync(outputFile).mtimeMs;
+      outputExisted = true;
+    } catch { /* first attempt */ }
 
     // Ensure app-server client is initialized
     const client = this._appServerClient;
@@ -555,7 +582,11 @@ export class AgentRunner {
       let threadInfo: { threadId: string; sessionId: string; model: string; cwd: string };
 
       if (shouldResume) {
-        const existing = this.service.latestAttemptWithThread(input.flowId, input.step);
+        const existing = this.service.latestAttemptWithThread(
+          input.flowId,
+          input.step,
+          retryCommand?.sessionRunId,
+        );
         if (existing) {
           try {
             threadInfo = await client.resumeThread(existing.threadId, { cwd: effectiveWorkspace, model: agent.model || undefined });
@@ -566,12 +597,14 @@ export class AgentRunner {
             threadInfo = await client.createThread({
               cwd: effectiveWorkspace,
               model: agent.model || undefined,
+              sandbox,
             });
           }
         } else {
           threadInfo = await client.createThread({
             cwd: effectiveWorkspace,
             model: agent.model || undefined,
+            sandbox,
           });
         }
       } else {
@@ -579,16 +612,18 @@ export class AgentRunner {
         threadInfo = await client.createThread({
           cwd: effectiveWorkspace,
           model: agent.model || undefined,
+          sandbox,
         });
       }
 
       // Send the prompt as a turn
-      // When resuming, use a simple prompt (just the custom prompt or a continue message)
+      // When resuming, use the one-off follow-up without changing the flow-wide prompt.
       // instead of rebuilding the full prompt with all context
       let prompt: string;
       if (shouldResume && retryCommand) {
         const flow = this.service.getFlow(input.flowId);
-        prompt = flow.customPrompt || 'Please continue from where you left off. Review your previous work and output file, then continue the task.';
+        prompt = retryCommand.followUpMessage || flow.customPrompt
+          || 'Please continue from where you left off. Review your previous work and output file, then continue the task.';
       } else {
         prompt = this.buildPrompt(input.flowId, input.step);
       }
@@ -648,9 +683,17 @@ export class AgentRunner {
 
         bridge.complete(completion.exitCode);
 
-        // If agent didn't write the output file directly (common with app-server),
-        // write the captured agent message as the output.
-        if (!fs.existsSync(outputFile) || fs.statSync(outputFile).mtimeMs <= previousMtime) {
+        const outputExistsAfterTurn = fs.existsSync(outputFile);
+        const outputWasNotRefreshed = outputExistsAfterTurn
+          && fs.statSync(outputFile).mtimeMs <= previousMtime;
+        const preserveExistingOutput = shouldResume
+          && Boolean(retryCommand?.followUpMessage)
+          && outputExisted
+          && outputWasNotRefreshed;
+
+        // A chat reply belongs to the session log. Keep an existing artifact unless
+        // the resumed agent explicitly refreshes it.
+        if (!preserveExistingOutput && (!outputExistsAfterTurn || outputWasNotRefreshed)) {
           const agentOutput = bridge.finalAgentMessage;
           if (agentOutput) {
             fs.mkdirSync(path.dirname(outputFile), { recursive: true });
@@ -658,7 +701,12 @@ export class AgentRunner {
           }
         }
 
-        const domainResult = this.readResult(input.flowId, input.step, attempt, previousMtime);
+        const domainResult = this.readResult(
+          input.flowId,
+          input.step,
+          attempt,
+          preserveExistingOutput ? 0 : previousMtime,
+        );
         if (completion.exitCode !== 0 && domainResult.status !== 'BLOCKED') {
           throw new RetriableAgentError(`Agent turn failed with exit code ${completion.exitCode}`, 'process');
         }

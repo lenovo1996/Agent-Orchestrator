@@ -33,6 +33,7 @@ interface FlowRow extends DatabaseRow {
   workflow_id: string;
   jira_key: string | null;
   custom_prompt: string | null;
+  workflow_context: string;
   step_order_json: string;
   status: FlowStatus;
   current_step: string | null;
@@ -57,6 +58,7 @@ interface StepRow extends DatabaseRow {
   cycle: number;
   technical_retry_count: number;
   needs_fix_count: number;
+  on_needs_fix: string | null;
   output_path: string | null;
   started_at: string | null;
   finished_at: string | null;
@@ -107,6 +109,7 @@ function stepFromRow(row: StepRow): FlowStepState {
     cycle: Number(row.cycle),
     technicalRetryCount: Number(row.technical_retry_count),
     needsFixCount: Number(row.needs_fix_count),
+    onNeedsFix: row.on_needs_fix,
     outputPath: row.output_path,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
@@ -164,6 +167,7 @@ export class OrchestrationService {
       workflowId: row.workflow_id,
       jiraKey: row.jira_key,
       customPrompt: row.custom_prompt || undefined,
+      workflowContext: row.workflow_context,
       stepOrder: parseJson<string[]>(row.step_order_json, []),
       status: row.status,
       currentStep: row.current_step,
@@ -312,7 +316,10 @@ export class OrchestrationService {
     }
     const flowId = newFlowId();
     const commandId = this.database.transaction(() => {
-      const workflow = this.database.get<{ steps: string }>('SELECT steps FROM workflows WHERE id = ?', request.workflowId);
+      const workflow = this.database.get<{ steps: string; context: string; needs_fix_map: string }>(
+        'SELECT steps, context, needs_fix_map FROM workflows WHERE id = ?',
+        request.workflowId,
+      );
       if (!workflow) throw new NotFoundError('Workflow', request.workflowId);
       const workspace = this.database.get<{ id: string }>('SELECT id FROM workspaces WHERE id = ?', request.workspaceId);
       if (!workspace) throw new NotFoundError('Workspace', request.workspaceId);
@@ -326,6 +333,19 @@ export class OrchestrationService {
       }
       if (!stepOrder.every((step) => /^[A-Za-z0-9._-]+$/.test(step))) {
         throw new DomainError('Workflow step IDs may only contain letters, numbers, dot, underscore, and dash', 'invalid_workflow');
+      }
+      const needsFixMap = parseJson<Record<string, unknown>>(workflow.needs_fix_map, {});
+      for (const [gate, target] of Object.entries(needsFixMap)) {
+        const gateIndex = stepOrder.indexOf(gate);
+        if (gateIndex < 0 || typeof target !== 'string') {
+          throw new DomainError(`Invalid NEEDS_FIX policy for ${gate}`, 'invalid_workflow');
+        }
+        if (target !== 'block') {
+          const targetIndex = stepOrder.indexOf(target);
+          if (targetIndex < 0 || targetIndex >= gateIndex) {
+            throw new DomainError(`NEEDS_FIX target for ${gate} must be an earlier workflow step`, 'invalid_workflow');
+          }
+        }
       }
       const agents = new Map(this.database.all<{ id: string; outputs: string }>(
         `SELECT id, outputs FROM agents WHERE id IN (${stepOrder.map(() => '?').join(',')})`, ...stepOrder,
@@ -353,22 +373,23 @@ export class OrchestrationService {
       const timestamp = now();
       this.database.run(`
         INSERT INTO flows(
-          id, workspace_id, workflow_id, jira_key, custom_prompt, step_order_json,
+          id, workspace_id, workflow_id, jira_key, custom_prompt, workflow_context, step_order_json,
           status, current_step, generation, revision, use_worktree, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, 1, 0, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, 1, 0, ?, ?, ?)
       `,
-      flowId, request.workspaceId, request.workflowId, jiraKey, prompt,
+      flowId, request.workspaceId, request.workflowId, jiraKey, prompt, workflow.context,
       JSON.stringify(stepOrder), stepOrder[0], request.useWorktree ? 1 : 0, timestamp, timestamp);
 
       stepOrder.forEach((step, position) => {
         const outputs = parseJson<string[]>(agents.get(step)?.outputs, []);
         const output = outputs[0] ? assertSafeRelative(outputs[0], `${step} output`) : null;
+        const onNeedsFix = typeof needsFixMap[step] === 'string' ? needsFixMap[step] : null;
         this.database.run(`
           INSERT INTO flow_steps(
             flow_id, step, position, status, cycle, technical_retry_count,
-            needs_fix_count, output_path, updated_at
-          ) VALUES (?, ?, ?, 'waiting', 1, 0, 0, ?, ?)
-        `, flowId, step, position, output, timestamp);
+            needs_fix_count, on_needs_fix, output_path, updated_at
+          ) VALUES (?, ?, ?, 'waiting', 1, 0, 0, ?, ?, ?)
+        `, flowId, step, position, onNeedsFix, output, timestamp);
       });
       for (const dependencyId of dependencies) {
         this.database.run(
@@ -391,6 +412,16 @@ export class OrchestrationService {
       const flow = this.getFlow(flowId);
       const selected = flow.stepDetails.find((step) => step.step === request.step);
       if (!selected) throw new DomainError(`Step is not part of this flow: ${request.step}`, 'invalid_step');
+      if (request.sessionRunId && !request.resumeThread) {
+        throw new DomainError('sessionRunId requires resumeThread', 'invalid_attempt');
+      }
+      if (request.followUpMessage && !request.resumeThread) {
+        throw new DomainError('followUpMessage requires resumeThread', 'invalid_attempt');
+      }
+      if (request.sessionRunId && !this.listAttempts(flowId, request.step)
+        .some((attempt) => attempt.sessionRunId === request.sessionRunId)) {
+        throw new NotFoundError('Session attempt', request.sessionRunId);
+      }
       if (flow.status === 'running' || flow.status === 'queued' || flow.status === 'pending_dependencies'
         || flow.status === 'stopping' || ACTIVE_STEP_STATUSES.includes(selected.status)) {
         throw new ConflictError('Cannot retry while the flow or selected step is active');
@@ -412,7 +443,15 @@ export class OrchestrationService {
       `, request.step, customPrompt, timestamp, flowId, flow.revision);
       if (Number(updated.changes) !== 1) throw new ConflictError('Stale flow revision');
       const command = this.insertCommand(
-        flowId, 'retry', { step: request.step, clearOutput: request.clearOutput === true, resumeThread: request.resumeThread === true }, idempotencyKey,
+        flowId, 'retry', {
+          step: request.step,
+          clearOutput: request.clearOutput === true,
+          resumeThread: request.resumeThread === true,
+          ...(request.sessionRunId ? { sessionRunId: request.sessionRunId } : {}),
+          ...(request.followUpMessage?.trim()
+            ? { followUpMessage: request.followUpMessage.trim() }
+            : {}),
+        }, idempotencyKey,
       );
       this.emitDomainEvent(flowId, 'flow.retry-requested', {
         flowId, step: request.step, status: 'queued', revision: flow.revision + 1,
@@ -799,7 +838,33 @@ export class OrchestrationService {
           });
           return { outcome: 'blocked', nextIndex: step.position, step: { ...step, status: 'blocked', needsFixCount: nextCount } };
         }
-        const fixIndex = this.fixTargetIndex(flow.stepOrder);
+        if (step.onNeedsFix === 'block') {
+          this.database.run(`
+            UPDATE flow_steps SET status = 'needs_fix', needs_fix_count = ?, finished_at = ?, updated_at = ?
+            WHERE flow_id = ? AND step = ?
+          `, nextCount, timestamp, timestamp, flowId, stepName);
+          const updated = this.database.run(`
+            UPDATE flows SET status = 'blocked', blocked_summary = ?, revision = revision + 1, updated_at = ?
+            WHERE id = ? AND revision = ?
+          `, `Quality gate ${stepName} requires changes`, timestamp, flowId, flow.revision);
+          if (Number(updated.changes) !== 1) throw new ConflictError('Stale flow revision');
+          this.database.run(`
+            UPDATE orchestration_runs SET status = 'waiting', updated_at = ?
+            WHERE flow_id = ? AND status = 'running'
+          `, timestamp, flowId);
+          this.emitDomainEvent(flowId, 'flow.blocked', {
+            flowId, step: stepName, reason: 'needs_fix', status: 'blocked', revision: flow.revision + 1,
+          });
+          return {
+            outcome: 'blocked',
+            nextIndex: step.position,
+            step: { ...step, status: 'needs_fix', needsFixCount: nextCount },
+          };
+        }
+        const configuredTarget = step.onNeedsFix
+          ? flow.stepOrder.indexOf(step.onNeedsFix)
+          : -1;
+        const fixIndex = configuredTarget >= 0 ? configuredTarget : this.fixTargetIndex(flow.stepOrder);
         this.database.run(`
           UPDATE flow_steps SET
             status = 'waiting', cycle = cycle + 1,
@@ -1043,7 +1108,13 @@ export class OrchestrationService {
     };
   }
 
-  latestRetryCommand(flowId: string): { step: string; clearOutput: boolean; resumeThread: boolean } | null {
+  latestRetryCommand(flowId: string): {
+    step: string;
+    clearOutput: boolean;
+    resumeThread: boolean;
+    sessionRunId?: string;
+    followUpMessage?: string;
+  } | null {
     const row = this.database.get<{ payload_json: string }>(
       "SELECT payload_json FROM flow_commands WHERE flow_id = ? AND type = 'retry' ORDER BY created_at DESC LIMIT 1",
       flowId,
@@ -1054,14 +1125,24 @@ export class OrchestrationService {
       step: typeof payload.step === 'string' ? payload.step : '',
       clearOutput: payload.clearOutput === true,
       resumeThread: payload.resumeThread === true,
+      ...(typeof payload.sessionRunId === 'string' ? { sessionRunId: payload.sessionRunId } : {}),
+      ...(typeof payload.followUpMessage === 'string'
+        ? { followUpMessage: payload.followUpMessage }
+        : {}),
     };
   }
 
-  latestAttemptWithThread(flowId: string, step: string): { threadId: string; sessionRunId: string } | null {
-    const attempts = this.listAttempts(flowId, step);
+  latestAttemptWithThread(
+    flowId: string,
+    step: string,
+    sessionRunId?: string,
+  ): { threadId: string; sessionRunId: string } | null {
+    const attempts = sessionRunId
+      ? this.listAttempts(flowId, step).filter((attempt) => attempt.sessionRunId === sessionRunId)
+      : this.listAttempts(flowId, step);
     for (let i = attempts.length - 1; i >= 0; i--) {
       const attempt = attempts[i];
-      if (attempt.status !== 'completed' && attempt.status !== 'failed' && attempt.status !== 'running') continue;
+      if (!['completed', 'failed', 'cancelled', 'running'].includes(attempt.status)) continue;
       try {
         const flow = this.getFlow(flowId);
         const metadataPath = path.join(this.artifactDirectory(flow), 'sessions', step, `${attempt.sessionRunId}.json`);
@@ -1102,39 +1183,45 @@ export class OrchestrationService {
     inngestRunId: string,
     inngestAttempt: number,
     runnerId: string,
+    sessionRunId?: string,
   ): StepAttemptRecord | null {
     return this.database.transaction(() => {
       const flow = this.getFlow(flowId);
       if (flow.status !== 'running') {
-        throw new ConflictError(`Cannot resume an attempt while flow is ${flowId}`);
+        throw new ConflictError(`Cannot resume an attempt while flow is ${flow.status}`);
       }
-      const attempts = this.listAttempts(flowId, step);
+      const attempts = sessionRunId
+        ? this.listAttempts(flowId, step).filter((attempt) => attempt.sessionRunId === sessionRunId)
+        : this.listAttempts(flowId, step);
+      const activate = (attempt: StepAttemptRecord): StepAttemptRecord => {
+        const timestamp = now();
+        this.database.run(`
+          UPDATE step_attempts SET status = 'running', cycle = ?,
+            inngest_run_id = ?, inngest_attempt = ?, runner_id = ?,
+            pid = NULL, process_group_id = NULL, exit_code = NULL,
+            error_json = NULL, started_at = ?, finished_at = NULL, updated_at = ?
+          WHERE id = ?
+        `, cycle, inngestRunId, inngestAttempt, runnerId, timestamp, timestamp, attempt.id);
+        this.database.run(`
+          UPDATE flow_steps SET status = 'running', technical_retry_count = ?,
+            started_at = COALESCE(started_at, ?), updated_at = ?
+          WHERE flow_id = ? AND step = ?
+        `, inngestAttempt, timestamp, timestamp, flowId, step);
+        this.bumpFlow(flow, {
+          eventType: 'step.running',
+          payload: { step, attemptId: attempt.id, technicalAttempt: inngestAttempt },
+        });
+        return this.attempt(attempt.id);
+      };
       for (let i = attempts.length - 1; i >= 0; i--) {
         const attempt = attempts[i];
-        if (attempt.status !== 'completed' && attempt.status !== 'failed') continue;
+        if (!['completed', 'failed', 'cancelled'].includes(attempt.status)) continue;
+        if (sessionRunId) return activate(attempt);
         try {
           const metadataPath = path.join(this.artifactDirectory(flow), 'sessions', step, `${attempt.sessionRunId}.json`);
           const metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8')) as { threadId?: string };
-          if (metadata.threadId) {
-            const timestamp = now();
-            this.database.run(`
-              UPDATE step_attempts SET status = 'running', cycle = ?,
-                inngest_run_id = ?, inngest_attempt = ?, runner_id = ?,
-                started_at = ?, updated_at = ?
-              WHERE id = ?
-            `, cycle, inngestRunId, inngestAttempt, runnerId, timestamp, timestamp, attempt.id);
-            this.database.run(`
-              UPDATE flow_steps SET status = 'running', technical_retry_count = ?,
-                started_at = COALESCE(started_at, ?), updated_at = ?
-              WHERE flow_id = ? AND step = ?
-            `, inngestAttempt, timestamp, timestamp, flowId, step);
-            this.bumpFlow(flow, {
-              eventType: 'step.running',
-              payload: { step, attemptId: attempt.id, technicalAttempt: inngestAttempt },
-            });
-            return this.attempt(attempt.id);
-          }
-        } catch { /* no metadata */ }
+          if (metadata.threadId) return activate(attempt);
+        } catch { /* no resumable metadata */ }
       }
       return null;
     });

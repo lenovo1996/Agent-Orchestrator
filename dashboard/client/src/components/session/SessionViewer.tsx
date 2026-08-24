@@ -88,6 +88,87 @@ function WorkingIndicator() {
   );
 }
 
+function SessionChatDock({
+  isWorking,
+  textareaRef,
+  message,
+  sending,
+  improving,
+  error,
+  onMessageChange,
+  onSend,
+  onImprove,
+}: {
+  isWorking: boolean;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  message: string;
+  sending: boolean;
+  improving: boolean;
+  error: string | null;
+  onMessageChange: (value: string) => void;
+  onSend: () => void;
+  onImprove: () => void;
+}) {
+  return (
+    <div
+      data-session-chat-dock
+      data-session-working-dock={isWorking ? true : undefined}
+      className="shrink-0 border-t border-border bg-muted/40 dark:bg-zinc-950"
+    >
+      <div className="mx-auto max-w-6xl">
+        {isWorking && <WorkingIndicator />}
+        <div className="flex items-start gap-0 px-3 py-2">
+          <span className="mt-1.5 shrink-0 select-none font-mono text-sm text-emerald-500">❯</span>
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={(event) => onMessageChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+            placeholder="type a message..."
+            aria-label="Message agent"
+            disabled={sending}
+            rows={1}
+            className="ml-2 flex-1 resize-none border-0 bg-transparent px-0 py-1 font-mono text-sm leading-5 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 disabled:opacity-50"
+          />
+          <div className="mt-0.5 flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={onImprove}
+              disabled={improving || !message.trim()}
+              title="Improve prompt (AI)"
+              className="rounded p-1 text-purple-500/70 transition-colors hover:bg-purple-500/10 hover:text-purple-500 disabled:cursor-not-allowed disabled:opacity-20"
+            >
+              {improving ? (
+                <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={sending || !message.trim()}
+              aria-label="Send message"
+              className="px-2 py-1 font-mono text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-20"
+            >
+              {sending ? '...' : '⏎'}
+            </button>
+          </div>
+        </div>
+        {error && <div className="px-3 pb-1.5 font-mono text-[11px] text-red-500">{error}</div>}
+      </div>
+    </div>
+  );
+}
+
 export function SessionViewer(_props: { fullscreen?: boolean }) {
   const selectedFlowId = useDashboardStore((state) => state.selectedFlowId);
   const selectedStep = useDashboardStore((state) => state.selectedStep);
@@ -326,7 +407,7 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
       const res = await fetch(`${API_BASE}/api/flows/${encodeURIComponent(selectedFlowId)}/steps/${encodeURIComponent(selectedStep)}/send-message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: followUpMessage }),
+        body: JSON.stringify({ message: followUpMessage, runId }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -339,7 +420,7 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
     } finally {
       setSendingFollowUp(false);
     }
-  }, [followUpMessage, selectedFlowId, selectedStep]);
+  }, [followUpMessage, runId, selectedFlowId, selectedStep]);
 
   const handleInterrupt = useCallback(async () => {
     if (!selectedFlowId || !selectedStep) return;
@@ -481,63 +562,20 @@ export function SessionViewer(_props: { fullscreen?: boolean }) {
                 <ArrowDownToLine className="h-4 w-4" />
               </button>
             )}
-            {isWorking && (
-              <div data-session-working-dock className="shrink-0 border-t border-border bg-muted/40 dark:bg-zinc-950">
-                <div className="mx-auto max-w-6xl">
-                  <WorkingIndicator />
-                  <div className="flex items-start gap-0 px-3 py-2">
-                    <span className="mt-1.5 shrink-0 font-mono text-sm text-emerald-500 select-none">❯</span>
-                    <textarea
-                      ref={textareaRef}
-                      value={followUpMessage}
-                      onChange={(e) => setFollowUpMessage(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          void handleSendFollowUp();
-                        }
-                      }}
-                      placeholder="type a message..."
-                      disabled={sendingFollowUp}
-                      rows={1}
-                      className="flex-1 ml-2 px-0 py-1 text-sm font-mono bg-transparent border-0 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-0 disabled:opacity-50 resize-none leading-5"
-                    />
-                    <div className="flex items-center gap-1 mt-0.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={handleImprovePrompt}
-                        disabled={improving || !followUpMessage.trim()}
-                        title="Improve prompt (AI)"
-                        className="p-1 rounded text-purple-500/70 hover:text-purple-500 hover:bg-purple-500/10 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {improving ? (
-                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSendFollowUp}
-                        disabled={sendingFollowUp || !followUpMessage.trim()}
-                        className="px-2 py-1 text-[11px] font-mono font-medium text-muted-foreground hover:text-foreground disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {sendingFollowUp ? '...' : '⏎'}
-                      </button>
-                    </div>
-                  </div>
-                  {followUpError && (
-                    <div className="px-3 pb-1.5 text-[11px] font-mono text-red-500">{followUpError}</div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}
+      <SessionChatDock
+        isWorking={isWorking}
+        textareaRef={textareaRef}
+        message={followUpMessage}
+        sending={sendingFollowUp}
+        improving={improving}
+        error={followUpError}
+        onMessageChange={setFollowUpMessage}
+        onSend={() => { void handleSendFollowUp(); }}
+        onImprove={() => { void handleImprovePrompt(); }}
+      />
     </div>
   );
 }

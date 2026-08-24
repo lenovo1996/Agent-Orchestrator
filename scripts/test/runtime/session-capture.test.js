@@ -184,4 +184,40 @@ exit 7
       fs.rmSync(workDir, { recursive: true, force: true });
     }
   });
+
+  test('codex runtime resumes the thread selected by a finished attempt', () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-runtime-resume-'));
+    try {
+      const fakeBin = path.join(workDir, 'bin');
+      fs.mkdirSync(fakeBin);
+      const fakeCodex = path.join(fakeBin, 'codex');
+      fs.writeFileSync(fakeCodex, `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$FAKE_CODEX_ARGS_FILE"
+printf '%s\\n' '{"type":"thread.started","thread_id":"thread-selected"}'
+exit 0
+`);
+      fs.chmodSync(fakeCodex, 0o755);
+      const prompt = path.join(workDir, 'prompt.txt');
+      const log = path.join(workDir, 'implementer.log');
+      const argsFile = path.join(workDir, 'args.txt');
+      fs.writeFileSync(prompt, 'Continue this attempt');
+
+      const result = childProcess.spawnSync('bash', [
+        codexRuntime, prompt, log, workDir, workDir, 'flow_runtime', 'implementer',
+      ], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH}`,
+          FAKE_CODEX_ARGS_FILE: argsFile,
+          DEVTEAM_RESUME_THREAD_ID: 'thread-selected',
+        },
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(fs.readFileSync(argsFile, 'utf8'), /exec\nresume\n--json\nthread-selected\n-\n/);
+    } finally {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+  });
 });

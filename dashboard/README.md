@@ -130,10 +130,28 @@ process development chưa thấy thay đổi.
 Migration chạy tự động khi dashboard, worker hoặc CLI mở `workflows.db`. Database bật
 WAL, foreign keys và busy timeout; không cần chạy migration command riêng.
 
-Nếu `workflows.db` chưa tồn tại, hệ thống tạo database mới. Database mới chưa có
-workspace, workflow hoặc agent configuration, vì vậy hãy cấu hình chúng trong
-Dashboard trước khi tạo flow. Hệ thống không import execution state từ
-`workflow.json` hoặc các flow directory cũ.
+`workflows.db` là database runtime local và không được Git theo dõi. Khi chạy
+`./setup.sh` mà file này chưa tồn tại, setup sao chép `workflows.db.example` để lấy
+schema cùng cấu hình agent/workflow mặc định. Nếu khởi động dashboard, worker hoặc CLI
+trực tiếp mà chưa chạy setup, hệ thống vẫn tạo một database trống. Hệ thống không
+import execution state từ `workflow.json` hoặc các flow directory cũ.
+
+Catalog agent/workflow có nguồn chuẩn dạng text tại `team.json`, `prompts/*.md` và
+`workflow-catalog.json`. Sau khi review các file này, reset database runtime bằng:
+
+```bash
+cd dashboard
+npm run build
+npm run catalog:reset
+```
+
+Lệnh reset xóa toàn bộ flow, attempt, command, event và cấu hình catalog cũ trong
+database, sau đó seed catalog mới. Workspace local được giữ mặc định; thêm
+`-- --clear-workspaces` nếu cần tạo template không chứa đường dẫn máy cá nhân.
+
+Mỗi workflow snapshot `context` và `NEEDS_FIX` routing khi tạo flow. Quality gate của
+workflow delivery quay lại `implementer`; workflow audit dùng target `block` để không
+tự sửa code.
 
 ## Start development
 

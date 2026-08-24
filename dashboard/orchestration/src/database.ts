@@ -190,6 +190,18 @@ const MIGRATIONS: readonly Migration[] = [
     name: 'agent_runtime_command',
     sql: 'ALTER TABLE agents ADD COLUMN runtime_command TEXT;',
   },
+  {
+    version: 3,
+    name: 'workflow_policy_snapshots',
+    sql: `
+      ALTER TABLE workflows ADD COLUMN context TEXT NOT NULL DEFAULT '';
+      ALTER TABLE workflows ADD COLUMN needs_fix_map TEXT NOT NULL DEFAULT '{}'
+        CHECK (json_valid(needs_fix_map));
+      ALTER TABLE workflows ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0);
+      ALTER TABLE flows ADD COLUMN workflow_context TEXT NOT NULL DEFAULT '';
+      ALTER TABLE flow_steps ADD COLUMN on_needs_fix TEXT;
+    `,
+  },
 ];
 
 export type DatabaseRow = Record<string, unknown>;
