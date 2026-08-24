@@ -21,6 +21,7 @@ DASHBOARD_DIR="$SCRIPT_DIR/dashboard"
 ENV_FILE="$SCRIPT_DIR/.env"
 ENV_EXAMPLE="$SCRIPT_DIR/.env.example"
 DB_FILE="$SCRIPT_DIR/workflows.db"
+DB_EXAMPLE="$SCRIPT_DIR/workflows.db.example"
 HOST_APP_SERVER_PID=""
 
 # Colors
@@ -269,6 +270,9 @@ setup_database() {
   
   if [ -f "$DB_FILE" ]; then
     log_info "Database already exists: $DB_FILE"
+  elif [ -f "$DB_EXAMPLE" ]; then
+    cp "$DB_EXAMPLE" "$DB_FILE"
+    log_success "Database initialized from template: $DB_EXAMPLE"
   else
     log_info "Database will be created on first run"
   fi

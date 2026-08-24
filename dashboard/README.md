@@ -130,10 +130,11 @@ process development chưa thấy thay đổi.
 Migration chạy tự động khi dashboard, worker hoặc CLI mở `workflows.db`. Database bật
 WAL, foreign keys và busy timeout; không cần chạy migration command riêng.
 
-Nếu `workflows.db` chưa tồn tại, hệ thống tạo database mới. Database mới chưa có
-workspace, workflow hoặc agent configuration, vì vậy hãy cấu hình chúng trong
-Dashboard trước khi tạo flow. Hệ thống không import execution state từ
-`workflow.json` hoặc các flow directory cũ.
+`workflows.db` là database runtime local và không được Git theo dõi. Khi chạy
+`./setup.sh` mà file này chưa tồn tại, setup sao chép `workflows.db.example` để lấy
+schema cùng cấu hình agent/workflow mặc định. Nếu khởi động dashboard, worker hoặc CLI
+trực tiếp mà chưa chạy setup, hệ thống vẫn tạo một database trống. Hệ thống không
+import execution state từ `workflow.json` hoặc các flow directory cũ.
 
 ## Start development
 
