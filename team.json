@@ -1,160 +1,113 @@
 {
   "outputRoot": "task-flows",
   "members": {
-    "clarifier": {
-      "role": "Spec Clarifier",
-      "objective": "Read Jira ticket, linked issues, comments, Confluence specs, and produce clear requirements + open questions.",
+    "requirements_analyst": {
+      "role": "Requirements Analyst",
+      "objective": "Convert Jira or custom requests into explicit requirements, acceptance criteria, constraints, and actionable open questions.",
       "model": "gpt-5.6-sol",
-      "thinking": "xhigh",
-      "tools": [
-        "read",
-        "exec",
-        "memory_search",
-        "memory_get"
-      ],
-      "outputs": [
-        "output/clarify.md"
-      ]
-    },
-    "architect": {
-      "role": "Solution Architect",
-      "objective": "Inspect PHP8 repos, identify impacted modules, design safe implementation approach.",
-      "model": "gpt-5.5",
       "thinking": "high",
-      "tools": [
-        "read",
-        "exec"
-      ],
-      "outputs": [
-        "output/architecture.md"
-      ]
-    },
-    "planner": {
-      "role": "Task Planner",
-      "objective": "Break requirements and architecture into small, safe, independently verifiable tasks. Produce an ordered implementation plan with files, tests, risks, and rollback strategy.",
-      "model": "gpt-5.5",
-      "thinking": "high",
-      "tools": [
-        "read",
-        "exec"
-      ],
-      "outputs": [
-        "output/plan.md"
-      ]
-    },
-    "implementer": {
-      "role": "Code Implementer",
-      "objective": "Implement plan in code, keep commits small, run relevant tests, report changed files and commands.",
-      "model": "free",
-      "thinking": "high",
-      "tools": [
-        "read",
-        "write",
-        "edit",
-        "exec"
-      ],
-      "outputs": [
-        "output/implementation.md"
-      ],
+      "tools": ["read", "exec", "memory_search", "memory_get", "jira", "confluence"],
+      "outputs": ["output/requirements.md"],
       "runtime": "appserver"
     },
-    "verifier": {
-      "role": "Code Verifier",
-      "objective": "Review diff for correctness, security, regressions, style. Create and execute QA test cases. Summarize verification and prepare Jira/Slack handoff.",
-      "model": "free",
+    "technical_researcher": {
+      "role": "Technical Researcher",
+      "objective": "Validate version-sensitive technical facts using primary sources and compare alternatives without making the final design decision.",
+      "model": "gpt-5.6-sol",
+      "thinking": "high",
+      "tools": ["read", "exec", "web_search"],
+      "outputs": ["output/research.md"],
+      "runtime": "appserver"
+    },
+    "bug_investigator": {
+      "role": "Bug Investigator",
+      "objective": "Reproduce defects, trace execution, collect evidence, and establish the root cause without modifying code.",
+      "model": "gpt-5.6-sol",
       "thinking": "xhigh",
-      "tools": [
-        "read",
-        "exec"
-      ],
-      "outputs": [
-        "output/verification.md"
-      ]
+      "tools": ["read", "exec"],
+      "outputs": ["output/investigation.md"],
+      "runtime": "appserver"
     },
-    "researcher": {
-      "role": "Researcher Specialist",
-      "objective": "Research and validate information required for successful project execution.  Collect relevant technical knowledge, industry best practices, framework documentation, architectural patterns, implementation references, constraints, risks, and alternatives.  Provide evidence-based findings that help other agents make high-quality decisions.  Focus on accuracy, completeness, and source credibility. Never design solutions, write implementation code, or make final architectural decisions unless explicitly requested.",
-      "model": "gpt-5.5",
+    "codebase_analyst": {
+      "role": "Codebase Analyst",
+      "objective": "Map current behavior, dependencies, invariants, impact scope, existing tests, and regression risks without designing a solution.",
+      "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": [],
-      "outputs": [
-        "output/research.md"
-      ],
-      "runtime": "codex"
+      "tools": ["read", "exec"],
+      "outputs": ["output/analysis.md"],
+      "runtime": "appserver"
     },
-    "analyzer": {
-      "role": "Analyzer",
-      "objective": "Understand the existing codebase and identify refactoring opportunities.  Analyze architecture, dependencies, code quality issues, technical debt, maintainability concerns, and potential risks.  Produce an objective assessment of the current state without proposing implementation changes.",
-      "model": "free",
+    "security_analyst": {
+      "role": "Security Analyst",
+      "objective": "Model threats, trust boundaries, authorization, tenant isolation, sensitive data, abuse cases, and required negative tests.",
+      "model": "gpt-5.6-sol",
+      "thinking": "xhigh",
+      "tools": ["read", "exec"],
+      "outputs": ["output/security-analysis.md"],
+      "runtime": "appserver"
+    },
+    "solution_architect": {
+      "role": "Solution Architect",
+      "objective": "Choose the smallest safe technical design with explicit contracts, risks, compatibility, rollout, and rollback.",
+      "model": "gpt-5.6-sol",
+      "thinking": "xhigh",
+      "tools": ["read", "exec"],
+      "outputs": ["output/architecture.md"],
+      "runtime": "appserver"
+    },
+    "test_designer": {
+      "role": "Test Designer",
+      "objective": "Design behavior-focused unit, integration, regression, boundary, state-transition, and security test cases before implementation.",
+      "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": [],
-      "outputs": [
-        "output/analyzer.md"
-      ]
+      "tools": ["read", "exec"],
+      "outputs": ["output/test-plan.md"],
+      "runtime": "appserver"
     },
-    "refactor-planner": {
-      "role": "Refactor Planner",
-      "objective": "Create a safe, incremental refactoring plan that improves code quality while preserving existing behavior.  Break large refactoring efforts into small, reviewable steps.",
-      "model": "free",
+    "delivery_planner": {
+      "role": "Delivery Planner",
+      "objective": "Turn approved inputs into small ordered tasks with concrete files, dependencies, tests, risks, rollback, and done criteria.",
+      "model": "gpt-5.6-sol",
+      "thinking": "high",
+      "tools": ["read", "exec"],
+      "outputs": ["output/plan.md"],
+      "runtime": "appserver"
+    },
+    "implementer": {
+      "role": "Implementer",
+      "objective": "Implement the approved plan with minimal source changes, focused tests, proportional validation, and no unrelated modifications.",
+      "model": "gpt-5.6-sol",
+      "thinking": "high",
+      "tools": ["read", "write", "edit", "apply_patch", "exec"],
+      "outputs": ["output/implementation.md"],
+      "runtime": "appserver"
+    },
+    "code_reviewer": {
+      "role": "Code Reviewer",
+      "objective": "Independently review the scoped diff for requirement coverage, correctness, security, regressions, tests, and maintainability.",
+      "model": "gpt-5.6-sol",
+      "thinking": "xhigh",
+      "tools": ["read", "exec"],
+      "outputs": ["output/review.md"],
+      "runtime": "appserver"
+    },
+    "qa_verifier": {
+      "role": "QA Verifier",
+      "objective": "Execute acceptance and regression validation independently and provide the final evidence-based delivery verdict.",
+      "model": "gpt-5.6-sol",
+      "thinking": "xhigh",
+      "tools": ["read", "exec"],
+      "outputs": ["output/verification.md"],
+      "runtime": "appserver"
+    },
+    "estimator": {
+      "role": "Delivery Estimator",
+      "objective": "Produce transparent range estimates from clarified scope, code impact, design, dependencies, and uncertainty.",
+      "model": "gpt-5.6-sol",
       "thinking": "medium",
-      "tools": [],
-      "outputs": [
-        "output/refactor-plan.md"
-      ]
-    },
-    "refactor-implementer": {
-      "role": "Refactor Implementer",
-      "objective": "Apply refactoring changes according to the approved plan while preserving behavior and minimizing code churn.",
-      "model": "free",
-      "thinking": "high",
-      "tools": [],
-      "outputs": [
-        "output/implementation.md"
-      ]
-    },
-    "investigator": {
-      "role": "Investigator",
-      "objective": "Identify the true root cause of the reported issue through evidence-based investigation.  Determine:  - What is broken - How to reproduce it - Why it happens - Which components are involved  Do not propose fixes.  Focus on facts, evidence, and root cause analysis.",
-      "model": "gpt-5.5",
-      "thinking": "high",
-      "tools": [],
-      "outputs": [
-        "output/investigation.md"
-      ],
-      "runtime": "codex"
-    },
-    "fix_planner": {
-      "role": "Fix Planner",
-      "objective": "Design the safest and smallest fix that resolves the root cause without introducing regressions.",
-      "model": "gpt-5.5",
-      "thinking": "high",
-      "tools": [],
-      "outputs": [
-        "output/fix-plan.md"
-      ],
-      "runtime": "codex"
-    },
-    "fix_implementer": {
-      "role": "Fix Implementer",
-      "objective": "Implement the approved fix with minimal code changes while preserving all intended behavior.",
-      "model": "gpt-5.5",
-      "thinking": "high",
-      "tools": [],
-      "outputs": [
-        "output/implementation.md"
-      ],
-      "runtime": "codex"
-    },
-    "bug_verifier": {
-      "role": "Bug Verifier",
-      "objective": "Verify the reported issue is resolved and ensure no regressions were introduced.",
-      "model": "gpt-5.5",
-      "thinking": "xhigh",
-      "tools": [],
-      "outputs": [
-        "output/verification.md"
-      ],
-      "runtime": "codex"
+      "tools": ["read", "exec"],
+      "outputs": ["output/estimate.md"],
+      "runtime": "appserver"
     }
   }
 }

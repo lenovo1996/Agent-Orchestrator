@@ -77,12 +77,14 @@ describe('SessionViewer', () => {
     const workflow: WorkflowState = {
       flowId: 'flow_001', workspaceId: 'ws_1', workspaceName: 'Workspace', workflowId: 'wf_1',
       jiraKey: 'TEST-1', stepOrder: ['implementer'], status: 'running', currentStep: 'implementer',
+      workflowContext: '',
       generation: 1, revision: 1, useWorktree: false, worktreeBranch: null,
       blockedReason: null, errorSummary: null, createdAt: latest.startedAt,
       startedAt: latest.startedAt, finishedAt: null, steps: { implementer: 'running' },
       stepDetails: [{
         step: 'implementer', position: 0, status: 'running', cycle: 1,
-        technicalRetryCount: 0, needsFixCount: 0, outputPath: 'output/implementation.md',
+        technicalRetryCount: 0, needsFixCount: 0, onNeedsFix: null,
+        outputPath: 'output/implementation.md',
         startedAt: latest.startedAt, finishedAt: null, updatedAt: latest.startedAt,
       }],
       dependencies: [],

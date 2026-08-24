@@ -136,6 +136,23 @@ schema cùng cấu hình agent/workflow mặc định. Nếu khởi động dash
 trực tiếp mà chưa chạy setup, hệ thống vẫn tạo một database trống. Hệ thống không
 import execution state từ `workflow.json` hoặc các flow directory cũ.
 
+Catalog agent/workflow có nguồn chuẩn dạng text tại `team.json`, `prompts/*.md` và
+`workflow-catalog.json`. Sau khi review các file này, reset database runtime bằng:
+
+```bash
+cd dashboard
+npm run build
+npm run catalog:reset
+```
+
+Lệnh reset xóa toàn bộ flow, attempt, command, event và cấu hình catalog cũ trong
+database, sau đó seed catalog mới. Workspace local được giữ mặc định; thêm
+`-- --clear-workspaces` nếu cần tạo template không chứa đường dẫn máy cá nhân.
+
+Mỗi workflow snapshot `context` và `NEEDS_FIX` routing khi tạo flow. Quality gate của
+workflow delivery quay lại `implementer`; workflow audit dùng target `block` để không
+tự sửa code.
+
 ## Start development
 
 Nên khởi động theo thứ tự Inngest, worker, sau đó dashboard. Dùng ba terminal riêng.

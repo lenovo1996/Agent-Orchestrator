@@ -17,6 +17,7 @@
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "catalog:reset": "tsx src/catalog-cli.ts",
     "dev:worker": "tsx watch src/worker.ts",
     "start:worker": "node dist/worker.js",
     "flow": "tsx src/cli.ts"

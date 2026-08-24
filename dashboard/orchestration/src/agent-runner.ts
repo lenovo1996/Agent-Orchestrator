@@ -160,6 +160,10 @@ export class AgentRunner {
     }
   }
 
+  private agentCanWrite(tools: string[]): boolean {
+    return tools.some((tool) => ['write', 'edit', 'apply_patch'].includes(tool));
+  }
+
   private buildPrompt(flowId: string, step: string): string {
     const flow = this.service.getFlow(flowId);
     const agent = this.service.getAgent(step);
@@ -184,6 +188,9 @@ export class AgentRunner {
       `- Workspace dir: ${effectiveWorkspace}`,
       `- Work dir: ${workDirectory}`,
     ];
+    if (flow.workflowContext) {
+      parts.push('', '## Workflow Policy', '', flow.workflowContext);
+    }
     if (flow.worktreePath) parts.push(`- Main workspace: ${flow.workspacePath} (do not modify directly)`);
     if (flow.customPrompt) parts.push('', '## Custom Requirement', '', flow.customPrompt);
     const taskId = flow.jiraKey && /^[A-Za-z0-9._-]+$/.test(flow.jiraKey) ? flow.jiraKey : flow.flowId;
@@ -200,7 +207,10 @@ export class AgentRunner {
       parts.push('', '## Previous Outputs', '', ...previousOutputs.map((file) => `- ${file}`));
     }
     const output = this.service.outputFile(flowId, step);
-    parts.push('', '## Your Output', '', `Write your output to: ${output}`, '', 'Follow the instructions exactly.');
+    const outputInstruction = this.agentCanWrite(agent.tools)
+      ? `Write your output to: ${output}`
+      : `Return the complete report in your final response. The orchestrator will persist it to: ${output}`;
+    parts.push('', '## Your Output', '', outputInstruction, '', 'Follow the instructions exactly.');
     return parts.join('\n').replaceAll('{{REPO_ROOT}}', effectiveWorkspace)
       .replaceAll('{{TASK_ID}}', flow.jiraKey || flow.flowId)
       .replaceAll('{{TASK_NAME}}', flow.jiraKey || flow.flowId);
@@ -509,6 +519,7 @@ export class AgentRunner {
   ): Promise<AgentStepResult> {
     const flow = this.service.getFlow(input.flowId);
     const agent = this.service.getAgent(input.step);
+    const sandbox = this.agentCanWrite(agent.tools) ? 'danger-full-access' : 'read-only';
     const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
     this.ensureWorkspaceTrusted(effectiveWorkspace);
     this.mergeMcpJsonToWorkspaceConfig(effectiveWorkspace);
@@ -586,12 +597,14 @@ export class AgentRunner {
             threadInfo = await client.createThread({
               cwd: effectiveWorkspace,
               model: agent.model || undefined,
+              sandbox,
             });
           }
         } else {
           threadInfo = await client.createThread({
             cwd: effectiveWorkspace,
             model: agent.model || undefined,
+            sandbox,
           });
         }
       } else {
@@ -599,6 +612,7 @@ export class AgentRunner {
         threadInfo = await client.createThread({
           cwd: effectiveWorkspace,
           model: agent.model || undefined,
+          sandbox,
         });
       }
 

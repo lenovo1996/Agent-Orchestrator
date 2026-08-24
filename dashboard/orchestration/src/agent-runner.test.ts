@@ -108,6 +108,7 @@ describe('AgentRunner', () => {
     expect(client.startTurn).toHaveBeenCalledWith('thread-1', expect.any(String), {
       model: 'gpt-5.6-sol', effort: 'high', summary: 'detailed',
     });
+    expect(client.createThread).toHaveBeenCalledWith(expect.objectContaining({ sandbox: 'read-only' }));
     expect(client.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-1');
     expect(context.service.listAttempts(input.flowId)[0]).toMatchObject({ status: 'cancelled' });
     const attempt = context.service.listAttempts(input.flowId)[0];

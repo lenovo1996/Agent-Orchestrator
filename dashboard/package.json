@@ -21,7 +21,8 @@
     "build": "npm run build --workspace=shared && npm run build --workspace=orchestration && npm run build --workspace=client && npm run build --workspace=server",
     "start": "npm run start --workspace=server",
     "start:worker": "npm run start:worker --workspace=orchestration",
-    "flow": "npm run flow --workspace=orchestration --"
+    "flow": "npm run flow --workspace=orchestration --",
+    "catalog:reset": "npm run catalog:reset --workspace=orchestration --"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

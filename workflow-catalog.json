@@ -1,0 +1,112 @@
+{
+  "workflows": [
+    {
+      "id": "clarify_only",
+      "name": "Clarify Only",
+      "description": "Turn a Jira ticket or custom request into an approved requirement contract without designing or implementing code.",
+      "context": "Requirements-only workflow. Do not inspect unrelated code, design a solution, estimate work, or modify repository files. DONE requires observable acceptance criteria; unresolved decisions that prevent safe work must be BLOCKED.",
+      "steps": ["requirements_analyst"],
+      "needsFix": {},
+      "version": 1
+    },
+    {
+      "id": "investigate_only",
+      "name": "Investigation Only",
+      "description": "Clarify a defect and establish its evidence-backed root cause without proposing or implementing a fix.",
+      "context": "Diagnostic-only workflow. Reproduce when possible, separate symptoms from root cause, and preserve the working tree. No agent may propose a fix or modify source code.",
+      "steps": ["requirements_analyst", "bug_investigator"],
+      "needsFix": {},
+      "version": 1
+    },
+    {
+      "id": "research_spike",
+      "name": "Research Spike",
+      "description": "Clarify a technical question and produce primary-source research with alternatives and confidence.",
+      "context": "Research-only workflow. Prefer official and primary sources, distinguish facts from inferences, and do not make a final architecture decision or modify repository files.",
+      "steps": ["requirements_analyst", "technical_researcher"],
+      "needsFix": {},
+      "version": 1
+    },
+    {
+      "id": "solution_design",
+      "name": "Solution Design",
+      "description": "Analyze the current codebase and produce a safe technical design without implementation.",
+      "context": "Design-only workflow. The design must be grounded in current code, minimize change, name impacted areas, define test strategy, and include rollout and rollback. No source modification is allowed.",
+      "steps": ["requirements_analyst", "codebase_analyst", "solution_architect"],
+      "needsFix": {},
+      "version": 1
+    },
+    {
+      "id": "delivery_estimate",
+      "name": "Delivery Estimate",
+      "description": "Estimate an implementation only after requirements, impact, and technical design are understood.",
+      "context": "Estimation workflow. Use ranges, explicit assumptions, dependencies, confidence, and re-estimation triggers. Separate engineering effort from elapsed waiting time and avoid false precision.",
+      "steps": ["requirements_analyst", "codebase_analyst", "solution_architect", "estimator"],
+      "needsFix": {},
+      "version": 1
+    },
+    {
+      "id": "quick_change",
+      "name": "Quick Change",
+      "description": "Deliver a small, low-risk, localized change whose solution is already clear.",
+      "context": "Use only for localized low-risk changes with clear expected behavior. It is not allowed for schema migrations, authorization, tenant isolation, cross-service contracts, or uncertain root causes. Keep the diff minimal and validate the affected behavior.",
+      "steps": ["requirements_analyst", "delivery_planner", "implementer", "qa_verifier"],
+      "needsFix": {"qa_verifier": "implementer"},
+      "version": 1
+    },
+    {
+      "id": "full_feature",
+      "name": "Full Feature",
+      "description": "End-to-end delivery workflow for new features and meaningful business behavior changes.",
+      "context": "Feature-delivery workflow. Requirements, current code, design, tests, implementation, independent review, and QA must agree. Prefer minimal compatible extension, preserve tenant boundaries, and route every blocking quality finding back to the implementer.",
+      "steps": ["requirements_analyst", "codebase_analyst", "solution_architect", "test_designer", "delivery_planner", "implementer", "code_reviewer", "qa_verifier"],
+      "needsFix": {"code_reviewer": "implementer", "qa_verifier": "implementer"},
+      "version": 1
+    },
+    {
+      "id": "bug_fix",
+      "name": "Bug Fix",
+      "description": "Reproduce a bug, establish root cause, implement the smallest safe fix, and independently verify it.",
+      "context": "Root-cause-first bug workflow. Do not design or implement before evidence identifies the cause. The fix must address the cause rather than the symptom, include a regression test, preserve unrelated behavior, and pass independent review and reproduction-based QA.",
+      "steps": ["requirements_analyst", "bug_investigator", "solution_architect", "test_designer", "delivery_planner", "implementer", "code_reviewer", "qa_verifier"],
+      "needsFix": {"code_reviewer": "implementer", "qa_verifier": "implementer"},
+      "version": 1
+    },
+    {
+      "id": "safe_refactor",
+      "name": "Safe Refactor",
+      "description": "Improve internal structure incrementally while proving that business behavior remains unchanged.",
+      "context": "Behavior-preserving refactor workflow. Establish invariants and characterization tests before structural edits. Avoid big-bang rewrites, keep every phase reviewable and reversible, preserve public contracts, and reject unrelated behavior changes.",
+      "steps": ["requirements_analyst", "codebase_analyst", "solution_architect", "test_designer", "delivery_planner", "implementer", "code_reviewer", "qa_verifier"],
+      "needsFix": {"code_reviewer": "implementer", "qa_verifier": "implementer"},
+      "version": 1
+    },
+    {
+      "id": "test_coverage",
+      "name": "Test Coverage",
+      "description": "Design and implement meaningful unit, integration, or regression coverage for existing behavior.",
+      "context": "Test-focused workflow. Derive tests from business behavior, boundaries, state transitions, risks, and real repository conventions. Production changes are allowed only when minimally required for testability and must preserve behavior.",
+      "steps": ["requirements_analyst", "codebase_analyst", "test_designer", "delivery_planner", "implementer", "code_reviewer", "qa_verifier"],
+      "needsFix": {"code_reviewer": "implementer", "qa_verifier": "implementer"},
+      "version": 1
+    },
+    {
+      "id": "pr_audit",
+      "name": "PR Audit",
+      "description": "Perform a read-only independent code review and executable QA audit of an existing change.",
+      "context": "Read-only audit workflow. Neither agent may modify code or tests. A blocking finding must block the flow for human/developer action instead of triggering an automatic implementation loop.",
+      "steps": ["code_reviewer", "qa_verifier"],
+      "needsFix": {"code_reviewer": "block", "qa_verifier": "block"},
+      "version": 1
+    },
+    {
+      "id": "security_change",
+      "name": "Security Change",
+      "description": "High-assurance workflow for authentication, authorization, tenant isolation, sensitive data, CVEs, and permission changes.",
+      "context": "Security-critical delivery workflow. Threat model before design, use current primary sources for version-sensitive claims, define negative tests, preserve least privilege and tenant isolation, avoid logging secrets, and require independent security-aware review and QA.",
+      "steps": ["requirements_analyst", "security_analyst", "technical_researcher", "codebase_analyst", "solution_architect", "test_designer", "delivery_planner", "implementer", "code_reviewer", "qa_verifier"],
+      "needsFix": {"code_reviewer": "implementer", "qa_verifier": "implementer"},
+      "version": 1
+    }
+  ]
+}

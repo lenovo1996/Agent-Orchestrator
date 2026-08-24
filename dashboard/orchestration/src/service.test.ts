@@ -50,6 +50,50 @@ describe('OrchestrationService commands and transitions', () => {
     ]);
   });
 
+  it('snapshots workflow context and routes NEEDS_FIX to the configured step', () => {
+    context.database.run(`
+      UPDATE workflows SET context = ?, needs_fix_map = ? WHERE id = 'workflow-1'
+    `, 'Preserve the approved workflow policy.', JSON.stringify({ verifier: 'implementer' }));
+    const command = createFlow(context.service);
+    const flow = context.service.getFlow(command.flowId);
+    expect(flow.workflowContext).toBe('Preserve the approved workflow policy.');
+    expect(flow.stepDetails[1]).toMatchObject({ step: 'verifier', onNeedsFix: 'implementer' });
+
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-policy', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    context.service.projectAgentResult(command.flowId, 'implementer', {
+      status: 'DONE', attemptId: 'implementation',
+    });
+    context.service.queueStep(command.flowId, 'verifier');
+    expect(context.service.projectAgentResult(command.flowId, 'verifier', {
+      status: 'NEEDS_FIX', attemptId: 'verification',
+    })).toMatchObject({ outcome: 'rewind', nextIndex: 0 });
+  });
+
+  it('blocks a read-only audit when its NEEDS_FIX policy is block', () => {
+    context.database.run(`
+      UPDATE workflows SET needs_fix_map = ? WHERE id = 'workflow-1'
+    `, JSON.stringify({ verifier: 'block' }));
+    const command = createFlow(context.service);
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-audit', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    context.service.projectAgentResult(command.flowId, 'implementer', {
+      status: 'DONE', attemptId: 'review',
+    });
+    context.service.queueStep(command.flowId, 'verifier');
+
+    expect(context.service.projectAgentResult(command.flowId, 'verifier', {
+      status: 'NEEDS_FIX', attemptId: 'audit',
+    })).toMatchObject({ outcome: 'blocked', nextIndex: 1 });
+    expect(context.service.getFlow(command.flowId)).toMatchObject({
+      status: 'blocked',
+      blockedReason: 'Quality gate verifier requires changes',
+    });
+    expect(context.service.getFlow(command.flowId).stepDetails[1]).toMatchObject({
+      status: 'needs_fix', needsFixCount: 1,
+    });
+  });
+
   it('uses the workspace as the concurrency key even for separate worktrees', () => {
     const first = context.service.createFlow({
       workflowId: 'workflow-1', workspaceId: 'workspace-1', prompt: 'first', useWorktree: true,
