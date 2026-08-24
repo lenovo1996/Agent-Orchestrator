@@ -445,8 +445,8 @@ start_docker_compose() {
     event_key=$(openssl rand -hex 32)
     signing_key=$(openssl rand -hex 32)
     
-    sed -i "s/INNGEST_EVENT_KEY=replace_with_a_random_hex_value/INNGEST_EVENT_KEY=$event_key/" "$ENV_FILE"
-    sed -i "s/INNGEST_SIGNING_KEY=replace_with_a_random_hex_value/INNGEST_SIGNING_KEY=$signing_key/" "$ENV_FILE"
+    sed -i "" "s/INNGEST_EVENT_KEY=replace_with_a_random_hex_value/INNGEST_EVENT_KEY=$event_key/" "$ENV_FILE"
+    sed -i "" "s/INNGEST_SIGNING_KEY=replace_with_a_random_hex_value/INNGEST_SIGNING_KEY=$signing_key/" "$ENV_FILE"
     log_success "Generated Inngest keys"
   fi
   
