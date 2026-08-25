@@ -31,6 +31,14 @@ function tail(value: string, max = 20_000): string {
   return value.length <= max ? value : value.slice(-max);
 }
 
+function canonicalPath(value: string): string {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
 export class AgentRunner {
   readonly supervisor: ProcessSupervisor;
   private _appServerClient: AppServerClient | null = null;
@@ -616,6 +624,18 @@ export class AgentRunner {
         });
       }
 
+      if (canonicalPath(threadInfo.cwd) !== canonicalPath(effectiveWorkspace)) {
+        throw new PermanentAgentError(
+          `App-server thread cwd mismatch: expected ${effectiveWorkspace}, received ${threadInfo.cwd}`,
+          'configuration',
+        );
+      }
+
+      // The app-server client is shared by all concurrent flows. Bind the
+      // bridge explicitly to the response for this request before starting a
+      // turn so notifications from other workspaces cannot enter this session.
+      bridge.bindThread(threadInfo.threadId);
+
       // Send the prompt as a turn
       // When resuming, use the one-off follow-up without changing the flow-wide prompt.
       // instead of rebuilding the full prompt with all context
@@ -630,9 +650,11 @@ export class AgentRunner {
       const reasoningEffort = agent.thinking?.trim() || undefined;
       const turnInfo = await client.startTurn(threadInfo.threadId, prompt, {
         model: agent.model || undefined,
+        cwd: effectiveWorkspace,
         effort: reasoningEffort,
         summary: reasoningEffort === 'none' ? 'none' : 'detailed',
       });
+      bridge.bindTurn(turnInfo.turnId);
       this.supervisor.registerActiveThread(
         input.flowId,
         input.step,
@@ -718,12 +740,18 @@ export class AgentRunner {
       }
     } catch (error) {
       if (error instanceof PermanentAgentError && error.stage === 'cancelled') {
+        if (!bridge.isFinalized) bridge.cancel();
         this.service.finishAttempt(attempt.id, 'cancelled', null);
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
-      const stage = error instanceof RetriableAgentError ? error.stage : 'process';
-      this.service.finishAttempt(attempt.id, 'failed', 1, { stage, message: message.slice(0, 500), retriable: true });
+      const stage = error instanceof RetriableAgentError || error instanceof PermanentAgentError
+        ? error.stage
+        : 'process';
+      if (!bridge.isFinalized) bridge.fail(message);
+      const retriable = !(error instanceof PermanentAgentError);
+      this.service.finishAttempt(attempt.id, 'failed', 1, { stage, message: message.slice(0, 500), retriable });
+      if (error instanceof PermanentAgentError) throw error;
       if (error instanceof RetriableAgentError) throw error;
       throw new RetriableAgentError(message, stage);
     }
