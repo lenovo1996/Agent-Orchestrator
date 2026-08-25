@@ -294,11 +294,13 @@ async function main() {
   });
 
   // Create thread
+  const runtimeWorkspaceRoots = [...new Set([path.resolve(cwd), path.resolve(workDir)])];
   const threadResult = await client.request('thread/start', {
     cwd,
+    runtimeWorkspaceRoots,
     model: process.env.AGENT_MODEL || undefined,
     approvalPolicy: 'never',
-    sandbox: { type: 'dangerFullAccess' },
+    sandbox: 'workspace-write',
     personality: 'pragmatic',
     ephemeral: false,
   });
@@ -312,6 +314,15 @@ async function main() {
   const turnResult = await client.request('turn/start', {
     threadId: currentThreadId,
     input: [{ type: 'text', text: prompt, text_elements: [] }],
+    cwd,
+    runtimeWorkspaceRoots,
+    sandboxPolicy: {
+      type: 'workspaceWrite',
+      writableRoots: runtimeWorkspaceRoots,
+      networkAccess: true,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    },
     model: process.env.AGENT_MODEL || undefined,
   });
 

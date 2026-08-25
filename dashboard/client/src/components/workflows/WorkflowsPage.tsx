@@ -1,15 +1,30 @@
-import { useEffect, useState } from 'react';
-import type { CustomWorkflow, AgentConfig } from '@devteam-dashboard/shared';
-import { Plus, Edit2, Trash2, GitMerge, FileText, ListTree, ChevronRight } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { AgentConfig, CustomWorkflow } from '@devteam-dashboard/shared';
+import {
+  AlertTriangle, ArrowDown, ArrowUp, Bot, BrainCircuit, CheckCircle2, ChevronRight,
+  FileOutput, GitMerge, ListTree, Pencil, Plus, RefreshCw, Search, TerminalSquare,
+  Trash2, X,
+} from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+type StepField = { key: number; value: string };
+let nextStepKey = 0;
+
+function createStep(value = ''): StepField {
+  nextStepKey += 1;
+  return { key: nextStepKey, value };
+}
 
 function parseNeedsFix(value: string): Record<string, string> {
   if (!value.trim()) return {};
   return Object.fromEntries(value.split(',').map((entry) => {
     const [gate, target, ...rest] = entry.split('=').map((part) => part.trim());
-    if (!gate || !target || rest.length) throw new Error(`Invalid feedback route: ${entry.trim()}`);
+    if (!gate || !target || rest.length) {
+      throw new Error(`Invalid NEEDS_FIX route “${entry.trim()}”. Use gate=target.`);
+    }
     return [gate, target];
   }));
 }
@@ -18,361 +33,340 @@ function formatNeedsFix(value: Record<string, string>): string {
   return Object.entries(value).map(([gate, target]) => `${gate}=${target}`).join(', ');
 }
 
+async function getResponseError(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = await response.json() as { error?: unknown; message?: unknown };
+    if (typeof body.message === 'string' && body.message) return body.message;
+    if (typeof body.error === 'string' && body.error) return body.error;
+  } catch {
+    // The API may return an empty or non-JSON error response.
+  }
+  return fallback;
+}
+
 export function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
-
-  // form state
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [agentReferencesUnavailable, setAgentReferencesUnavailable] = useState(false);
+  const [query, setQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [currentId, setCurrentId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [steps, setSteps] = useState('');
+  const [steps, setSteps] = useState<StepField[]>([createStep()]);
   const [context, setContext] = useState('');
   const [needsFix, setNeedsFix] = useState('');
   const [version, setVersion] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const fetchWorkflows = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/agents`);
-      if (res.ok) {
-        const data = await res.json();
-        setAgents(data);
-      }
-    } catch {}
+  const fetchCatalog = async () => {
+    setLoading(true);
+    setLoadError(null);
+    const [workflowResult, agentResult] = await Promise.allSettled([
+      fetch(`${API_BASE}/api/workflows`),
+      fetch(`${API_BASE}/api/agents`),
+    ]);
 
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_BASE}/api/workflows`);
-      if (res.ok) {
-        const data = await res.json();
-        setWorkflows(data);
-      } else {
-        setError('Failed to fetch workflows');
+    if (agentResult.status === 'fulfilled' && agentResult.value.ok) {
+      try {
+        setAgents(await agentResult.value.json() as AgentConfig[]);
+        setAgentReferencesUnavailable(false);
+      } catch {
+        setAgentReferencesUnavailable(true);
       }
-    } catch (err) {
-      setError('Connection error');
-    } finally {
-      setLoading(false);
+    } else {
+      setAgentReferencesUnavailable(true);
     }
+
+    if (workflowResult.status === 'fulfilled') {
+      if (workflowResult.value.ok) {
+        try {
+          setWorkflows(await workflowResult.value.json() as CustomWorkflow[]);
+        } catch {
+          setLoadError('The workflow catalog returned an invalid response.');
+        }
+      } else {
+        setLoadError(await getResponseError(workflowResult.value, 'Failed to load workflows.'));
+      }
+    } else {
+      setLoadError('Unable to connect to the workflow catalog.');
+    }
+    setLoading(false);
   };
 
   useEffect(() => {
-    fetchWorkflows();
+    void fetchCatalog();
   }, []);
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const stepArray = steps.split(',').map(s => s.trim()).filter(Boolean);
-
-      const payload = {
-        id: currentId || `wf_${Date.now()}`,
-        name,
-        description,
-        steps: stepArray,
-        context,
-        needsFix: parseNeedsFix(needsFix),
-        version,
-      };
-
-      const url = currentId ? `${API_BASE}/api/workflows/${currentId}` : `${API_BASE}/api/workflows`;
-      const method = currentId ? 'PUT' : 'POST';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (res.ok) {
-        setIsEditing(false);
-        resetForm();
-        fetchWorkflows();
-      } else {
-        setError('Failed to save workflow');
-      }
-    } catch (err) {
-      setError('Connection error');
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this workflow?')) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/workflows/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        fetchWorkflows();
-      }
-    } catch (err) {
-      setError('Connection error');
-    }
-  };
 
   const resetForm = () => {
     setCurrentId('');
     setName('');
     setDescription('');
-    setSteps('');
+    setSteps([createStep()]);
     setContext('');
     setNeedsFix('');
     setVersion(1);
     setIsEditing(false);
+    setMutationError(null);
   };
 
-  const startEdit = (wf: CustomWorkflow) => {
-    setCurrentId(wf.id);
-    setName(wf.name);
-    setDescription(wf.description);
-    setSteps(wf.steps.join(', '));
-    setContext(wf.context);
-    setNeedsFix(formatNeedsFix(wf.needsFix));
-    setVersion(wf.version);
+  const startNew = () => {
+    resetForm();
+    setSuccessMessage(null);
     setIsEditing(true);
   };
 
+  const startEdit = (workflow: CustomWorkflow) => {
+    setCurrentId(workflow.id);
+    setName(workflow.name);
+    setDescription(workflow.description);
+    setSteps((workflow.steps.length ? workflow.steps : ['']).map((step) => createStep(step)));
+    setContext(workflow.context);
+    setNeedsFix(formatNeedsFix(workflow.needsFix));
+    setVersion(workflow.version);
+    setMutationError(null);
+    setSuccessMessage(null);
+    setIsEditing(true);
+  };
+
+  const updateStep = useCallback((key: number, value: string) => {
+    setSteps((current) => current.map((step) => step.key === key ? { ...step, value } : step));
+  }, []);
+
+  const moveStep = useCallback((index: number, direction: -1 | 1) => {
+    setSteps((current) => {
+      const target = index + direction;
+      if (target < 0 || target >= current.length) return current;
+      const reordered = [...current];
+      [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+      return reordered;
+    });
+  }, []);
+
+  const removeStep = useCallback((key: number) => {
+    setSteps((current) => current.length === 1
+      ? current.map((step) => ({ ...step, value: '' }))
+      : current.filter((step) => step.key !== key));
+  }, []);
+
+  const handleSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (saving) return;
+    setSaving(true);
+    setMutationError(null);
+    setSuccessMessage(null);
+    try {
+      const stepIds = steps.map((step) => step.value.trim()).filter(Boolean);
+      if (!stepIds.length) throw new Error('Add at least one agent step.');
+      const payload = {
+        id: currentId || `wf_${Date.now()}`,
+        name,
+        description,
+        steps: stepIds,
+        context,
+        needsFix: parseNeedsFix(needsFix),
+        version,
+      };
+      const response = await fetch(
+        currentId ? `${API_BASE}/api/workflows/${currentId}` : `${API_BASE}/api/workflows`,
+        {
+          method: currentId ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!response.ok) throw new Error(await getResponseError(response, 'Failed to save workflow.'));
+      const action = currentId ? 'updated' : 'created';
+      resetForm();
+      await fetchCatalog();
+      setSuccessMessage(`Workflow ${action} successfully.`);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to save workflow.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (deletingId || !window.confirm('Are you sure you want to delete this workflow?')) return;
+    setDeletingId(id);
+    setMutationError(null);
+    setSuccessMessage(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/workflows/${id}`, { method: 'DELETE' });
+      if (!response.ok) throw new Error(await getResponseError(response, 'Failed to delete workflow.'));
+      await fetchCatalog();
+      setSuccessMessage('Workflow deleted successfully.');
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : 'Failed to delete workflow.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredWorkflows = useMemo(() => workflows.filter((workflow) => {
+    if (!normalizedQuery) return true;
+    return [workflow.id, workflow.name, workflow.description, ...workflow.steps]
+      .some((value) => value.toLowerCase().includes(normalizedQuery));
+  }), [normalizedQuery, workflows]);
+  const totalSteps = workflows.reduce((sum, workflow) => sum + workflow.steps.length, 0);
+  const feedbackWorkflows = workflows.filter((workflow) => Object.keys(workflow.needsFix).length > 0).length;
+  const knownAgentIds = new Set(agents.map((agent) => agent.id));
+
   return (
-    <div className="p-8 h-full overflow-y-auto bg-background/50">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10 gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground flex items-center gap-3 tracking-tight">
-            <div className="p-2 bg-primary/10 rounded-xl">
-              <GitMerge className="w-7 h-7 text-primary" />
+    <div className="h-full overflow-y-auto bg-background/50 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <span className="rounded-xl bg-primary/10 p-2 text-primary"><GitMerge className="h-6 w-6" /></span>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Orchestration catalog</p>
+                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Workflows</h1>
+              </div>
             </div>
-            Custom Workflows
-          </h1>
-          <p className="text-sm text-muted-foreground mt-2 max-w-xl leading-relaxed">
-            Design and manage agent execution sequences. Define custom workflows to orchestrate different agents for specific tasks.
-          </p>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Define execution order, shared policy, and feedback routes for reusable agent workflows.</p>
+          </div>
+          {!isEditing && (
+            <button type="button" onClick={startNew} className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto">
+              <Plus className="h-4 w-4" /> Create Workflow
+            </button>
+          )}
+        </header>
+
+        <div aria-live="polite" className="space-y-3">
+          {successMessage && <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {successMessage}</div>}
+          {mutationError && <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> {mutationError}</div>}
+          {agentReferencesUnavailable && <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Agent references cannot be verified right now. Workflow data is still available.</div>}
         </div>
-        {!isEditing && (
-          <button
-            onClick={() => setIsEditing(true)}
-            className="group flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0"
-          >
-            <Plus className="w-4 h-4 transition-transform group-hover:rotate-90 duration-300" />
-            Create Workflow
-          </button>
+
+        {isEditing && (
+          <Card className="overflow-hidden border-primary/20 shadow-md">
+            <form onSubmit={handleSave}>
+              <CardHeader className="border-b border-border/70 bg-muted/20 p-5 sm:p-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div><p className="text-xs font-semibold uppercase tracking-wider text-primary">Workflow workspace</p><CardTitle className="mt-1 text-xl">{currentId ? 'Edit workflow' : 'Create workflow'}</CardTitle></div>
+                  <button type="button" aria-label="Close workflow editor" onClick={resetForm} disabled={saving} className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><X className="h-4 w-4" /></button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-8 p-5 sm:p-6">
+                <fieldset className="space-y-4">
+                  <legend className="text-sm font-semibold">General</legend>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2"><label htmlFor="workflow-name" className="text-sm font-medium">Name</label><input id="workflow-name" required value={name} onChange={(event) => setName(event.target.value)} placeholder="Code review process" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+                    <div className="space-y-2"><label htmlFor="workflow-version" className="text-sm font-medium">Version</label><input id="workflow-version" type="number" min={1} required value={version} onChange={(event) => setVersion(Number(event.target.value) || 1)} className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+                  </div>
+                  <div className="space-y-2"><label htmlFor="workflow-description" className="text-sm font-medium">Description</label><input id="workflow-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What this workflow coordinates" className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+                </fieldset>
+
+                <fieldset className="space-y-4">
+                  <div><legend className="text-sm font-semibold">Execution sequence</legend><p className="mt-1 text-xs text-muted-foreground">Steps run from top to bottom. Reorder them with the arrow controls; existing unknown references are preserved.</p></div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setSteps((current) => [...current, createStep()])} disabled={saving} className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-xs font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><Plus className="h-3.5 w-3.5" /> Add empty step</button>
+                    {agents.map((agent) => <button key={agent.id} type="button" onClick={() => setSteps((current) => [...current, createStep(agent.id)])} disabled={saving} className="rounded-md border border-border bg-muted/30 px-3 py-2 font-mono text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">+ {agent.id}</button>)}
+                  </div>
+                  <ol aria-label="Workflow execution editor" className="space-y-3">
+                    {steps.map((step, index) => {
+                      const agent = agents.find((candidate) => candidate.id === step.value);
+                      const isMissing = Boolean(step.value && !agent && !agentReferencesUnavailable);
+                      return (
+                        <li key={step.key} className={cn('rounded-xl border border-border bg-muted/10 p-4', isMissing && 'border-amber-500/50 bg-amber-500/5')}>
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-bold text-primary" aria-hidden="true">{index + 1}</span>
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="space-y-2">
+                                <label htmlFor={`workflow-step-${step.key}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Agent for step {index + 1}</label>
+                                <input id={`workflow-step-${step.key}`} required list="workflow-agent-options" value={step.value} onChange={(event) => updateStep(step.key, event.target.value)} disabled={saving} placeholder="agent-id" className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60" />
+                              </div>
+                              {agent ? (
+                                <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                                  <span className="flex min-w-0 items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-2"><Bot className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{agent.role}</span></span>
+                                  <span className="flex min-w-0 items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-2"><BrainCircuit className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{agent.model || 'Default model'}</span></span>
+                                  <span className="flex min-w-0 items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-2"><TerminalSquare className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{agent.runtime || 'Default runtime'}</span></span>
+                                  <span className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-2"><FileOutput className="h-3.5 w-3.5" />{agent.outputs.length} outputs</span>
+                                </div>
+                              ) : isMissing ? (
+                                <p className="flex items-center gap-2 text-xs text-amber-800 dark:text-amber-200"><AlertTriangle className="h-4 w-4 shrink-0" /> Missing agent reference. It will be preserved unless you change or remove this step.</p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 items-center justify-end gap-1">
+                              <button type="button" aria-label={`Move step ${index + 1} up`} onClick={() => moveStep(index, -1)} disabled={index === 0 || saving} className="rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+                              <button type="button" aria-label={`Move step ${index + 1} down`} onClick={() => moveStep(index, 1)} disabled={index === steps.length - 1 || saving} className="rounded-md p-2 text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+                              <button type="button" aria-label={`Remove step ${index + 1}`} onClick={() => removeStep(step.key)} disabled={saving} className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                  <datalist id="workflow-agent-options">{agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.role}</option>)}</datalist>
+                </fieldset>
+
+                <fieldset className="space-y-4">
+                  <legend className="text-sm font-semibold">Policy and feedback</legend>
+                  <div className="space-y-2"><label htmlFor="workflow-policy" className="text-sm font-medium">Shared workflow policy</label><textarea id="workflow-policy" rows={4} value={context} onChange={(event) => setContext(event.target.value)} placeholder="Policy and constraints injected into each agent prompt" className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+                  <div className="space-y-2"><label htmlFor="workflow-needs-fix" className="text-sm font-medium">NEEDS_FIX routing</label><input id="workflow-needs-fix" value={needsFix} onChange={(event) => setNeedsFix(event.target.value)} placeholder="reviewer=implementer, audit=block" aria-describedby="workflow-needs-fix-help" className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /><p id="workflow-needs-fix-help" className="text-xs text-muted-foreground">Enter comma-separated gate=target routes. Use gate=block for a read-only audit.</p></div>
+                </fieldset>
+
+                <div className="flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:justify-end">
+                  <button type="button" onClick={resetForm} disabled={saving} className="rounded-lg px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">Cancel</button>
+                  <button type="submit" disabled={saving} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-wait disabled:opacity-60">{saving && <RefreshCw className="h-4 w-4 animate-spin" />} {saving ? 'Saving…' : 'Save Workflow'}</button>
+                </div>
+              </CardContent>
+            </form>
+          </Card>
+        )}
+
+        {!loading && !loadError && <section aria-label="Workflow overview" className="grid gap-3 sm:grid-cols-3">{[
+          ['Workflows', workflows.length], ['Agent steps', totalSteps], ['Workflows with feedback routing', feedbackWorkflows],
+        ].map(([label, value]) => <Card key={label} className="bg-card/70"><CardContent className="p-4"><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-bold">{value}</p></CardContent></Card>)}</section>}
+
+        {!loadError && workflows.length > 0 && (
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-card/60 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative min-w-0 flex-1 sm:max-w-xl"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><label htmlFor="workflow-search" className="sr-only">Search workflows</label><input id="workflow-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search by name, ID, description, or agent…" className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+            <div className="flex items-center justify-between gap-3 sm:justify-end"><span className="text-xs text-muted-foreground">Showing {filteredWorkflows.length} of {workflows.length}</span>{query && <button type="button" onClick={() => setQuery('')} className="text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Clear search</button>}</div>
+          </div>
+        )}
+
+        {loading ? (
+          <div role="status" className="flex items-center justify-center gap-3 rounded-xl border border-border py-16 text-sm text-muted-foreground"><RefreshCw className="h-5 w-5 animate-spin" /> Loading workflows…</div>
+        ) : loadError ? (
+          <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-6 text-center"><AlertTriangle className="mx-auto h-7 w-7 text-destructive" /><h2 className="mt-3 font-semibold">Workflows could not be loaded</h2><p className="mt-1 text-sm text-muted-foreground">{loadError}</p><button type="button" onClick={() => void fetchCatalog()} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><RefreshCw className="h-4 w-4" /> Retry</button></div>
+        ) : filteredWorkflows.length > 0 ? (
+          <section aria-label="Workflow catalog" className="grid gap-4 xl:grid-cols-2">
+            {filteredWorkflows.map((workflow) => {
+              const missingAgents = agentReferencesUnavailable ? [] : workflow.steps.filter((step) => !knownAgentIds.has(step));
+              return (
+                <Card key={workflow.id} role="article" className={cn('flex min-w-0 flex-col overflow-hidden', missingAgents.length > 0 && 'border-amber-500/40')}>
+                  <CardHeader className="space-y-4 p-5">
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><CardTitle className="break-words text-lg">{workflow.name}</CardTitle><Badge variant="outline">v{workflow.version}</Badge><Badge variant="secondary">{workflow.steps.length} steps</Badge></div><p className="mt-1 break-all font-mono text-xs text-muted-foreground">{workflow.id}</p></div>
+                      <div className="flex shrink-0 items-center gap-1 self-end sm:self-auto"><button type="button" aria-label={`Edit workflow ${workflow.name}`} onClick={() => startEdit(workflow)} disabled={Boolean(deletingId)} className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><Pencil className="h-3.5 w-3.5" /> Edit</button><button type="button" aria-label={`Delete workflow ${workflow.name}`} onClick={() => void handleDelete(workflow.id)} disabled={Boolean(deletingId)} className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /> {deletingId === workflow.id ? 'Deleting…' : 'Delete'}</button></div>
+                    </div>
+                    {workflow.description && <p className="text-sm leading-6 text-muted-foreground">{workflow.description}</p>}
+                    {missingAgents.length > 0 && <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> Missing agent reference{missingAgents.length > 1 ? 's' : ''}: {missingAgents.join(', ')}</div>}
+                  </CardHeader>
+                  <CardContent className="mt-auto space-y-5 border-t border-border/60 p-5">
+                    <div><div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground"><ListTree className="h-4 w-4" /> Execution sequence</div><div className="flex flex-wrap items-center gap-1.5">{workflow.steps.map((step, index) => <div key={`${step}-${index}`} className="flex min-w-0 items-center gap-1.5"><Badge variant="secondary" className={cn('max-w-full break-all font-mono font-medium', missingAgents.includes(step) && 'border border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200')}>{index + 1}. {step}</Badge>{index < workflow.steps.length - 1 && <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}</div>)}</div></div>
+                    {workflow.context && <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Shared policy</p><p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground/80">{workflow.context}</p></div>}
+                    <div><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Feedback routing</p>{Object.keys(workflow.needsFix).length ? <div className="mt-2 flex flex-wrap gap-2">{Object.entries(workflow.needsFix).map(([gate, target]) => <Badge key={gate} variant="outline" className="break-all font-mono">{gate} → {target}</Badge>)}</div> : <p className="mt-2 text-sm text-muted-foreground">No NEEDS_FIX routes configured.</p>}</div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </section>
+        ) : workflows.length > 0 ? (
+          <div className="rounded-xl border border-dashed border-border p-10 text-center"><Search className="mx-auto h-8 w-8 text-muted-foreground/50" /><h2 className="mt-3 font-semibold">No workflows match your search</h2><p className="mt-1 text-sm text-muted-foreground">Try another term or reset the current search.</p><button type="button" onClick={() => setQuery('')} className="mt-4 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Reset search</button></div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-border p-10 text-center"><GitMerge className="mx-auto h-9 w-9 text-primary/50" /><h2 className="mt-3 text-lg font-semibold">No workflows configured</h2><p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">Create a workflow to coordinate an ordered sequence of agents.</p>{!isEditing && <button type="button" onClick={startNew} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-4 w-4" /> Create Workflow</button>}</div>
         )}
       </div>
-
-      {error && <div className="mb-4 p-3 bg-red-500/10 text-red-500 border border-red-500/20 rounded-lg">{error}</div>}
-
-      {isEditing ? (
-        <form onSubmit={handleSave} className="bg-card border border-border/60 rounded-2xl p-7 space-y-7 mb-10 shadow-lg shadow-black/5 transition-all animate-in fade-in slide-in-from-bottom-4 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary/40 via-primary to-primary/40"></div>
-
-          <div className="flex items-center gap-3 border-b border-border/50 pb-5">
-            <div className="p-1.5 bg-primary/10 rounded-lg">
-              <GitMerge className="w-5 h-5 text-primary" />
-            </div>
-            <h2 className="text-xl font-semibold tracking-tight">{currentId ? 'Edit Workflow' : 'Create New Workflow'}</h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-7">
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2 text-foreground/90">
-                <FileText className="w-4 h-4 text-primary/70" />
-                Name
-              </label>
-              <input
-                required
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all hover:bg-background"
-                placeholder="e.g. Code Review Process"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2 text-foreground/90">
-                Description
-              </label>
-              <input
-                type="text"
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all hover:bg-background"
-                placeholder="Brief description of this workflow"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium flex items-center gap-2 text-foreground/90">
-              <ListTree className="w-4 h-4 text-primary/70" />
-              Steps <span className="text-muted-foreground font-normal">(comma separated agent IDs)</span>
-            </label>
-            <input
-              required
-              type="text"
-              value={steps}
-              onChange={e => setSteps(e.target.value)}
-              placeholder="clarifier, planner, implementer, verifier"
-              className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all font-mono hover:bg-background"
-            />
-            {agents.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2 items-center bg-muted/30 p-3 rounded-xl border border-border/40">
-                <span className="text-xs font-medium text-muted-foreground mr-1">Available agents:</span>
-                {agents.map(a => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => setSteps(prev => prev ? `${prev}, ${a.id}` : a.id)}
-                    className="text-[11px] px-2 py-1 bg-background/80 hover:bg-primary/10 hover:text-primary hover:border-primary/30 rounded-md border border-border text-muted-foreground transition-all cursor-pointer shadow-sm"
-                  >
-                    {a.id}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground/90">Workflow Policy</label>
-            <textarea
-              value={context}
-              onChange={e => setContext(e.target.value)}
-              rows={4}
-              placeholder="Policy and constraints injected into every agent prompt in this workflow"
-              className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all font-mono hover:bg-background"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_8rem] gap-7">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground/90">NEEDS_FIX Routing</label>
-              <input
-                value={needsFix}
-                onChange={e => setNeedsFix(e.target.value)}
-                placeholder="code_reviewer=implementer, qa_verifier=implementer"
-                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all font-mono hover:bg-background"
-              />
-              <p className="text-xs text-muted-foreground">Use <code>gate=block</code> for read-only audit workflows.</p>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground/90">Version</label>
-              <input
-                type="number"
-                min={1}
-                value={version}
-                onChange={e => setVersion(Number(e.target.value) || 1)}
-                className="w-full px-4 py-2.5 bg-background/50 border border-border/80 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/50 transition-all"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 justify-end pt-5 border-t border-border/50">
-            <button type="button" onClick={resetForm} className="px-5 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-xl transition-all">
-              Cancel
-            </button>
-            <button type="submit" className="px-6 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all shadow-sm hover:shadow active:scale-[0.98]">
-              Save Workflow
-            </button>
-          </div>
-        </form>
-      ) : null}
-
-      {loading && !isEditing ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 xl:gap-6">
-          {workflows.map(wf => (
-            <div
-              key={wf.id}
-              className={cn(
-                "group relative bg-card border border-border/60 rounded-2xl p-6 transition-all duration-300",
-                "hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex flex-col h-full overflow-hidden"
-              )}
-            >
-              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none transition-opacity group-hover:opacity-100 opacity-0"></div>
-
-              <div className="flex justify-between items-start mb-4 relative z-10">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center border border-primary/20 shrink-0 shadow-inner">
-                    <GitMerge className="w-6 h-6 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground text-lg tracking-tight group-hover:text-primary transition-colors">{wf.name}</h3>
-                    <p className="text-xs font-mono text-muted-foreground/70 mt-0.5">{wf.id}</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
-                  <button
-                    onClick={() => startEdit(wf)}
-                    className="p-2 text-muted-foreground hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-all"
-                    title="Edit workflow"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(wf.id)}
-                    className="p-2 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                    title="Delete workflow"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {wf.description && (
-                <p className="text-sm text-muted-foreground mb-6 line-clamp-2 leading-relaxed relative z-10">{wf.description}</p>
-              )}
-
-              {wf.context && (
-                <p className="text-xs text-muted-foreground mb-4 line-clamp-3 leading-relaxed relative z-10">{wf.context}</p>
-              )}
-
-              <div className="mt-auto pt-5 border-t border-border/40 relative z-10">
-                <div className="flex items-center gap-2 mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  <ListTree className="w-3.5 h-3.5" />
-                  <span>Execution Sequence ({wf.steps.length})</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-y-2 gap-x-1">
-                  {wf.steps.map((step, index) => (
-                    <div key={index} className="flex items-center">
-                      <span className="text-xs font-medium px-2.5 py-1.5 bg-secondary/50 hover:bg-secondary text-secondary-foreground border border-border/50 rounded-lg transition-colors shadow-sm">
-                        {step}
-                      </span>
-                      {index < wf.steps.length - 1 && (
-                        <ChevronRight className="w-4 h-4 text-muted-foreground/40 mx-1" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {Object.keys(wf.needsFix).length > 0 && (
-                  <div className="mt-3 text-[11px] text-muted-foreground font-mono">
-                    NEEDS_FIX: {formatNeedsFix(wf.needsFix)}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {workflows.length === 0 && !isEditing && (
-            <div className="col-span-full flex flex-col items-center justify-center py-20 px-4 border-2 border-dashed border-border/60 rounded-2xl bg-card/30 text-center">
-              <div className="w-20 h-20 bg-primary/5 rounded-full flex items-center justify-center mb-5">
-                <GitMerge className="w-10 h-10 text-primary/40" />
-              </div>
-              <h3 className="text-xl font-semibold text-foreground mb-2">No Workflows Configured</h3>
-              <p className="text-muted-foreground max-w-sm mb-6">Create your first custom workflow to define how multiple agents should collaborate to complete tasks.</p>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
-              >
-                <Plus className="w-4 h-4" />
-                Create First Workflow
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

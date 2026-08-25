@@ -28,6 +28,9 @@ describe('team catalog', () => {
     expect(context.database.get<{ runtime: string }>(
       'SELECT runtime FROM agents WHERE id = ?', 'implementer',
     )?.runtime).toBe('appserver');
+    expect(context.database.get<{ tools: string }>(
+      'SELECT tools FROM agents WHERE id = ?', 'implementer',
+    )?.tools).toBe('[]');
     expect(context.database.get<{ needs_fix_map: string }>(
       'SELECT needs_fix_map FROM workflows WHERE id = ?', 'pr_audit',
     )?.needs_fix_map).toBe(JSON.stringify({ code_reviewer: 'block', qa_verifier: 'block' }));

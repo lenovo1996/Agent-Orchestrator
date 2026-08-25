@@ -26,7 +26,71 @@ function waitFor(assertion: () => void, timeout = 2000): Promise<void> {
 describe('session realtime lifecycle', () => {
   const roots: string[] = [];
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('closes a metadata watcher when its flow is deleted before the final fs event', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'session-delete-race-'));
+    roots.push(root);
+    const taskFlowsDir = path.join(root, 'task-flows');
+    const codexHome = path.join(root, '.codex');
+    const runId = 'dddddddd-1111-4222-8333-444444444444';
+    const subscription: SessionSubscription = {
+      workspaceName: 'workspace-a', flowId: 'flow_001', step: 'implementer', runId,
+    };
+    const orchestration = createTestOrchestration(root, taskFlowsDir, [
+      { flowId: 'flow_001', workspaceId: 'workspace-a' },
+    ]);
+    insertTestAttempt(orchestration.database, {
+      attemptId: 'attempt-delete-race', flowId: 'flow_001', runId,
+      startedAt: '2026-08-25T00:00:00.000Z', status: 'running',
+    });
+    fs.mkdirSync(codexHome, { recursive: true });
+
+    let metadataChanged: ((event: string, filename: string | Buffer | null) => void) | undefined;
+    const closeWatcher = vi.fn();
+    const fakeWatcher = {
+      close: closeWatcher,
+      on: vi.fn(),
+    };
+    fakeWatcher.on.mockReturnValue(fakeWatcher);
+    vi.spyOn(fs, 'watch').mockImplementation(((
+      _watchPath: fs.PathLike,
+      listener: (event: string, filename: string | Buffer | null) => void,
+    ) => {
+      metadataChanged = listener;
+      return fakeWatcher;
+    }) as typeof fs.watch);
+
+    const handlers: Record<string, (...args: any[]) => void> = {};
+    const socket = {
+      emit: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: any[]) => void) => { handlers[event] = handler; }),
+      join: vi.fn(),
+      leave: vi.fn(),
+    };
+    let connection: ((socket: any) => void) | undefined;
+    const io = {
+      on: vi.fn((_event: string, handler: (socket: any) => void) => { connection = handler; }),
+      to: vi.fn(() => ({ emit: vi.fn() })),
+    };
+    const service = new SessionService({ taskFlowsDir, codexHome }, orchestration.service);
+    const closeEvents = setupSocketEvents(io as any, orchestration.service, undefined, service);
+    connection!(socket);
+    handlers['workspace:select']({ workspaceId: 'workspace-a' });
+    handlers['session:subscribe'](subscription);
+    await waitFor(() => expect(socket.join).toHaveBeenCalledWith(sessionRoom(subscription)));
+    expect(metadataChanged).toBeTypeOf('function');
+
+    orchestration.database.run("UPDATE flows SET status = 'stopped' WHERE id = 'flow_001'");
+    orchestration.service.deleteFlow('flow_001');
+
+    expect(() => metadataChanged!('rename', `${runId}.json`)).not.toThrow();
+    expect(closeWatcher).toHaveBeenCalledOnce();
+
+    closeEvents();
+    orchestration.database.close();
   });
 
   it('emits one stable upsert to the workspace-scoped room and closes on unsubscribe', async () => {

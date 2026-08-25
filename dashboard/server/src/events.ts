@@ -58,6 +58,7 @@ export function setupSocketEvents(
   const closeTracker = (room: string) => {
     const tracker = trackers.get(room);
     if (!tracker) return;
+    tracker.refreshPending = false;
     tracker.metadataWatcher?.close();
     tracker.tailer?.close();
     trackers.delete(room);
@@ -70,21 +71,27 @@ export function setupSocketEvents(
       return;
     }
     tracker.refreshing = true;
+    const room = sessionRoom(tracker.subscription);
     try {
       if (tracker.rolloutPath) sessionService.invalidate(tracker.rolloutPath);
       const { flowId, step, runId, workspaceName } = tracker.subscription;
       const snapshot = await sessionService.snapshot(flowId, step, runId, workspaceName);
-      if (!snapshot) return;
-      const room = sessionRoom(tracker.subscription);
+      if (!snapshot) {
+        closeTracker(room);
+        return;
+      }
       for (const item of snapshot.items) {
         const signature = JSON.stringify(item);
         if (tracker.itemSignatures.get(item.id) === signature) continue;
         tracker.itemSignatures.set(item.id, signature);
         io.to(room).emit('session:item-upsert', { ...tracker.subscription, item });
       }
+    } catch {
+      // A flow/session may be deleted while a queued rollout refresh is running.
+      closeTracker(room);
     } finally {
       tracker.refreshing = false;
-      if (tracker.refreshPending) {
+      if (trackers.get(room) === tracker && tracker.refreshPending) {
         tracker.refreshPending = false;
         void refreshItems(tracker);
       }
@@ -144,20 +151,30 @@ export function setupSocketEvents(
     const attemptPath = sessionService.attemptPath(
       subscription.flowId, subscription.step, subscription.runId, subscription.workspaceName,
     );
-    tracker.metadataWatcher = fs.watch(path.dirname(attemptPath), (_event, filename) => {
+    const metadataWatcher = fs.watch(path.dirname(attemptPath), (_event, filename) => {
       if (filename && filename.toString() !== path.basename(attemptPath)) return;
-      const updated = sessionService.getAttempt(
-        subscription.flowId, subscription.step, subscription.runId, subscription.workspaceName,
-      );
-      if (!updated) return;
-      io.to(room).emit('session:attempt-updated', {
-        workspaceName: subscription.workspaceName,
-        flowId: subscription.flowId,
-        step: subscription.step,
-        attempt: updated,
-      });
-      void attachTailer(tracker);
+      try {
+        const updated = sessionService.getAttempt(
+          subscription.flowId, subscription.step, subscription.runId, subscription.workspaceName,
+        );
+        if (!updated) {
+          closeTracker(room);
+          return;
+        }
+        io.to(room).emit('session:attempt-updated', {
+          workspaceName: subscription.workspaceName,
+          flowId: subscription.flowId,
+          step: subscription.step,
+          attempt: updated,
+        });
+        void attachTailer(tracker).catch(() => closeTracker(room));
+      } catch {
+        // The flow can be deleted before fs.watch delivers its final event.
+        closeTracker(room);
+      }
     });
+    metadataWatcher.on('error', () => closeTracker(room));
+    tracker.metadataWatcher = metadataWatcher;
     await attachTailer(tracker);
     return tracker;
   };
@@ -291,6 +308,9 @@ export function setupSocketEvents(
         const room = `workspace:${event.workspaceId}`;
         if (event.eventType === 'flow.deleted') {
           watcher?.removeFlow(event.flowId);
+          for (const [trackerRoom, tracker] of trackers) {
+            if (tracker.subscription.flowId === event.flowId) closeTracker(trackerRoom);
+          }
           io.to(room).emit('state:init', buildStatePayload(service, event.workspaceId));
           continue;
         }

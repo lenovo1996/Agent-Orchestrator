@@ -42,6 +42,7 @@ export interface AgentConfig {
   objective: string;
   model?: string;
   thinking?: string;
+  /** @deprecated Runtime permissions are scoped by the orchestrator, not configured per agent. */
   tools: string[];
   outputs: string[];
   runtime?: string;

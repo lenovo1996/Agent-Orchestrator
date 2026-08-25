@@ -14,7 +14,7 @@ const ITEMS: Array<{
   icon: typeof ListTodo;
 }> = [
   { view: 'flows', label: 'Tasks', icon: ListTodo },
-  { view: 'workflows', label: 'Workflow', icon: Workflow },
+  { view: 'workflows', label: 'Workflows', icon: Workflow },
   { view: 'agents', label: 'Agents', icon: Bot },
 ];
 

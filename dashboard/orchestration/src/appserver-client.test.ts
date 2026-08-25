@@ -37,7 +37,7 @@ describe('AppServerClient', () => {
     }
   });
 
-  it('sends reasoning settings and publishes summary and token usage notifications', async () => {
+  it('sends scoped workspace access and publishes summary and token usage notifications', async () => {
     const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
     await new Promise<void>((resolve, reject) => {
       server.once('listening', resolve);
@@ -51,9 +51,14 @@ describe('AppServerClient', () => {
           jsonrpc: '2.0'; id: number; method: string; params: Record<string, unknown>;
         };
         requests.push(request);
-        const result = request.method === 'turn/start'
-          ? { turn: { id: 'turn-1', status: 'inProgress' } }
-          : {};
+        const result = request.method === 'thread/start'
+          ? {
+            thread: { id: 'thread-1', sessionId: 'session-1', cwd: '/workspace' },
+            model: 'gpt-5.6-sol',
+          }
+          : request.method === 'turn/start'
+            ? { turn: { id: 'turn-1', status: 'inProgress' } }
+            : {};
         socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
       });
     });
@@ -69,14 +74,39 @@ describe('AppServerClient', () => {
 
     try {
       await client.connect();
+      const runtimeWorkspaceRoots = ['/workspace', '/devteam/task-flows/workspace-1/flow-1'];
+      await client.createThread({
+        cwd: '/workspace',
+        runtimeWorkspaceRoots,
+        model: 'gpt-5.6-sol',
+        sandbox: 'workspace-write',
+      });
+      const sandboxPolicy = {
+        type: 'workspaceWrite' as const,
+        writableRoots: runtimeWorkspaceRoots,
+        networkAccess: true,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      };
       await client.startTurn('thread-1', 'Inspect the flow', {
         model: 'gpt-5.6-sol',
+        cwd: '/workspace',
+        runtimeWorkspaceRoots,
+        sandboxPolicy,
         effort: 'high',
         summary: 'detailed',
+      });
+      expect(requests.find((request) => request.method === 'thread/start')?.params).toMatchObject({
+        cwd: '/workspace',
+        runtimeWorkspaceRoots,
+        sandbox: 'workspace-write',
       });
       expect(requests.find((request) => request.method === 'turn/start')?.params).toMatchObject({
         threadId: 'thread-1',
         model: 'gpt-5.6-sol',
+        cwd: '/workspace',
+        runtimeWorkspaceRoots,
+        sandboxPolicy,
         effort: 'high',
         summary: 'detailed',
       });

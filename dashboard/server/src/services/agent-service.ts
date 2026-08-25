@@ -31,7 +31,6 @@ export function syncAgentsToFileSystem(dbDir: string, db: OrchestrationDatabase)
           objective: row.objective,
           model: row.model || undefined,
           thinking: row.thinking || undefined,
-          tools: JSON.parse(row.tools),
           outputs: JSON.parse(row.outputs),
           runtime: row.runtime || undefined,
           runtimeCommand: row.runtime_command || undefined,

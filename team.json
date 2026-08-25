@@ -6,7 +6,6 @@
       "objective": "Convert Jira or custom requests into explicit requirements, acceptance criteria, constraints, and actionable open questions.",
       "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": ["read", "exec", "memory_search", "memory_get", "jira", "confluence"],
       "outputs": ["output/requirements.md"],
       "runtime": "appserver"
     },
@@ -15,7 +14,6 @@
       "objective": "Validate version-sensitive technical facts using primary sources and compare alternatives without making the final design decision.",
       "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": ["read", "exec", "web_search"],
       "outputs": ["output/research.md"],
       "runtime": "appserver"
     },
@@ -24,7 +22,6 @@
       "objective": "Reproduce defects, trace execution, collect evidence, and establish the root cause without modifying code.",
       "model": "gpt-5.6-sol",
       "thinking": "xhigh",
-      "tools": ["read", "exec"],
       "outputs": ["output/investigation.md"],
       "runtime": "appserver"
     },
@@ -33,7 +30,6 @@
       "objective": "Map current behavior, dependencies, invariants, impact scope, existing tests, and regression risks without designing a solution.",
       "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": ["read", "exec"],
       "outputs": ["output/analysis.md"],
       "runtime": "appserver"
     },
@@ -42,7 +38,6 @@
       "objective": "Model threats, trust boundaries, authorization, tenant isolation, sensitive data, abuse cases, and required negative tests.",
       "model": "gpt-5.6-sol",
       "thinking": "xhigh",
-      "tools": ["read", "exec"],
       "outputs": ["output/security-analysis.md"],
       "runtime": "appserver"
     },
@@ -51,7 +46,6 @@
       "objective": "Choose the smallest safe technical design with explicit contracts, risks, compatibility, rollout, and rollback.",
       "model": "gpt-5.6-sol",
       "thinking": "xhigh",
-      "tools": ["read", "exec"],
       "outputs": ["output/architecture.md"],
       "runtime": "appserver"
     },
@@ -60,7 +54,6 @@
       "objective": "Design behavior-focused unit, integration, regression, boundary, state-transition, and security test cases before implementation.",
       "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": ["read", "exec"],
       "outputs": ["output/test-plan.md"],
       "runtime": "appserver"
     },
@@ -69,7 +62,6 @@
       "objective": "Turn approved inputs into small ordered tasks with concrete files, dependencies, tests, risks, rollback, and done criteria.",
       "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": ["read", "exec"],
       "outputs": ["output/plan.md"],
       "runtime": "appserver"
     },
@@ -78,7 +70,6 @@
       "objective": "Implement the approved plan with minimal source changes, focused tests, proportional validation, and no unrelated modifications.",
       "model": "gpt-5.6-sol",
       "thinking": "high",
-      "tools": ["read", "write", "edit", "apply_patch", "exec"],
       "outputs": ["output/implementation.md"],
       "runtime": "appserver"
     },
@@ -87,7 +78,6 @@
       "objective": "Independently review the scoped diff for requirement coverage, correctness, security, regressions, tests, and maintainability.",
       "model": "gpt-5.6-sol",
       "thinking": "xhigh",
-      "tools": ["read", "exec"],
       "outputs": ["output/review.md"],
       "runtime": "appserver"
     },
@@ -96,7 +86,6 @@
       "objective": "Execute acceptance and regression validation independently and provide the final evidence-based delivery verdict.",
       "model": "gpt-5.6-sol",
       "thinking": "xhigh",
-      "tools": ["read", "exec"],
       "outputs": ["output/verification.md"],
       "runtime": "appserver"
     },
@@ -105,7 +94,6 @@
       "objective": "Produce transparent range estimates from clarified scope, code impact, design, dependencies, and uncertainty.",
       "model": "gpt-5.6-sol",
       "thinking": "medium",
-      "tools": ["read", "exec"],
       "outputs": ["output/estimate.md"],
       "runtime": "appserver"
     }

@@ -46,6 +46,19 @@ export interface TurnInfo {
 
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none';
 
+export type AppServerSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
+
+export type AppServerSandboxPolicy =
+  | { type: 'dangerFullAccess' }
+  | { type: 'readOnly'; networkAccess: boolean }
+  | {
+    type: 'workspaceWrite';
+    writableRoots: string[];
+    networkAccess: boolean;
+    excludeTmpdirEnvVar: boolean;
+    excludeSlashTmp: boolean;
+  };
+
 export interface AppServerTokenUsageBreakdown {
   inputTokens: number;
   cachedInputTokens: number;
@@ -190,14 +203,16 @@ export class AppServerClient extends EventEmitter {
 
   async createThread(params: {
     cwd: string;
+    runtimeWorkspaceRoots?: string[];
     model?: string;
     approvalPolicy?: string;
-    sandbox?: string;
+    sandbox?: AppServerSandboxMode;
     baseInstructions?: string;
     personality?: string;
   }): Promise<ThreadInfo> {
     const result = await this.request('thread/start', {
       cwd: params.cwd,
+      runtimeWorkspaceRoots: params.runtimeWorkspaceRoots,
       model: params.model,
       approvalPolicy: params.approvalPolicy ?? 'never',
       sandbox: params.sandbox ?? 'danger-full-access',
@@ -216,12 +231,16 @@ export class AppServerClient extends EventEmitter {
 
   async resumeThread(threadId: string, params?: {
     cwd?: string;
+    runtimeWorkspaceRoots?: string[];
     model?: string;
+    sandbox?: AppServerSandboxMode;
   }): Promise<ThreadInfo> {
     const result = await this.request('thread/resume', {
       threadId,
       cwd: params?.cwd,
+      runtimeWorkspaceRoots: params?.runtimeWorkspaceRoots,
       model: params?.model,
+      sandbox: params?.sandbox,
     }) as { thread: { id: string; sessionId: string; cwd: string }; model: string };
 
     return {
@@ -235,6 +254,8 @@ export class AppServerClient extends EventEmitter {
   async startTurn(threadId: string, input: string, params?: {
     model?: string;
     cwd?: string;
+    runtimeWorkspaceRoots?: string[];
+    sandboxPolicy?: AppServerSandboxPolicy;
     effort?: string;
     summary?: ReasoningSummary;
   }): Promise<TurnInfo> {
@@ -243,6 +264,8 @@ export class AppServerClient extends EventEmitter {
       input: [{ type: 'text', text: input, text_elements: [] }],
       model: params?.model,
       cwd: params?.cwd,
+      runtimeWorkspaceRoots: params?.runtimeWorkspaceRoots,
+      sandboxPolicy: params?.sandboxPolicy,
       effort: params?.effort,
       summary: params?.summary,
     }) as { turn: { id: string; status: string } };

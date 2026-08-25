@@ -47,7 +47,7 @@ describe('App flow workspace layout', () => {
     ]);
   });
 
-  it('uses the left menu bar to separate Tasks, Workflow, and Agents', () => {
+  it('uses the left menu bar to separate Tasks, Workflows, and Agents', () => {
     render(<App />);
 
     const navigation = screen.getByRole('navigation', { name: 'Primary navigation' });
@@ -55,13 +55,15 @@ describe('App flow workspace layout', () => {
     expect(screen.getByRole('button', { name: 'Tasks' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByText('Task list')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Workflow' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
     expect(screen.getByText('Workflow settings')).toBeTruthy();
     expect(screen.queryByText('Task list')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Workflow' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Workflows' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Tasks' }).getAttribute('aria-current')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
     expect(screen.getByText('Agent settings')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Agents' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Workflows' }).getAttribute('aria-current')).toBeNull();
   });
 });

@@ -51,4 +51,32 @@ describe('ArtifactWatcher realtime creation events', () => {
     await watcher.close();
     orchestration.database.close();
   });
+
+  it('ignores queued artifact events after the flow has been deleted', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'artifact-delete-race-'));
+    roots.push(root);
+    const taskFlowsDir = path.join(root, 'task-flows');
+    const orchestration = createTestOrchestration(root, taskFlowsDir, [
+      { flowId: 'flow_001', workspaceId: 'workspace-1' },
+    ]);
+    const watcher = new ArtifactWatcher(orchestration.service);
+    const artifactRoot = orchestration.service.artifactDirectory('flow_001');
+    const sessionPath = path.join(
+      artifactRoot, 'sessions', 'implementer', 'aaaaaaaa-1111-4222-8333-444444444444.json',
+    );
+    const outputPath = path.join(artifactRoot, 'output', 'implementation.md');
+    fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(sessionPath, '{}\n');
+    fs.writeFileSync(outputPath, 'output\n');
+
+    orchestration.database.run("UPDATE flows SET status = 'stopped' WHERE id = 'flow_001'");
+    orchestration.service.deleteFlow('flow_001');
+
+    expect(() => (watcher as unknown as { changed(filePath: string): void }).changed(sessionPath)).not.toThrow();
+    expect(() => (watcher as unknown as { added(filePath: string): void }).added(outputPath)).not.toThrow();
+
+    await watcher.close();
+    orchestration.database.close();
+  });
 });

@@ -25,6 +25,10 @@ describe('OrchestrationDatabase', () => {
         instructions TEXT NOT NULL
       );
       INSERT INTO workflows VALUES ('existing', 'Existing', NULL, '[]');
+      INSERT INTO agents VALUES (
+        'existing-agent', 'Existing agent', 'Test migration', NULL,
+        NULL, '["read","exec"]', '["output/existing.md"]', 'appserver', 'Test'
+      );
     `);
     legacy.close();
 
@@ -34,7 +38,10 @@ describe('OrchestrationDatabase', () => {
     expect(Number(database.get<{ foreign_keys: number }>('PRAGMA foreign_keys')?.foreign_keys)).toBe(1);
     expect(Number(database.get<{ timeout: number }>('PRAGMA busy_timeout')?.timeout)).toBe(5_000);
     expect(database.get<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name='flows'")?.name).toBe('flows');
-    expect(database.get<{ version: number }>('SELECT MAX(version) AS version FROM schema_migrations')?.version).toBe(3);
+    expect(database.get<{ version: number }>('SELECT MAX(version) AS version FROM schema_migrations')?.version).toBe(4);
+    expect(database.get<{ tools: string }>(
+      'SELECT tools FROM agents WHERE id = ?', 'existing-agent',
+    )?.tools).toBe('[]');
     expect(database.get<{ name: string }>(
       "SELECT name FROM pragma_table_info('agents') WHERE name = 'runtime_command'",
     )?.name).toBe('runtime_command');

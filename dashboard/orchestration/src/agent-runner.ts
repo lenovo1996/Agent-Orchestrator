@@ -8,7 +8,11 @@ import { PermanentAgentError, RetriableAgentError } from './errors.js';
 import { parseOutputStatus } from './output-parser.js';
 import { ProcessSupervisor } from './process-supervisor.js';
 import type { OrchestrationService } from './service.js';
-import { AppServerClient, type AppServerConfig } from './appserver-client.js';
+import {
+  AppServerClient,
+  type AppServerConfig,
+  type AppServerSandboxPolicy,
+} from './appserver-client.js';
 import { AppServerSessionBridge } from './appserver-session-bridge.js';
 
 function deterministicUuid(value: string): string {
@@ -168,10 +172,6 @@ export class AgentRunner {
     }
   }
 
-  private agentCanWrite(tools: string[]): boolean {
-    return tools.some((tool) => ['write', 'edit', 'apply_patch'].includes(tool));
-  }
-
   private buildPrompt(flowId: string, step: string): string {
     const flow = this.service.getFlow(flowId);
     const agent = this.service.getAgent(step);
@@ -215,10 +215,7 @@ export class AgentRunner {
       parts.push('', '## Previous Outputs', '', ...previousOutputs.map((file) => `- ${file}`));
     }
     const output = this.service.outputFile(flowId, step);
-    const outputInstruction = this.agentCanWrite(agent.tools)
-      ? `Write your output to: ${output}`
-      : `Return the complete report in your final response. The orchestrator will persist it to: ${output}`;
-    parts.push('', '## Your Output', '', outputInstruction, '', 'Follow the instructions exactly.');
+    parts.push('', '## Your Output', '', `Write your output to: ${output}`, '', 'Follow the instructions exactly.');
     return parts.join('\n').replaceAll('{{REPO_ROOT}}', effectiveWorkspace)
       .replaceAll('{{TASK_ID}}', flow.jiraKey || flow.flowId)
       .replaceAll('{{TASK_NAME}}', flow.jiraKey || flow.flowId);
@@ -527,11 +524,21 @@ export class AgentRunner {
   ): Promise<AgentStepResult> {
     const flow = this.service.getFlow(input.flowId);
     const agent = this.service.getAgent(input.step);
-    const sandbox = this.agentCanWrite(agent.tools) ? 'danger-full-access' : 'read-only';
     const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
     this.ensureWorkspaceTrusted(effectiveWorkspace);
     this.mergeMcpJsonToWorkspaceConfig(effectiveWorkspace);
     const workDirectory = this.service.artifactDirectory(flow);
+    const runtimeWorkspaceRoots = [...new Set([
+      path.resolve(effectiveWorkspace),
+      path.resolve(workDirectory),
+    ])];
+    const sandboxPolicy: AppServerSandboxPolicy = {
+      type: 'workspaceWrite',
+      writableRoots: runtimeWorkspaceRoots,
+      networkAccess: true,
+      excludeTmpdirEnvVar: false,
+      excludeSlashTmp: false,
+    };
     const outputFile = this.service.outputFile(input.flowId, input.step);
     let previousMtime = 0;
     let outputExisted = false;
@@ -597,30 +604,38 @@ export class AgentRunner {
         );
         if (existing) {
           try {
-            threadInfo = await client.resumeThread(existing.threadId, { cwd: effectiveWorkspace, model: agent.model || undefined });
+            threadInfo = await client.resumeThread(existing.threadId, {
+              cwd: effectiveWorkspace,
+              runtimeWorkspaceRoots,
+              model: agent.model || undefined,
+              sandbox: 'workspace-write',
+            });
             bridge.appendLog(`[resume] Resumed thread ${existing.threadId}\n`);
           } catch (err) {
             // Resume failed, fall back to creating a new thread
             bridge.appendLog(`[resume] Failed to resume thread: ${(err as Error).message}. Creating new thread.\n`);
             threadInfo = await client.createThread({
               cwd: effectiveWorkspace,
+              runtimeWorkspaceRoots,
               model: agent.model || undefined,
-              sandbox,
+              sandbox: 'workspace-write',
             });
           }
         } else {
           threadInfo = await client.createThread({
             cwd: effectiveWorkspace,
+            runtimeWorkspaceRoots,
             model: agent.model || undefined,
-            sandbox,
+            sandbox: 'workspace-write',
           });
         }
       } else {
         // Create new thread
         threadInfo = await client.createThread({
           cwd: effectiveWorkspace,
+          runtimeWorkspaceRoots,
           model: agent.model || undefined,
-          sandbox,
+          sandbox: 'workspace-write',
         });
       }
 
@@ -651,6 +666,8 @@ export class AgentRunner {
       const turnInfo = await client.startTurn(threadInfo.threadId, prompt, {
         model: agent.model || undefined,
         cwd: effectiveWorkspace,
+        runtimeWorkspaceRoots,
+        sandboxPolicy,
         effort: reasoningEffort,
         summary: reasoningEffort === 'none' ? 'none' : 'detailed',
       });

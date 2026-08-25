@@ -62,7 +62,11 @@ export class ArtifactWatcher extends EventEmitter {
 
   private outputStep(flowId: string, relative: string): AgentStep | null {
     const normalized = relative.split(path.sep).join('/');
-    return this.service.getFlow(flowId).stepDetails.find((step) => step.outputPath === normalized)?.step || null;
+    try {
+      return this.service.getFlow(flowId).stepDetails.find((step) => step.outputPath === normalized)?.step || null;
+    } catch {
+      return null;
+    }
   }
 
   private sessionAttempt(
@@ -71,8 +75,13 @@ export class ArtifactWatcher extends EventEmitter {
   ): { step: AgentStep; runId: string } | null {
     const parts = relative.split(path.sep);
     if (parts.length !== 3 || parts[0] !== 'sessions' || !parts[2].endsWith('.json')) return null;
-    const step = this.service.getFlow(flowId).stepDetails
-      .find((candidate) => candidate.step === parts[1])?.step;
+    let step: AgentStep | undefined;
+    try {
+      step = this.service.getFlow(flowId).stepDetails
+        .find((candidate) => candidate.step === parts[1])?.step;
+    } catch {
+      return null;
+    }
     const runId = path.basename(parts[2], '.json');
     return step && runId ? { step, runId } : null;
   }

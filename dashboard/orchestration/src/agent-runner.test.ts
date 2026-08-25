@@ -9,15 +9,25 @@ import { createFlow, createTestService } from './test-helpers.js';
 
 class FakeAppServerClient extends EventEmitter {
   readonly connected = true;
-  readonly createThread = vi.fn(async (params: { cwd: string }) => {
+  readonly createThread = vi.fn(async (params: {
+    cwd: string;
+    runtimeWorkspaceRoots?: string[];
+    model?: string;
+    sandbox?: string;
+  }) => {
     this.emit('thread:started', 'thread-1');
     return { threadId: 'thread-1', sessionId: 'session-1', model: 'test-model', cwd: params.cwd };
   });
-  readonly resumeThread = vi.fn(async (threadId: string, params?: { cwd?: string }) => {
+  readonly resumeThread = vi.fn(async (threadId: string, params?: {
+    cwd?: string;
+    runtimeWorkspaceRoots?: string[];
+    model?: string;
+    sandbox?: string;
+  }) => {
     this.emit('thread:started', threadId);
     return { threadId, sessionId: 'session-1', model: 'test-model', cwd: params?.cwd || '/workspace' };
   });
-  readonly startTurn = vi.fn(async (threadId: string) => {
+  readonly startTurn = vi.fn(async (threadId: string, _input: string, _params?: unknown) => {
     this.emit('turn:started', threadId, 'turn-1');
     return { turnId: 'turn-1', status: 'inProgress' };
   });
@@ -90,7 +100,7 @@ function invocation(inngestRunId = 'child-run-1', inngestAttempt = 0) {
 }
 
 describe('AgentRunner', () => {
-  it('registers an app-server turn so stopping the flow interrupts it', async () => {
+  it('grants scoped workspace access without tool flags and interrupts a stopped flow', async () => {
     context.database.run(`
       UPDATE agents SET runtime = 'appserver', model = 'gpt-5.6-sol', thinking = 'high'
       WHERE id = 'implementer'
@@ -99,6 +109,11 @@ describe('AgentRunner', () => {
     (runner as unknown as { _appServerClient: AppServerClient | null })._appServerClient = client as unknown as AppServerClient;
     runner.supervisor.setAppServerClient(client as unknown as AppServerClient);
     const input = invocation();
+    const flow = context.service.getFlow(input.flowId);
+    const runtimeWorkspaceRoots = [
+      path.resolve(flow.workspacePath),
+      path.resolve(context.service.artifactDirectory(flow)),
+    ];
 
     const execution = runner.execute(input);
     await vi.waitFor(() => expect(client.startTurn).toHaveBeenCalledOnce());
@@ -106,9 +121,28 @@ describe('AgentRunner', () => {
 
     await expect(execution).rejects.toMatchObject({ stage: 'cancelled' });
     expect(client.startTurn).toHaveBeenCalledWith('thread-1', expect.any(String), {
-      model: 'gpt-5.6-sol', cwd: expect.any(String), effort: 'high', summary: 'detailed',
+      model: 'gpt-5.6-sol',
+      cwd: flow.workspacePath,
+      runtimeWorkspaceRoots,
+      sandboxPolicy: {
+        type: 'workspaceWrite',
+        writableRoots: runtimeWorkspaceRoots,
+        networkAccess: true,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+      effort: 'high',
+      summary: 'detailed',
     });
-    expect(client.createThread).toHaveBeenCalledWith(expect.objectContaining({ sandbox: 'read-only' }));
+    expect(client.createThread).toHaveBeenCalledWith({
+      cwd: flow.workspacePath,
+      runtimeWorkspaceRoots,
+      model: 'gpt-5.6-sol',
+      sandbox: 'workspace-write',
+    });
+    expect(client.startTurn.mock.calls[0]?.[1]).toContain(
+      `Write your output to: ${context.service.outputFile(input.flowId, input.step)}`,
+    );
     expect(client.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-1');
     expect(context.service.listAttempts(input.flowId)[0]).toMatchObject({ status: 'cancelled' });
     const attempt = context.service.listAttempts(input.flowId)[0];
@@ -275,7 +309,16 @@ describe('AgentRunner', () => {
       runnerId: 'test-runner',
     });
     await vi.waitFor(() => expect(client.startTurn).toHaveBeenCalledOnce());
-    expect(client.resumeThread).toHaveBeenCalledWith('thread-existing', expect.any(Object));
+    const flow = context.service.getFlow(command.flowId);
+    expect(client.resumeThread).toHaveBeenCalledWith('thread-existing', {
+      cwd: flow.workspacePath,
+      runtimeWorkspaceRoots: [
+        path.resolve(flow.workspacePath),
+        path.resolve(context.service.artifactDirectory(flow)),
+      ],
+      model: undefined,
+      sandbox: 'workspace-write',
+    });
     client.emit('item:completed', 'thread-existing', 'turn-1', {
       type: 'agentMessage',
       text: 'Final chat answer without a status marker',

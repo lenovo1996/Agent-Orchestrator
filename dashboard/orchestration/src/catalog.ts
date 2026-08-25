@@ -4,7 +4,7 @@ import type { AgentConfig, CustomWorkflow } from '@devteam-dashboard/shared';
 import { OrchestrationDatabase } from './database.js';
 
 interface TeamFile {
-  members: Record<string, Omit<AgentConfig, 'id' | 'instructions'>>;
+  members: Record<string, Omit<AgentConfig, 'id' | 'instructions' | 'tools'> & { tools?: string[] }>;
 }
 
 interface WorkflowCatalogFile {
@@ -34,6 +34,7 @@ export function loadTeamCatalog(repoRoot: string): TeamCatalog {
   const agents = Object.entries(team.members).map(([id, config]): AgentConfig => ({
     id,
     ...config,
+    tools: config.tools || [],
     instructions: fs.readFileSync(path.join(repoRoot, 'prompts', `${id}.md`), 'utf8').trim(),
   }));
   const agentIds = new Set(agents.map((agent) => agent.id));

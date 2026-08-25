@@ -202,6 +202,11 @@ const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE flow_steps ADD COLUMN on_needs_fix TEXT;
     `,
   },
+  {
+    version: 4,
+    name: 'retire_agent_tool_allowlists',
+    sql: "UPDATE agents SET tools = '[]';",
+  },
 ];
 
 export type DatabaseRow = Record<string, unknown>;

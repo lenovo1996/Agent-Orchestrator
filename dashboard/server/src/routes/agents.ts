@@ -22,7 +22,7 @@ export function agentsRouter(db: OrchestrationDatabase) {
         objective: row.objective,
         model: row.model,
         thinking: row.thinking,
-        tools: JSON.parse(row.tools),
+        tools: [],
         outputs: JSON.parse(row.outputs),
         runtime: row.runtime,
         runtimeCommand: row.runtime_command || undefined,
@@ -33,16 +33,16 @@ export function agentsRouter(db: OrchestrationDatabase) {
 
   // POST /api/agents
   router.post('/agents', (req, res) => {
-    const { id, role, objective, model, thinking, tools, outputs, runtime, runtimeCommand, instructions } = req.body;
+    const { id, role, objective, model, thinking, outputs, runtime, runtimeCommand, instructions } = req.body;
 
-    if (!id || !role || !objective || !tools || !outputs || !instructions) {
+    if (!id || !role || !objective || !outputs || !instructions) {
       return res.status(400).json({ error: 'Missing required agent data' });
     }
 
     try {
       db.run(
         'INSERT INTO agents (id, role, objective, model, thinking, tools, outputs, runtime, runtime_command, instructions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        id, role, objective, model || '', thinking || '', JSON.stringify(tools), JSON.stringify(outputs), runtime || '', runtimeCommand || null, instructions,
+        id, role, objective, model || '', thinking || '', '[]', JSON.stringify(outputs), runtime || '', runtimeCommand || null, instructions,
       );
       syncAgentsToFileSystem(dbDir, db);
       res.status(201).json({ success: true, id });
@@ -54,15 +54,15 @@ export function agentsRouter(db: OrchestrationDatabase) {
   // PUT /api/agents/:id
   router.put('/agents/:id', (req, res) => {
     const { id } = req.params;
-    const { role, objective, model, thinking, tools, outputs, runtime, runtimeCommand, instructions } = req.body;
+    const { role, objective, model, thinking, outputs, runtime, runtimeCommand, instructions } = req.body;
 
-    if (!role || !objective || !tools || !outputs || !instructions) {
+    if (!role || !objective || !outputs || !instructions) {
       return res.status(400).json({ error: 'Missing required agent data' });
     }
 
     const result = db.run(
       'UPDATE agents SET role = ?, objective = ?, model = ?, thinking = ?, tools = ?, outputs = ?, runtime = ?, runtime_command = ?, instructions = ? WHERE id = ?',
-      role, objective, model || '', thinking || '', JSON.stringify(tools), JSON.stringify(outputs), runtime || '', runtimeCommand || null, instructions, id,
+      role, objective, model || '', thinking || '', '[]', JSON.stringify(outputs), runtime || '', runtimeCommand || null, instructions, id,
     );
       if (!result.changes) {
         res.status(404).json({ error: 'Agent not found' });
