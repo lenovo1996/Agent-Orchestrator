@@ -300,7 +300,7 @@ async function main() {
     runtimeWorkspaceRoots,
     model: process.env.AGENT_MODEL || undefined,
     approvalPolicy: 'never',
-    sandbox: 'workspace-write',
+    sandbox: 'danger-full-access',
     personality: 'pragmatic',
     ephemeral: false,
   });
@@ -316,13 +316,7 @@ async function main() {
     input: [{ type: 'text', text: prompt, text_elements: [] }],
     cwd,
     runtimeWorkspaceRoots,
-    sandboxPolicy: {
-      type: 'workspaceWrite',
-      writableRoots: runtimeWorkspaceRoots,
-      networkAccess: true,
-      excludeTmpdirEnvVar: false,
-      excludeSlashTmp: false,
-    },
+    sandboxPolicy: { type: 'dangerFullAccess' },
     model: process.env.AGENT_MODEL || undefined,
   });
 

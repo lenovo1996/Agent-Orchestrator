@@ -100,7 +100,7 @@ function invocation(inngestRunId = 'child-run-1', inngestAttempt = 0) {
 }
 
 describe('AgentRunner', () => {
-  it('grants scoped workspace access without tool flags and interrupts a stopped flow', async () => {
+  it('grants full filesystem access without tool flags and interrupts a stopped flow', async () => {
     context.database.run(`
       UPDATE agents SET runtime = 'appserver', model = 'gpt-5.6-sol', thinking = 'high'
       WHERE id = 'implementer'
@@ -124,13 +124,7 @@ describe('AgentRunner', () => {
       model: 'gpt-5.6-sol',
       cwd: flow.workspacePath,
       runtimeWorkspaceRoots,
-      sandboxPolicy: {
-        type: 'workspaceWrite',
-        writableRoots: runtimeWorkspaceRoots,
-        networkAccess: true,
-        excludeTmpdirEnvVar: false,
-        excludeSlashTmp: false,
-      },
+      sandboxPolicy: { type: 'dangerFullAccess' },
       effort: 'high',
       summary: 'detailed',
     });
@@ -138,7 +132,7 @@ describe('AgentRunner', () => {
       cwd: flow.workspacePath,
       runtimeWorkspaceRoots,
       model: 'gpt-5.6-sol',
-      sandbox: 'workspace-write',
+      sandbox: 'danger-full-access',
     });
     expect(client.startTurn.mock.calls[0]?.[1]).toContain(
       `Write your output to: ${context.service.outputFile(input.flowId, input.step)}`,
@@ -317,7 +311,7 @@ describe('AgentRunner', () => {
         path.resolve(context.service.artifactDirectory(flow)),
       ],
       model: undefined,
-      sandbox: 'workspace-write',
+      sandbox: 'danger-full-access',
     });
     client.emit('item:completed', 'thread-existing', 'turn-1', {
       type: 'agentMessage',

@@ -324,6 +324,14 @@ Nếu agent báo `Permission denied` khi ghi `task-flows`, xác nhận `HOST_UID
 `HOST_GID` trong `.env` khớp `id -u`/`id -g`. Worker và server sẽ fail startup nếu
 UID/GID hoặc các shared path không hợp lệ; không dùng `chmod 777` để bỏ qua lỗi này.
 
+### Quyền filesystem của agent
+
+Agent app-server chạy với `danger-full-access`. Chế độ này không khởi tạo Bubblewrap,
+vì vậy không phụ thuộc user namespace/AppArmor của máy host và không gặp lỗi
+`bwrap: setting up uid map`. `cwd`, thread, turn, log và artifact vẫn được gắn đúng
+flow/workspace ở tầng orchestration, nhưng agent có thể đọc/ghi ngoài workspace.
+Chỉ chạy orchestrator trên máy và với repository mà bạn tin cậy.
+
 ## Packages
 
 - `shared`: REST, Socket.IO, flow, step, attempt và session types.

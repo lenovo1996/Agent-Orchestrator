@@ -532,13 +532,7 @@ export class AgentRunner {
       path.resolve(effectiveWorkspace),
       path.resolve(workDirectory),
     ])];
-    const sandboxPolicy: AppServerSandboxPolicy = {
-      type: 'workspaceWrite',
-      writableRoots: runtimeWorkspaceRoots,
-      networkAccess: true,
-      excludeTmpdirEnvVar: false,
-      excludeSlashTmp: false,
-    };
+    const sandboxPolicy: AppServerSandboxPolicy = { type: 'dangerFullAccess' };
     const outputFile = this.service.outputFile(input.flowId, input.step);
     let previousMtime = 0;
     let outputExisted = false;
@@ -608,7 +602,7 @@ export class AgentRunner {
               cwd: effectiveWorkspace,
               runtimeWorkspaceRoots,
               model: agent.model || undefined,
-              sandbox: 'workspace-write',
+              sandbox: 'danger-full-access',
             });
             bridge.appendLog(`[resume] Resumed thread ${existing.threadId}\n`);
           } catch (err) {
@@ -618,7 +612,7 @@ export class AgentRunner {
               cwd: effectiveWorkspace,
               runtimeWorkspaceRoots,
               model: agent.model || undefined,
-              sandbox: 'workspace-write',
+              sandbox: 'danger-full-access',
             });
           }
         } else {
@@ -626,7 +620,7 @@ export class AgentRunner {
             cwd: effectiveWorkspace,
             runtimeWorkspaceRoots,
             model: agent.model || undefined,
-            sandbox: 'workspace-write',
+            sandbox: 'danger-full-access',
           });
         }
       } else {
@@ -635,7 +629,7 @@ export class AgentRunner {
           cwd: effectiveWorkspace,
           runtimeWorkspaceRoots,
           model: agent.model || undefined,
-          sandbox: 'workspace-write',
+          sandbox: 'danger-full-access',
         });
       }
 
