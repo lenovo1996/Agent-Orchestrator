@@ -623,6 +623,7 @@ export class OrchestrationService {
     const flow = this.getFlow(flowId);
     return {
       flowId,
+      workspaceId: flow.workspaceId,
       steps: flow.stepOrder,
       dependencies: flow.dependencies,
       generation: flow.generation,
@@ -770,7 +771,13 @@ export class OrchestrationService {
       this.emitDomainEvent(flowId, 'step.queued', {
         flowId, step, cycle: detail.cycle, status: 'running', revision: flow.revision + 1,
       });
-      return { cycle: detail.cycle, workspaceKey: flow.workspaceId };
+      // Direct flows share the base checkout and must remain serialized.
+      // Isolated-worktree flows have independent checkouts, so each flow gets
+      // its own concurrency key and can consume the runner's parallel capacity.
+      const workspaceKey = flow.useWorktree
+        ? `worktree:${flow.flowId}`
+        : `workspace:${flow.workspaceId}`;
+      return { cycle: detail.cycle, workspaceKey };
     });
   }
 

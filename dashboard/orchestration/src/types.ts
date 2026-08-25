@@ -80,6 +80,7 @@ export interface AgentStepResult {
 
 export interface CoordinatorDefinition {
   flowId: string;
+  workspaceId: string;
   steps: string[];
   dependencies: string[];
   generation: number;

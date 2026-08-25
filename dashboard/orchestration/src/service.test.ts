@@ -94,7 +94,7 @@ describe('OrchestrationService commands and transitions', () => {
     });
   });
 
-  it('uses the workspace as the concurrency key even for separate worktrees', () => {
+  it('uses separate concurrency keys for isolated worktrees in the same workspace', () => {
     const first = context.service.createFlow({
       workflowId: 'workflow-1', workspaceId: 'workspace-1', prompt: 'first', useWorktree: true,
     }, 'worktree-first');
@@ -103,8 +103,23 @@ describe('OrchestrationService commands and transitions', () => {
     }, 'worktree-second');
     context.service.claimCoordinator(first.commandId, first.flowId, 'run-first', 'test-runner');
     context.service.claimCoordinator(second.commandId, second.flowId, 'run-second', 'test-runner');
-    expect(context.service.queueStep(first.flowId, 'implementer').workspaceKey).toBe('workspace-1');
-    expect(context.service.queueStep(second.flowId, 'implementer').workspaceKey).toBe('workspace-1');
+    expect(context.service.queueStep(first.flowId, 'implementer').workspaceKey)
+      .toBe(`worktree:${first.flowId}`);
+    expect(context.service.queueStep(second.flowId, 'implementer').workspaceKey)
+      .toBe(`worktree:${second.flowId}`);
+  });
+
+  it('keeps direct flows in the same workspace on one concurrency key', () => {
+    const first = context.service.createFlow({
+      workflowId: 'workflow-1', workspaceId: 'workspace-1', prompt: 'first', useWorktree: false,
+    }, 'direct-first');
+    const second = context.service.createFlow({
+      workflowId: 'workflow-1', workspaceId: 'workspace-1', prompt: 'second', useWorktree: false,
+    }, 'direct-second');
+    context.service.claimCoordinator(first.commandId, first.flowId, 'run-first', 'test-runner');
+    context.service.claimCoordinator(second.commandId, second.flowId, 'run-second', 'test-runner');
+    expect(context.service.queueStep(first.flowId, 'implementer').workspaceKey).toBe('workspace:workspace-1');
+    expect(context.service.queueStep(second.flowId, 'implementer').workspaceKey).toBe('workspace:workspace-1');
   });
 
   it('blocks after the fifth NEEDS_FIX result', () => {

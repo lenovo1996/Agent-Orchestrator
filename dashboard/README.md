@@ -96,7 +96,7 @@ Các biến tùy chọn thường dùng:
 | `DEVTEAM_WORKSPACE_ROOT` | thư mục cha của `.dev-team` | Shared root chứa các workspace hợp lệ |
 | `DEVTEAM_TASK_FLOWS_DIR` | `.dev-team/task-flows` | Nơi lưu prompt, output, logs và session metadata |
 | `DEVTEAM_WORKTREES_DIR` | `.dev-team/.worktrees` | Nơi lưu Git worktree với absolute path dùng chung giữa host/container |
-| `DEVTEAM_AGENT_CONCURRENCY` | `3` | Số agent tối đa trên worker host |
+| `DEVTEAM_AGENT_CONCURRENCY` | `3` | Số agent tối đa trên worker host; isolated worktree có thể dùng capacity song song |
 | `DEVTEAM_AGENT_TIMEOUT` | `6h` | Timeout local cho một agent process |
 | `DEVTEAM_BLOCKED_TTL` | `30d` | Thời gian chờ resume trước khi flow thành `expired` |
 | `DEVTEAM_WORKER_HEALTH_PORT` | `3011` | Health port của Connect worker |
@@ -148,6 +148,26 @@ npm run catalog:reset
 Lệnh reset xóa toàn bộ flow, attempt, command, event và cấu hình catalog cũ trong
 database, sau đó seed catalog mới. Workspace local được giữ mặc định; thêm
 `-- --clear-workspaces` nếu cần tạo template không chứa đường dẫn máy cá nhân.
+
+### Dữ liệu demo local
+
+Tạo 15 flow `completed` trong workspace riêng `Fake Demo`, kèm output, log, token và
+session metadata hợp lệ:
+
+```bash
+python3 seed_fake_flows.py 15
+```
+
+Seeder đọc workflow/agent catalog hiện tại từ `workflows.db`; không hardcode workflow
+ID. Mỗi lần chạy, nó chỉ thay thế workspace có ID bắt đầu bằng `ws_fake_` và không sửa
+flow/workspace thật. Có thể chỉ tạo lại artifact từ dữ liệu fake đang có:
+
+```bash
+python3 create_fake_artifacts.py --clean
+```
+
+Dùng `--db`, `--task-flows-dir`, `--workspace-path` hoặc các biến
+`DEVTEAM_DB_PATH`/`DEVTEAM_TASK_FLOWS_DIR` khi file runtime nằm ở đường dẫn khác.
 
 Mỗi workflow snapshot `context` và `NEEDS_FIX` routing khi tạo flow. Quality gate của
 workflow delivery quay lại `implementer`; workflow audit dùng target `block` để không
@@ -201,6 +221,15 @@ chạy tối đa `DEVTEAM_AGENT_CONCURRENCY` agent. Log thành công có dạng:
 ```text
 [worker] <runner-id> connected to ws://127.0.0.1:8289/v0/connect
 ```
+
+Concurrency được phân bổ theo loại checkout:
+
+- Flow chạy trực tiếp dùng chung một key theo workspace, nên chỉ một agent được chạy
+  trong base checkout tại một thời điểm.
+- Flow bật `Run in an isolated git worktree` dùng key riêng theo flow, nên nhiều flow
+  cùng workspace có thể chạy song song tới giới hạn `DEVTEAM_AGENT_CONCURRENCY`.
+- Bước finalize/merge của các worktree vẫn được khóa theo workspace và chạy tuần tự,
+  tránh nhiều lệnh Git merge cùng sửa base checkout.
 
 ### Terminal 3 — Dashboard API và frontend
 

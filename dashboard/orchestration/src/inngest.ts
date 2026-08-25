@@ -20,6 +20,11 @@ export interface AgentInvocationEvent {
   workspaceKey: string;
 }
 
+export interface WorktreeFinalizationEvent {
+  flowId: string;
+  workspaceKey: string;
+}
+
 function commandData(event: { data?: unknown }): FlowCommandEvent {
   const data = event.data as Partial<FlowCommandEvent> | undefined;
   if (!data || typeof data.commandId !== 'string' || typeof data.flowId !== 'string') {
@@ -36,6 +41,14 @@ function agentData(event: { data?: unknown }): AgentInvocationEvent {
     throw new NonRetriableError('Invalid agent invocation event');
   }
   return data as AgentInvocationEvent;
+}
+
+function worktreeFinalizationData(event: { data?: unknown }): WorktreeFinalizationEvent {
+  const data = event.data as Partial<WorktreeFinalizationEvent> | undefined;
+  if (!data || typeof data.flowId !== 'string' || typeof data.workspaceKey !== 'string') {
+    throw new NonRetriableError('Invalid worktree finalization event');
+  }
+  return data as WorktreeFinalizationEvent;
 }
 
 function expressionForFlow(flowId: string): string {
@@ -68,7 +81,7 @@ export function createInngestRuntime(dependencies: {
       retries: 3,
       concurrency: [
         { scope: 'env', key: 'event.data.runnerId', limit: config.agentConcurrency },
-        { key: 'event.data.workspaceKey', limit: 1 },
+        { scope: 'env', key: 'event.data.workspaceKey', limit: 1 },
       ],
       cancelOn: [{ event: 'devteam/flow.cancel-requested', match: 'data.flowId' }],
       timeouts: { finish: '8h' },
@@ -88,6 +101,21 @@ export function createInngestRuntime(dependencies: {
         if (error instanceof PermanentAgentError) throw new NonRetriableError(error.message, { cause: error });
         throw error;
       }
+    },
+  );
+
+  const finalizeWorktree = client.createFunction(
+    {
+      id: 'finalize-worktree',
+      retries: 3,
+      concurrency: [{ scope: 'env', key: 'event.data.workspaceKey', limit: 1 }],
+      cancelOn: [{ event: 'devteam/flow.cancel-requested', match: 'data.flowId' }],
+      timeouts: { finish: '30m' },
+    },
+    async ({ event }) => {
+      const data = worktreeFinalizationData(event);
+      const result = await worktrees.finalize(data.flowId);
+      return { success: result.success, conflictCount: result.conflicts.length };
     },
   );
 
@@ -276,9 +304,13 @@ export function createInngestRuntime(dependencies: {
       if (definition.useWorktree) {
         let finalizeCycle = 1;
         while (true) {
-          const finalized = await step.run(`finalize-worktree:cycle:${finalizeCycle}`, async () => {
-            const result = await worktrees.finalize(data.flowId);
-            return { success: result.success, conflictCount: result.conflicts.length };
+          const finalized = await step.invoke(`finalize-worktree:cycle:${finalizeCycle}`, {
+            function: finalizeWorktree,
+            data: {
+              flowId: data.flowId,
+              workspaceKey: `workspace:${definition.workspaceId}`,
+            },
+            timeout: '30m',
           });
           if (finalized.success) break;
           await step.run(`project-merge-conflict:cycle:${finalizeCycle}`, () => service.blockFlow(
@@ -325,5 +357,12 @@ export function createInngestRuntime(dependencies: {
     },
   );
 
-  return { client, functions: [coordinator, runAgentStep, cancelledCleanup], coordinator, runAgentStep, cancelledCleanup };
+  return {
+    client,
+    functions: [coordinator, runAgentStep, finalizeWorktree, cancelledCleanup],
+    coordinator,
+    runAgentStep,
+    finalizeWorktree,
+    cancelledCleanup,
+  };
 }

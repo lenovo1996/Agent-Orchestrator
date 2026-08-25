@@ -19,7 +19,7 @@ function writeDone(flowId: string, step: string): void {
 
 describe('Inngest coordinator', () => {
   it('cancels an invoked agent step when its flow is stopped', () => {
-    const { runAgentStep } = createInngestRuntime({
+    const { runAgentStep, finalizeWorktree } = createInngestRuntime({
       service: context.service,
       runner: { supervisor: { terminateFlow: async () => undefined } } as unknown as AgentRunner,
       worktrees: {} as WorktreeManager,
@@ -29,6 +29,35 @@ describe('Inngest coordinator', () => {
     expect(runAgentStep.opts.cancelOn).toEqual([
       { event: 'devteam/flow.cancel-requested', match: 'data.flowId' },
     ]);
+    expect(runAgentStep.opts.concurrency).toEqual([
+      { scope: 'env', key: 'event.data.runnerId', limit: context.config.agentConcurrency },
+      { scope: 'env', key: 'event.data.workspaceKey', limit: 1 },
+    ]);
+    expect(finalizeWorktree.opts.concurrency).toEqual([
+      { scope: 'env', key: 'event.data.workspaceKey', limit: 1 },
+    ]);
+  });
+
+  it('serializes worktree finalization by base workspace', async () => {
+    const finalize = vi.fn(async () => ({ success: true, conflicts: [] as string[] }));
+    const { finalizeWorktree } = createInngestRuntime({
+      service: context.service,
+      runner: { supervisor: { terminateFlow: async () => undefined } } as unknown as AgentRunner,
+      worktrees: { finalize } as unknown as WorktreeManager,
+      config: context.config,
+    });
+    const engine = new InngestTestEngine({ function: finalizeWorktree });
+    const { result } = await engine.execute({
+      events: [{
+        id: 'finalize-1',
+        name: 'devteam/worktree.finalize',
+        data: { flowId: 'flow-1', workspaceKey: 'workspace:workspace-1' },
+        ts: Date.now(),
+      }],
+    });
+
+    expect(result).toEqual({ success: true, conflictCount: 0 });
+    expect(finalize).toHaveBeenCalledWith('flow-1');
   });
 
   it('maps the real cancellation run_id back to the flow before terminating it', async () => {
