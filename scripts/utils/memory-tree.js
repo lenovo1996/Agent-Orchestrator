@@ -28,6 +28,9 @@ const path = require('path');
 const SCRIPT_DIR = path.resolve(__dirname);
 const SKILL_DIR = path.dirname(SCRIPT_DIR);
 const REPO_ROOT = path.resolve(SKILL_DIR, '..');
+const TASK_MEMORY_ROOT = path.resolve(
+  process.env.DEVTEAM_TASK_MEMORY_DIR || path.join(REPO_ROOT, '.tasks')
+);
 const TEAM_CONFIG = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'team.json'), 'utf8'));
 const { parseStepTokens, getFlowTokens, formatTokens, formatFlowSummary } = require('../utils/token-tracker');
 const { loadWorkflow, getSteps, resolveWorkDir } = require('./flow-state');
@@ -61,7 +64,7 @@ function resolveTaskId(flowId) {
  */
 function getTaskDir(flowId) {
   const taskId = resolveTaskId(flowId);
-  return path.join(REPO_ROOT, '.tasks', taskId);
+  return path.join(TASK_MEMORY_ROOT, taskId);
 }
 
 /**
@@ -161,7 +164,7 @@ function migrateLegacyIfNeeded(flowId) {
       flow_id: legacyFlowId,
       started_at: legacyTree.created_at || new Date().toISOString(),
       prompt_summary: '(migrated from legacy)',
-      status: getFlowStatus(legacyTree)
+      status: getFlowStatus(legacyTree, legacyFlowId)
     });
   }
   meta.latest_flow_id = legacyFlowId;
@@ -273,62 +276,88 @@ function parseOutputFile(filePath) {
   };
 
   // Extract status
-  const statusMatch = content.match(/##\s*Status\s*[:\n]\s*(DONE|NEEDS_FIX|FAILED|BLOCKED)/i);
+  const statusMatch = content.match(
+    /##\s*Status\s*(?::\s*|\s+|\n)\s*(?:(\*{1,2}|_{1,2}))?(DONE|NEEDS[ _]FIX|FAILED|BLOCKED)\1(?=\s|$)/i
+  );
   if (statusMatch) {
-    result.status = statusMatch[1].toUpperCase();
+    result.status = statusMatch[2].toUpperCase().replace(' ', '_');
   }
 
-  // Extract sections
-  const sectionRegex = /^##\s+(.+)$/gm;
+  // Parse both top-level report sections and nested sections such as
+  // "### Facts"/"### Decisions" emitted by the current catalog agents.
+  const sectionRegex = /^#{2,3}[ \t]+(.+?)[ \t]*$/gm;
   let match;
   const sectionPositions = [];
 
   while ((match = sectionRegex.exec(content)) !== null) {
-    sectionPositions.push({ name: match[1].trim(), start: match.index + match[0].length });
+    sectionPositions.push({ name: match[1].trim(), index: match.index, start: sectionRegex.lastIndex });
   }
 
   for (let i = 0; i < sectionPositions.length; i++) {
-    const end = i + 1 < sectionPositions.length ? sectionPositions[i + 1].start - sectionPositions[i + 1].name.length - 4 : content.length;
+    const end = i + 1 < sectionPositions.length ? sectionPositions[i + 1].index : content.length;
     const sectionContent = content.slice(sectionPositions[i].start, end).trim();
-    result.sections[sectionPositions[i].name] = sectionContent;
+    const name = sectionPositions[i].name;
+    result.sections[name] = result.sections[name]
+      ? `${result.sections[name]}\n${sectionContent}`.trim()
+      : sectionContent;
   }
 
-  // Extract summary from first meaningful paragraph or Summary section
-  if (result.sections['Summary'] || result.sections['Ticket Summary'] || result.sections['Problem Restatement']) {
-    result.summary = (result.sections['Summary'] || result.sections['Ticket Summary'] || result.sections['Problem Restatement']).slice(0, 300);
+  const findSection = (...names) => {
+    const wanted = new Set(names.map(name => name.toLowerCase()));
+    const entry = Object.entries(result.sections)
+      .find(([name]) => wanted.has(name.toLowerCase()));
+    return entry ? entry[1] : '';
+  };
+
+  // Extract summary from the current and legacy report contracts.
+  const summary = findSection('Summary', 'Ticket Summary', 'Problem Restatement', 'Problem', 'Verdict');
+  if (summary) {
+    result.summary = summary.slice(0, 500);
   } else {
-    // Take first non-empty, non-header line
-    const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#') && !l.startsWith('## Status'));
-    result.summary = (lines[0] || '').slice(0, 300);
+    // Take the first meaningful line, excluding the machine-readable status value.
+    const lines = content.split('\n').filter(line => {
+      const value = line.trim();
+      return value
+        && !value.startsWith('#')
+        && !/^(?:\*{1,2}|_{1,2})?(DONE|NEEDS[ _]FIX|FAILED|BLOCKED)(?:\*{1,2}|_{1,2})?$/i.test(value);
+    });
+    result.summary = (lines[0] || '').slice(0, 500);
   }
 
-  // Extract key facts from bullet lists in important sections
-  const factSections = ['Core Requirements', 'Impacted Repos/Modules', 'Implementation Approach',
-    'Design Decisions', 'Changed Files', 'Critical Issues', 'Test Cases'];
+  // Extract reusable facts from both legacy and current report sections.
+  const factSections = new Set([
+    'facts', 'core requirements', 'requirements', 'acceptance criteria', 'constraints',
+    'edge cases', 'findings', 'evidence', 'impact map', 'impacted areas',
+    'impacted repos/modules', 'dependencies', 'invariants', 'existing tests',
+    'proposed flow', 'implementation approach', 'changed files', 'changes', 'files',
+    'critical issues', 'issues', 'test cases', 'acceptance results',
+    'regression results', 'required actions', 'risks', 'residual risks',
+  ]);
 
-  for (const sectionName of factSections) {
-    if (result.sections[sectionName]) {
-      const bullets = result.sections[sectionName]
+  for (const [sectionName, sectionContent] of Object.entries(result.sections)) {
+    if (factSections.has(sectionName.toLowerCase())) {
+      const bullets = sectionContent
         .split('\n')
-        .filter(l => l.match(/^[-*]\s+/))
-        .map(l => l.replace(/^[-*]\s+/, '').trim())
-        .slice(0, 5); // Max 5 facts per section
+        .filter(line => line.match(/^\s*(?:[-*]|\d+[.)])\s+/))
+        .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').trim())
+        .slice(0, 5);
       result.key_facts.push(...bullets);
     }
   }
 
-  // Keep key_facts concise
-  result.key_facts = result.key_facts.slice(0, 10);
+  result.key_facts = [...new Set(result.key_facts)].slice(0, 10);
 
-  // Extract decisions
-  if (result.sections['Design Decisions']) {
-    const decisionLines = result.sections['Design Decisions']
+  // Extract decisions from old and renamed agent contracts, including D1-style bullets.
+  for (const [sectionName, sectionContent] of Object.entries(result.sections)) {
+    if (!/decision/i.test(sectionName)) continue;
+    const decisionLines = sectionContent
       .split('\n')
-      .filter(l => l.match(/^\d+\.\s+/))
-      .map(l => l.replace(/^\d+\.\s+/, '').trim())
-      .slice(0, 5);
-    result.decisions = decisionLines.map(d => ({ what: d }));
+      .filter(line => line.match(/^\s*(?:[-*]|\d+[.)]|D\d+[.:])\s*/i))
+      .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, '').trim())
+      .filter(Boolean);
+    result.decisions.push(...decisionLines.map(value => ({ what: value })));
   }
+  result.decisions = [...new Map(result.decisions.map(decision => [decision.what, decision])).values()].slice(0, 5);
 
   return result;
 }
@@ -405,7 +434,7 @@ function updateTree(flowId, step) {
     const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
     const flowEntry = meta.flows.find(f => f.flow_id === flowId);
     if (flowEntry) {
-      flowEntry.status = getFlowStatus(tree);
+      flowEntry.status = getFlowStatus(tree, flowId);
       flowEntry.last_step = step;
       flowEntry.last_updated = new Date().toISOString();
     }
@@ -499,55 +528,18 @@ function generateActiveContext(flowId, targetStep) {
   if (priorNodes.length === 0) {
     md += `## Prior Context\n\nNo prior steps completed yet in this flow. This is the first step.\n`;
   } else {
-    // Problem/Requirements (from clarifier)
-    if (tree.nodes.clarifier) {
-      md += `## Problem\n\n${tree.nodes.clarifier.summary}\n\n`;
-      if (tree.nodes.clarifier.key_facts.length > 0) {
-        md += `**Requirements:**\n`;
-        tree.nodes.clarifier.key_facts.forEach(f => { md += `- ${f}\n`; });
+    md += `## Prior Context\n\n`;
+    for (const node of priorNodes) {
+      md += `### ${node.role || node.step}\n\n`;
+      if (node.summary) md += `${node.summary}\n\n`;
+      if (node.key_facts && node.key_facts.length > 0) {
+        md += `**Key facts:**\n`;
+        node.key_facts.forEach(fact => { md += `- ${fact}\n`; });
         md += `\n`;
       }
-    }
-
-    // Architecture (from architect)
-    if (tree.nodes.architect) {
-      md += `## Architecture\n\n${tree.nodes.architect.summary}\n\n`;
-      if (tree.nodes.architect.decisions.length > 0) {
+      if (node.decisions && node.decisions.length > 0) {
         md += `**Decisions:**\n`;
-        tree.nodes.architect.decisions.forEach(d => { md += `- ${d.what}\n`; });
-        md += `\n`;
-      }
-      if (tree.nodes.architect.key_facts.length > 0) {
-        md += `**Impacted:**\n`;
-        tree.nodes.architect.key_facts.forEach(f => { md += `- ${f}\n`; });
-        md += `\n`;
-      }
-    }
-
-    // Task breakdown & Plan (from planner)
-    if (tree.nodes.planner) {
-      md += `## Plan\n\n${tree.nodes.planner.summary}\n\n`;
-      if (tree.nodes.planner.key_facts.length > 0) {
-        tree.nodes.planner.key_facts.forEach(f => { md += `- ${f}\n`; });
-        md += `\n`;
-      }
-    }
-
-    // Implementation (from implementer)
-    if (tree.nodes.implementer) {
-      md += `## Implementation\n\n${tree.nodes.implementer.summary}\n\n`;
-      if (tree.nodes.implementer.key_facts.length > 0) {
-        md += `**Changes:**\n`;
-        tree.nodes.implementer.key_facts.forEach(f => { md += `- ${f}\n`; });
-        md += `\n`;
-      }
-    }
-
-    // Verification (from verifier)
-    if (tree.nodes.verifier) {
-      md += `## Verification\n\n${tree.nodes.verifier.summary}\n\n`;
-      if (tree.nodes.verifier.key_facts.length > 0) {
-        tree.nodes.verifier.key_facts.forEach(f => { md += `- ${f}\n`; });
+        node.decisions.forEach(decision => { md += `- ${decision.what}\n`; });
         md += `\n`;
       }
     }

@@ -6,6 +6,13 @@ Create a behavior-focused validation design before implementation.
 
 Read `AGENTS.md`, testing rules, task memory, requirements, analysis/investigation, architecture, and existing tests. Follow the target repository's real test conventions and environment.
 
+## Memory and knowledge contract
+
+1. If the orchestrator supplies a `## Memory Context` section, read the exact `active-context.md` path before opening full prior outputs.
+2. Before inspecting a repository, read its relevant workspace knowledge file at `.agents/knowledges/<repository-name>.md` when present.
+3. Use previous workflow outputs as detailed evidence when the compact memory is insufficient.
+4. The `.tasks` memory tree is orchestrator-managed; do not edit it directly.
+
 ## Responsibilities
 
 1. Derive tests from acceptance criteria, invariants, risks, and root cause.

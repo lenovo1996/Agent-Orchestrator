@@ -1,279 +1,260 @@
 #!/usr/bin/env python3
-"""
-Create filesystem artifacts for fake flows so the server doesn't throw ENOENT errors.
-Structure per flow:
-  $TASK_FLOWS_DIR/{workspace_id}/{flow_id}/
-    output/{step}.md
-    logs/{step}.log
-    sessions/{step}/          (empty dir, server watches this)
-"""
+"""Create dashboard-compatible artifacts for fake flows in a selected workspace."""
 
-import sqlite3
+from __future__ import annotations
+
+import argparse
+import json
 import os
 import random
+import re
+import shutil
+import sqlite3
+from pathlib import Path, PurePosixPath
 
-DB_PATH = "/Users/phi/Workplace/phi/Agent-Orchestrator/workflows.db"
-TASK_FLOWS_DIR = "/Users/phi/Workplace/phi/.dev-team/task-flows"
-WORKSPACE_ID = "ws_fake_demo_001"
 
-# ── fake output templates per agent role ──────────────────────────────────────
-OUTPUT_TEMPLATES = {
-    "investigator": """\
-# Investigation Report
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_DB_PATH = Path(os.environ.get("DEVTEAM_DB_PATH", SCRIPT_DIR / "workflows.db"))
+DEFAULT_TASK_FLOWS_DIR = Path(
+    os.environ.get("DEVTEAM_TASK_FLOWS_DIR", SCRIPT_DIR / "task-flows")
+)
+DEFAULT_WORKSPACE = os.environ.get("DEVTEAM_FAKE_WORKSPACE", "jinjer")
+SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def safe_relative_path(value: str, label: str) -> Path:
+    candidate = PurePosixPath(value)
+    if candidate.is_absolute() or not candidate.parts or ".." in candidate.parts:
+        raise ValueError(f"Unsafe {label}: {value}")
+    return Path(*candidate.parts)
+
+
+def workspace_artifact_root(task_flows_dir: Path, workspace_id: str) -> Path:
+    if not SAFE_ID.fullmatch(workspace_id):
+        raise ValueError(f"Unsafe workspace ID: {workspace_id}")
+    return task_flows_dir.resolve() / workspace_id
+
+
+def resolve_workspace_id(connection: sqlite3.Connection, selector: str) -> str:
+    exact = connection.execute(
+        "SELECT id FROM workspaces WHERE id = ?", (selector,)
+    ).fetchone()
+    if exact:
+        return exact["id"]
+    matches = connection.execute(
+        "SELECT id FROM workspaces WHERE lower(name) = lower(?) ORDER BY id", (selector,)
+    ).fetchall()
+    if not matches:
+        raise ValueError(f"Workspace not found by ID or name: {selector}")
+    if len(matches) > 1:
+        raise ValueError(f"Workspace name is ambiguous; use its ID: {selector}")
+    return matches[0]["id"]
+
+
+def output_status(step_status: str) -> str:
+    if step_status == "done":
+        return "DONE"
+    if step_status == "blocked":
+        return "BLOCKED"
+    return "FAILED"
+
+
+def fake_output(
+    workflow_name: str,
+    jira_key: str | None,
+    prompt: str | None,
+    step: str,
+    step_status: str,
+) -> str:
+    status = output_status(step_status)
+    return f"""## Status
+{status}
+
+# Fake {step.replace('_', ' ').title()} Artifact
+
+- Workflow: {workflow_name}
+- Ticket: {jira_key or 'N/A'}
+- Task: {prompt or 'Synthetic dashboard data'}
+- Step state: {step_status}
 
 ## Summary
-Conducted thorough investigation of the reported issue. Identified root cause in the authentication middleware.
 
-## Root Cause
-The null pointer exception occurs when `user.session` is accessed before initialization during concurrent requests.
+This deterministic fake artifact is intended for local dashboard and session-viewer testing.
 
-## Affected Files
-- `src/middleware/auth.ts` (line 84)
-- `src/utils/session.ts` (line 31)
+## Validation
 
-## Recommendation
-Add null check before accessing `user.session` and initialize session object in constructor.
-""",
-    "fix_planner": """\
-# Fix Plan
-
-## Objective
-Fix null pointer exception in auth middleware identified in investigation.
-
-## Implementation Steps
-1. Add null guard in `src/middleware/auth.ts:84`
-2. Initialize session in `UserSession` constructor
-3. Add unit test for concurrent session access
-4. Run integration tests
-
-## Risk Assessment
-- Low risk change, isolated to auth middleware
-- Existing tests cover happy path
-""",
-    "fix_implementer": """\
-# Implementation Notes
-
-## Changes Made
-
-### src/middleware/auth.ts
-- Added null check before accessing `user.session`
-- Added early return with 401 response if session is missing
-
-### src/utils/session.ts
-- Initialized `session` property in constructor to empty object
-- Added `isValid()` helper method
-
-## Testing
-All existing unit tests pass. Added 2 new test cases for edge conditions.
-""",
-    "bug_verifier": """\
-# Verification Report
-
-## Status: ✅ PASSED
-
-## Test Results
-- Unit tests: 47/47 passed
-- Integration tests: 12/12 passed
-- Manual verification: Confirmed fix resolves NPE
-
-## Performance
-No regression detected. Response time within acceptable range.
-
-## Conclusion
-Fix is correct and complete. Ready for review.
-""",
-    "analyzer": """\
-# Analysis Report
-
-## Codebase Overview
-Analyzed the target module and identified areas for improvement.
-
-## Key Findings
-1. Code duplication in service layer (~15% redundancy)
-2. Missing error handling in 3 critical paths
-3. Opportunity for async optimization
-
-## Recommendations
-- Extract common utilities to shared module
-- Implement retry logic for external service calls
-- Add structured logging
-""",
-    "refactor-planner": """\
-# Refactor Plan
-
-## Goals
-- Reduce code duplication by 60%
-- Improve maintainability score
-- Maintain 100% backward compatibility
-
-## Approach
-1. Extract base service class
-2. Move shared utilities to `src/utils/common.ts`
-3. Standardize error handling pattern
-4. Update all callers
-
-## Estimated Effort
-Medium - 2-3 hours of implementation
-""",
-    "refactor-implementer": """\
-# Refactor Implementation
-
-## Changes Summary
-- Created `BaseService` abstract class with shared methods
-- Moved 8 utility functions to `src/utils/common.ts`
-- Updated 12 files to use new shared utilities
-- Standardized error handling across all services
-
-## Files Modified
-- `src/services/base.ts` [NEW]
-- `src/utils/common.ts` [MODIFIED]
-- `src/services/*.ts` [12 files updated]
-""",
-    "planner": """\
-# Task Plan
-
-## Objective
-Implement the requested feature according to specifications.
-
-## Implementation Steps
-1. Set up data models and interfaces
-2. Implement core business logic
-3. Add API endpoints
-4. Write unit and integration tests
-5. Update documentation
-
-## Dependencies
-None - can proceed immediately.
-""",
-    "implementer": """\
-# Implementation Complete
-
-## What Was Built
-Successfully implemented all planned features:
-- Core business logic in service layer
-- REST API endpoints with proper validation
-- Error handling and logging
-- Database queries optimized with indexes
-
-## Test Coverage
-- 94% line coverage
-- All edge cases handled
-""",
-    "verifier": """\
-# Verification Complete
-
-## Status: ✅ ALL CHECKS PASSED
-
-## Checklist
-- [x] Unit tests passing (52/52)
-- [x] Integration tests passing (8/8)
-- [x] Code review guidelines met
-- [x] No security vulnerabilities detected
-- [x] Performance benchmarks within threshold
-
-## Sign-off
-Implementation is complete and verified. Ready to merge.
-""",
-    "clarifier": """\
-# Specification Clarification
-
-## Original Request
-Reviewed and clarified the requirements with the team.
-
-## Clarified Requirements
-1. Feature scope: Limited to backend API changes only
-2. Authentication: Use existing JWT middleware
-3. Data retention: 90-day default, configurable per tenant
-4. Rate limiting: 100 req/min per user
-
-## Open Questions Resolved
-All questions resolved. Proceeding with implementation.
-""",
-    "architect": """\
-# Solution Architecture
-
-## Overview
-Designed a scalable solution using event-driven architecture.
-
-## Components
-- **API Gateway**: Rate limiting + auth validation
-- **Event Bus**: Async message passing (Redis Streams)
-- **Service Layer**: Domain-driven design
-- **Data Layer**: PostgreSQL with read replicas
-
-## Trade-offs
-Chose eventual consistency over strong consistency for better scalability.
-Performance: ~2ms p99 latency at 10k RPS.
-""",
-}
-
-LOG_TEMPLATE = """\
-[{ts}] Starting {step} agent...
-[{ts}] Loaded context from previous steps
-[{ts}] Analyzing codebase structure...
-[{ts}] Processing task requirements...
-[{ts}] Generating solution...
-[{ts}] Writing output to {output_path}
-[{ts}] Tokens used: input={inp}, output={out}, cache_read={cache}
-[{ts}] Step completed successfully
+Tests: 8 passed, 0 failed
 """
 
-def fake_log(step, output_path, started_at):
-    ts = started_at[:19].replace("T", " ")
-    inp = random.randint(8000, 45000)
-    out = random.randint(1000, 8000)
-    cache = random.randint(0, inp // 2)
-    return LOG_TEMPLATE.format(
-        ts=ts, step=step, output_path=output_path,
-        inp=inp, out=out, cache=cache
-    )
+
+def fake_log(step: str, started_at: str, token_count: int) -> str:
+    return "\n".join([
+        f"[{started_at}] Runtime: fake-seed",
+        f"[{started_at}] Starting {step}",
+        f"[{started_at}] Reading synthetic workflow context",
+        f"[{started_at}] Writing synthetic output",
+        "tokens used",
+        str(token_count),
+        f"[{started_at}] Step finished",
+        "",
+    ])
 
 
-def create_artifacts():
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
+def session_status(attempt_status: str) -> str:
+    return {
+        "queued": "starting",
+        "running": "running",
+        "completed": "completed",
+        "failed": "failed",
+        "cancelled": "cancelled",
+    }[attempt_status]
 
-    flows = cur.execute(
-        "SELECT id FROM flows WHERE workspace_id = ?", (WORKSPACE_ID,)
-    ).fetchall()
 
-    created = 0
-    for (flow_id,) in flows:
-        steps = cur.execute(
-            "SELECT step, output_path, started_at FROM flow_steps WHERE flow_id = ? ORDER BY position",
-            (flow_id,)
+def create_artifacts(
+    db_path: Path,
+    task_flows_dir: Path,
+    workspace_selector: str = DEFAULT_WORKSPACE,
+    *,
+    clean: bool = False,
+    seed: int = 20260825,
+) -> tuple[int, int]:
+    if not db_path.is_file():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    rng = random.Random(seed)
+    connection = sqlite3.connect(db_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        workspace_id = resolve_workspace_id(connection, workspace_selector)
+        workspace_root = workspace_artifact_root(task_flows_dir, workspace_id)
+        if clean and workspace_root.exists():
+            for child in workspace_root.iterdir():
+                if child.is_dir() and child.name.startswith("flow_fake_") and SAFE_ID.fullmatch(child.name):
+                    shutil.rmtree(child)
+        workspace_root.mkdir(parents=True, exist_ok=True)
+
+        flows = connection.execute(
+            """
+            SELECT flows.id, flows.workflow_id, workflows.name AS workflow_name,
+                   flows.jira_key, flows.custom_prompt
+            FROM flows
+            JOIN workflows ON workflows.id = flows.workflow_id
+            WHERE flows.workspace_id = ? AND flows.id GLOB 'flow_fake_*'
+            ORDER BY flows.created_at DESC, flows.id
+            """,
+            (workspace_id,),
         ).fetchall()
 
-        flow_dir = os.path.join(TASK_FLOWS_DIR, WORKSPACE_ID, flow_id)
+        artifact_count = 0
+        for flow in flows:
+            flow_id = flow["id"]
+            if not SAFE_ID.fullmatch(flow_id):
+                raise ValueError(f"Unsafe flow ID: {flow_id}")
+            flow_root = workspace_root / flow_id
+            steps = connection.execute(
+                """
+                SELECT step, status, output_path, started_at, finished_at
+                FROM flow_steps WHERE flow_id = ? ORDER BY position
+                """,
+                (flow_id,),
+            ).fetchall()
+            attempts = connection.execute(
+                """
+                SELECT id, step, inngest_run_id, inngest_attempt, session_run_id,
+                       status, exit_code, error_json, created_at, started_at, finished_at
+                FROM step_attempts WHERE flow_id = ?
+                ORDER BY step, cycle, technical_attempt
+                """,
+                (flow_id,),
+            ).fetchall()
 
-        for (step, output_path, started_at) in steps:
-            # ── output file ──
-            output_file = os.path.join(flow_dir, output_path or f"output/{step}.md")
-            os.makedirs(os.path.dirname(output_file), exist_ok=True)
-            if not os.path.exists(output_file):
-                template_key = step.replace("-", "_")
-                content = OUTPUT_TEMPLATES.get(template_key, OUTPUT_TEMPLATES.get(step, f"# {step}\n\nCompleted successfully.\n"))
-                with open(output_file, "w") as f:
-                    f.write(content)
+            for step in steps:
+                if step["output_path"] and step["status"] in {"done", "blocked", "failed"}:
+                    output_path = safe_relative_path(step["output_path"], "output path")
+                    output_file = flow_root / output_path
+                    output_file.parent.mkdir(parents=True, exist_ok=True)
+                    output_file.write_text(
+                        fake_output(
+                            flow["workflow_name"],
+                            flow["jira_key"],
+                            flow["custom_prompt"],
+                            step["step"],
+                            step["status"],
+                        ),
+                        encoding="utf-8",
+                    )
+                    artifact_count += 1
 
-            # ── log file ──
-            log_file = os.path.join(flow_dir, "logs", f"{step}.log")
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            if not os.path.exists(log_file):
-                with open(log_file, "w") as f:
-                    f.write(fake_log(step, output_path or f"output/{step}.md", started_at or "2026-08-01T10:00:00Z"))
+                step_attempts = [attempt for attempt in attempts if attempt["step"] == step["step"]]
+                if step_attempts:
+                    token_count = rng.randint(1_500, 18_000)
+                    log_file = flow_root / "logs" / f"{step['step']}.log"
+                    log_file.parent.mkdir(parents=True, exist_ok=True)
+                    log_file.write_text(
+                        fake_log(step["step"], step["started_at"] or step_attempts[0]["created_at"], token_count),
+                        encoding="utf-8",
+                    )
 
-            # ── sessions dir (server watches this) ──
-            session_dir = os.path.join(flow_dir, "sessions", step)
-            os.makedirs(session_dir, exist_ok=True)
+                session_dir = flow_root / "sessions" / step["step"]
+                session_dir.mkdir(parents=True, exist_ok=True)
+                for attempt in step_attempts:
+                    usage = {
+                        "inputTokens": rng.randint(2_000, 12_000),
+                        "cachedInputTokens": rng.randint(0, 2_000),
+                        "outputTokens": rng.randint(500, 4_000),
+                        "reasoningOutputTokens": rng.randint(100, 1_500),
+                    }
+                    parsed_error = json.loads(attempt["error_json"]) if attempt["error_json"] else None
+                    error_message = parsed_error.get("message") if isinstance(parsed_error, dict) else None
+                    metadata = {
+                        "schemaVersion": 2,
+                        "runId": attempt["session_run_id"],
+                        "attemptId": attempt["id"],
+                        "inngestRunId": attempt["inngest_run_id"],
+                        "inngestAttempt": attempt["inngest_attempt"],
+                        "flowId": flow_id,
+                        "step": step["step"],
+                        "threadId": None,
+                        "turnId": None,
+                        "status": session_status(attempt["status"]),
+                        "startedAt": attempt["started_at"] or attempt["created_at"],
+                        "finishedAt": attempt["finished_at"],
+                        "exitCode": attempt["exit_code"],
+                        "usage": usage,
+                        "errorSummary": (
+                            {"stage": "process", "message": error_message or "Synthetic failure"}
+                            if attempt["status"] == "failed" else None
+                        ),
+                    }
+                    metadata_file = session_dir / f"{attempt['session_run_id']}.json"
+                    metadata_file.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
 
-        created += 1
-        print(f"  ✅ {flow_id}  ({len(steps)} steps)")
+        return len(flows), artifact_count
+    finally:
+        connection.close()
 
-    conn.close()
-    print(f"\n✅ Created artifacts for {created} flows under {TASK_FLOWS_DIR}/{WORKSPACE_ID}/")
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    parser.add_argument("--task-flows-dir", type=Path, default=DEFAULT_TASK_FLOWS_DIR)
+    parser.add_argument("--workspace", default=DEFAULT_WORKSPACE, help="Workspace ID or name")
+    parser.add_argument("--seed", type=int, default=20260825)
+    parser.add_argument("--clean", action="store_true")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    print(f"📁 Creating filesystem artifacts for fake flows...\n")
-    create_artifacts()
+    arguments = parse_args()
+    flow_count, output_count = create_artifacts(
+        arguments.db.resolve(),
+        arguments.task_flows_dir.resolve(),
+        arguments.workspace,
+        clean=arguments.clean,
+        seed=arguments.seed,
+    )
+    print(
+        f"Created artifacts for {flow_count} fake flows "
+        f"({output_count} outputs) under "
+        f"workspace {arguments.workspace}"
+    )

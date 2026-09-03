@@ -72,6 +72,12 @@ exit "\${FAKE_EXIT_CODE:-0}"
 const fs = require('node:fs');
 const path = require('node:path');
 fs.appendFileSync(path.join(process.cwd(), 'memory-calls.log'), process.argv.slice(2).join(' ') + '\\n');
+const [command, flowId] = process.argv.slice(2);
+if (command === 'generate') {
+  const taskDir = path.join(process.env.DEVTEAM_TASK_MEMORY_DIR, flowId);
+  fs.mkdirSync(taskDir, { recursive: true });
+  fs.writeFileSync(path.join(taskDir, 'active-context.md'), '# Active memory for ' + flowId + '\\n');
+}
 `);
   runner = new AgentRunner(context.service);
 });
@@ -137,6 +143,21 @@ describe('AgentRunner', () => {
     expect(client.startTurn.mock.calls[0]?.[1]).toContain(
       `Write your output to: ${context.service.outputFile(input.flowId, input.step)}`,
     );
+    const memoryContext = path.join(context.config.taskMemoryDir, input.flowId, 'active-context.md');
+    expect(fs.readFileSync(path.join(context.root, 'memory-calls.log'), 'utf8'))
+      .toContain(`generate ${input.flowId} implementer`);
+    expect(client.startTurn.mock.calls[0]?.[1]).toContain(
+      `## Memory Context\n\nRead the active memory context at: ${memoryContext}`,
+    );
+    expect(client.startTurn.mock.calls[0]?.[1]).toContain([
+      'Start the file with this exact machine-readable status block (without a code fence):',
+      '',
+      '## Status',
+      'DONE',
+      '',
+      'Replace DONE with NEEDS_FIX, BLOCKED, or FAILED when appropriate.',
+      'Keep the status as plain text; do not wrap it in Markdown emphasis or inline code.',
+    ].join('\n'));
     expect(client.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-1');
     expect(context.service.listAttempts(input.flowId)[0]).toMatchObject({ status: 'cancelled' });
     const attempt = context.service.listAttempts(input.flowId)[0];
@@ -321,6 +342,9 @@ describe('AgentRunner', () => {
 
     await expect(execution).resolves.toEqual({ status: 'DONE', attemptId: 'attempt-appserver-chat' });
     expect(fs.readFileSync(outputFile, 'utf8')).toBe(originalOutput);
+    const memoryCalls = fs.readFileSync(path.join(context.root, 'memory-calls.log'), 'utf8');
+    expect(memoryCalls).toContain(`generate ${command.flowId} implementer`);
+    expect(memoryCalls).toContain(`update ${command.flowId} implementer`);
   });
 
   it('projects a finalized recovered attempt without spawning a duplicate', async () => {

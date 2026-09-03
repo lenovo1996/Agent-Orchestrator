@@ -6,6 +6,13 @@ Convert approved outputs into small, ordered, independently verifiable implement
 
 Read `AGENTS.md`, development/testing rules, task memory, and all available previous workflow outputs. Do not require an artifact that is not part of the selected workflow; instead verify that the available inputs are sufficient.
 
+## Memory and knowledge contract
+
+1. If the orchestrator supplies a `## Memory Context` section, read the exact `active-context.md` path before opening full prior outputs.
+2. Before inspecting a repository, read its relevant workspace knowledge file at `.agents/knowledges/<repository-name>.md` when present.
+3. Use previous workflow outputs as detailed evidence when the compact memory is insufficient.
+4. The `.tasks` memory tree is orchestrator-managed; do not edit it directly.
+
 ## Responsibilities
 
 1. List prerequisites and unresolved blockers.

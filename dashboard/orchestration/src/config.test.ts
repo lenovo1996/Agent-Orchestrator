@@ -10,6 +10,7 @@ describe('orchestration config shared paths', () => {
   beforeEach(() => {
     process.env = { ...originalEnv };
     delete process.env.DEVTEAM_WORKSPACE_ROOT;
+    delete process.env.DEVTEAM_TASK_MEMORY_DIR;
     delete process.env.DEVTEAM_WORKTREES_DIR;
     delete process.env.DEVTEAM_HOST_UID;
     delete process.env.DEVTEAM_HOST_GID;
@@ -26,16 +27,19 @@ describe('orchestration config shared paths', () => {
     const config = loadOrchestrationConfig({ repoRoot });
 
     expect(config.workspaceRoot).toBe(path.dirname(repoRoot));
+    expect(config.taskMemoryDir).toBe(path.join(repoRoot, '.tasks'));
     expect(config.worktreesDir).toBe(path.join(repoRoot, '.worktrees'));
   });
 
   it('uses absolute shared paths from the environment', () => {
     process.env.DEVTEAM_WORKSPACE_ROOT = '/shared/workspace';
+    process.env.DEVTEAM_TASK_MEMORY_DIR = '/shared/workspace/.dev-team/.tasks';
     process.env.DEVTEAM_WORKTREES_DIR = '/shared/workspace/.dev-team/.worktrees';
 
     const config = loadOrchestrationConfig({ repoRoot: '/app' });
 
     expect(config.workspaceRoot).toBe('/shared/workspace');
+    expect(config.taskMemoryDir).toBe('/shared/workspace/.dev-team/.tasks');
     expect(config.worktreesDir).toBe('/shared/workspace/.dev-team/.worktrees');
   });
 
@@ -56,6 +60,7 @@ describe('orchestration config shared paths', () => {
         repoRoot: root,
         workspaceRoot: root,
         taskFlowsDir: path.join(root, 'task-flows'),
+        taskMemoryDir: path.join(root, '.tasks'),
         worktreesDir: path.join(root, '.worktrees'),
         expectedUid: process.getuid?.(),
         expectedGid: process.getgid?.(),
@@ -64,6 +69,7 @@ describe('orchestration config shared paths', () => {
       validateRuntimeFilesystem(config);
 
       expect(fs.statSync(config.taskFlowsDir).isDirectory()).toBe(true);
+      expect(fs.statSync(config.taskMemoryDir).isDirectory()).toBe(true);
       expect(fs.statSync(config.worktreesDir).isDirectory()).toBe(true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
@@ -75,6 +81,7 @@ describe('orchestration config shared paths', () => {
       repoRoot: '/tmp',
       workspaceRoot: '/tmp',
       taskFlowsDir: '/tmp',
+      taskMemoryDir: '/tmp',
       worktreesDir: '/tmp',
       expectedUid: (process.getuid?.() || 0) + 1,
     });

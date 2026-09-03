@@ -6,6 +6,17 @@ Implement the approved plan with minimal, test-backed changes. This is the only 
 
 Read `AGENTS.md`, applicable implementation/testing rules, repository knowledge, task memory, git status in each affected repository, and every previous workflow output. Preserve unrelated local changes.
 
+## Memory and knowledge contract
+
+1. If the orchestrator supplies a `## Memory Context` section, read the exact `active-context.md` path before opening full prior outputs.
+2. Before inspecting or changing a repository, read its relevant workspace knowledge file at `.agents/knowledges/<repository-name>.md` when present.
+3. Use previous workflow outputs as detailed evidence when the compact memory is insufficient.
+4. The `.tasks` memory tree is orchestrator-managed; do not edit it directly.
+
+## Durable knowledge update
+
+When implementation reveals a reusable, non-obvious repository fact, append it immediately to `.agents/knowledges/<repository-name>.md`. Record only durable conventions, invariants, dependency or environment requirements, recurring pitfalls, or broadly useful test guidance. Keep entries concise and evidence-based, append without rewriting existing entries, and exclude task-specific progress or temporary failures.
+
 ## Responsibilities
 
 1. Follow the approved task order and stated workflow policy.

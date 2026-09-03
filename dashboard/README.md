@@ -82,7 +82,7 @@ HOST_GID=<output-cua-id-g>
 
 Lấy đúng UID/GID của user đang chạy Codex app-server bằng `id -u` và `id -g`.
 Docker Compose dùng hai giá trị này cho `server` và `worker` để file trong
-`task-flows`/`.worktrees` không bị tạo dưới quyền `root`.
+`task-flows`/`.tasks`/`.worktrees` không bị tạo dưới quyền `root`.
 
 Không commit `.env`. Inngest container, worker, dashboard server và CLI phải dùng
 cùng `INNGEST_EVENT_KEY`/`INNGEST_SIGNING_KEY`.
@@ -95,6 +95,7 @@ Các biến tùy chọn thường dùng:
 | `DEVTEAM_DB_PATH` | `.dev-team/workflows.db` | SQLite business database; nên dùng absolute path khi override |
 | `DEVTEAM_WORKSPACE_ROOT` | thư mục cha của `.dev-team` | Shared root chứa các workspace hợp lệ |
 | `DEVTEAM_TASK_FLOWS_DIR` | `.dev-team/task-flows` | Nơi lưu prompt, output, logs và session metadata |
+| `DEVTEAM_TASK_MEMORY_DIR` | `.dev-team/.tasks` | Memory tree và `active-context.md`; phải có cùng absolute path trên host/container |
 | `DEVTEAM_WORKTREES_DIR` | `.dev-team/.worktrees` | Nơi lưu Git worktree với absolute path dùng chung giữa host/container |
 | `DEVTEAM_AGENT_CONCURRENCY` | `3` | Số agent tối đa trên worker host; isolated worktree có thể dùng capacity song song |
 | `DEVTEAM_AGENT_TIMEOUT` | `6h` | Timeout local cho một agent process |
@@ -151,23 +152,26 @@ database, sau đó seed catalog mới. Workspace local được giữ mặc đ�
 
 ### Dữ liệu demo local
 
-Tạo 15 flow `completed` trong workspace riêng `Fake Demo`, kèm output, log, token và
-session metadata hợp lệ:
+Tạo 30 flow trong workspace `jinjer`, mặc định gồm 23 `completed`, 4 `blocked` và
+3 `stopped` được phân bổ ngẫu nhiên. Mỗi flow dùng workflow 3–6 step, Jira key
+ngẫu nhiên từ `JH-30000` đến `JH-45000`, kèm output, log, token và session metadata
+hợp lệ:
 
 ```bash
-python3 seed_fake_flows.py 15
+python3 seed_fake_flows.py
 ```
 
 Seeder đọc workflow/agent catalog hiện tại từ `workflows.db`; không hardcode workflow
-ID. Mỗi lần chạy, nó chỉ thay thế workspace có ID bắt đầu bằng `ws_fake_` và không sửa
-flow/workspace thật. Có thể chỉ tạo lại artifact từ dữ liệu fake đang có:
+ID. Mỗi lần chạy, nó chỉ thay thế flow có prefix `flow_fake_` trong workspace đích và
+không sửa flow thật. Có thể chỉ tạo lại artifact từ dữ liệu fake đang có:
 
 ```bash
-python3 create_fake_artifacts.py --clean
+python3 create_fake_artifacts.py --workspace jinjer --clean
 ```
 
-Dùng `--db`, `--task-flows-dir`, `--workspace-path` hoặc các biến
-`DEVTEAM_DB_PATH`/`DEVTEAM_TASK_FLOWS_DIR` khi file runtime nằm ở đường dẫn khác.
+Dùng `--workspace`, `--min-steps`, `--max-steps`, `--jira-min`, `--jira-max`,
+`--blocked-count`, `--stopped-count`, `--db`, `--task-flows-dir` hoặc các biến
+`DEVTEAM_DB_PATH`/`DEVTEAM_TASK_FLOWS_DIR` để override.
 
 Mỗi workflow snapshot `context` và `NEEDS_FIX` routing khi tạo flow. Quality gate của
 workflow delivery quay lại `implementer`; workflow audit dùng target `block` để không

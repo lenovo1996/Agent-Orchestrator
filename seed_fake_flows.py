@@ -1,341 +1,388 @@
 #!/usr/bin/env python3
-"""
-Seed fake completed task flows into workflows.db
-Prefix: JH-{random 30000~42000}
-Status: completed (all steps done)
-"""
+"""Seed fake flows and their artifacts into a local workflows database."""
 
-import sqlite3
-import random
-import uuid
+from __future__ import annotations
+
+import argparse
 import json
 import os
-import subprocess
+import random
+import sqlite3
+import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-DB_PATH = "/Users/phi/Workplace/phi/Agent-Orchestrator/workflows.db"
+from create_fake_artifacts import (
+    DEFAULT_TASK_FLOWS_DIR,
+    DEFAULT_WORKSPACE,
+    create_artifacts,
+    resolve_workspace_id,
+)
 
-# ─── helpers ──────────────────────────────────────────────────────────────────
 
-def now_iso(offset_seconds=0):
-    dt = datetime.now(timezone.utc) + timedelta(seconds=offset_seconds)
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-def rand_id(prefix=""):
-    ts = int(datetime.now(timezone.utc).timestamp() * 1000) + random.randint(0, 9999)
-    return f"{prefix}{ts}" if prefix else str(ts)
-
-def new_uuid():
-    return str(uuid.uuid4())
-
-# ─── workflow definitions (mapped to existing workflows in DB) ─────────────────
-
-WORKFLOW_TEMPLATES = [
-    {
-        "id": "wf_1781774515782",
-        "name": "Bug Fixer Process",
-        "steps": ["investigator", "fix_planner", "fix_implementer", "bug_verifier"],
-    },
-    {
-        "id": "wf_1782727041696",
-        "name": "Fast Implement",
-        "steps": ["planner", "implementer", "verifier"],
-    },
-    {
-        "id": "wf_1781492568626",
-        "name": "Code Refactor Process",
-        "steps": ["analyzer", "refactor-planner", "refactor-implementer", "verifier"],
-    },
-    {
-        "id": "wf_1781505332912",
-        "name": "Unit Test Process",
-        "steps": ["analyzer", "implementer", "verifier"],
-    },
-    {
-        "id": "wf_1782724953459",
-        "name": "Solution Design",
-        "steps": ["architect"],
-    },
-    {
-        "id": "wf_1783391501862",
-        "name": "Task planner",
-        "steps": ["planner"],
-    },
-    {
-        "id": "wf_1781682101812",
-        "name": "Spec Clarify Process",
-        "steps": ["clarifier"],
-    },
-    {
-        "id": "wf_1783417106136",
-        "name": "PR Verifier",
-        "steps": ["verifier"],
-    },
-]
-
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_DB_PATH = Path(os.environ.get("DEVTEAM_DB_PATH", SCRIPT_DIR / "workflows.db"))
 FAKE_TASKS = [
-    "Fix null pointer exception in auth middleware",
-    "Refactor payment service to use repository pattern",
-    "Add unit tests for user registration flow",
-    "Implement JWT refresh token rotation",
-    "Fix race condition in WebSocket handler",
-    "Refactor legacy config loader module",
-    "Add integration tests for checkout API",
-    "Implement rate limiting middleware",
-    "Fix memory leak in file upload handler",
-    "Refactor database connection pooling",
-    "Add unit tests for order calculation engine",
-    "Implement webhook signature verification",
-    "Fix SQL injection vulnerability in search endpoint",
-    "Refactor notification service to async queue",
-    "Add unit tests for email template renderer",
-    "Implement CORS configuration for production",
-    "Fix broken pagination in admin dashboard",
-    "Refactor logging to structured JSON format",
-    "Add unit tests for discount code validator",
-    "Implement health check endpoint with DB ping",
-    "Fix timezone handling in scheduled jobs",
-    "Refactor cache invalidation strategy",
-    "Add unit tests for CSV export service",
-    "Implement two-factor authentication",
-    "Fix session expiry not propagating to frontend",
-    "Refactor microservice communication to gRPC",
-    "Add unit tests for address validation logic",
-    "Implement audit trail for admin actions",
-    "Fix floating point rounding in invoice totals",
-    "Refactor S3 upload to use presigned URLs",
+    "Fix a synthetic authentication regression",
+    "Add deterministic tests for a fake payroll calculation",
+    "Design a sample audit-log retention policy",
+    "Investigate a simulated WebSocket race condition",
+    "Refactor a demo notification pipeline without behavior changes",
+    "Review a fake pull request for tenant-isolation risks",
+    "Estimate a sample employee-import feature",
+    "Research a synthetic API migration strategy",
 ]
 
-WORKSPACE_ID = "ws_fake_demo_001"
-WORKSPACE_NAME = "JINJER"
-# Must be a real directory that exists inside DEVTEAM_WORKSPACE_ROOT (/Users/phi/Workplace/phi)
-WORKSPACE_PATH = "/Users/phi/Workplace/jinjer/PHP8"
+
+def iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-# ─── main seeder ──────────────────────────────────────────────────────────────
+def stable_uuid(seed: int, *parts: object) -> str:
+    value = ":".join([str(seed), *(str(part) for part in parts)])
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"devteam-fake:{value}"))
 
-def seed(n=10):
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("PRAGMA foreign_keys = ON")
-    cur = conn.cursor()
 
-    # ── cleanup old fake data first ──
-    print("[~] Cleaning up old fake data...")
-    # Get all flow_ids belonging to our fake workspace
-    old_flows = [r[0] for r in cur.execute(
-        "SELECT id FROM flows WHERE workspace_id = ?", (WORKSPACE_ID,)
-    ).fetchall()]
-    if old_flows:
-        for fid in old_flows:
-            cur.execute("DELETE FROM step_attempts WHERE flow_id = ?", (fid,))
-            cur.execute("DELETE FROM orchestration_runs WHERE flow_id = ?", (fid,))
-            cur.execute("DELETE FROM flow_steps WHERE flow_id = ?", (fid,))
-            cur.execute("DELETE FROM flow_commands WHERE flow_id = ?", (fid,))
-            cur.execute("DELETE FROM event_outbox WHERE flow_id = ?", (fid,))
-            cur.execute("DELETE FROM domain_events WHERE flow_id = ?", (fid,))
-        cur.execute("DELETE FROM flows WHERE workspace_id = ?", (WORKSPACE_ID,))
-        print(f"  Removed {len(old_flows)} old flows")
-    cur.execute("DELETE FROM workspaces WHERE id = ?", (WORKSPACE_ID,))
+def load_catalog(
+    connection: sqlite3.Connection,
+    min_steps: int,
+    max_steps: int,
+) -> list[dict[str, object]]:
+    agent_outputs = {
+        row["id"]: json.loads(row["outputs"])
+        for row in connection.execute("SELECT id, outputs FROM agents")
+    }
+    catalog: list[dict[str, object]] = []
+    for row in connection.execute(
+        "SELECT id, name, steps, context, needs_fix_map FROM workflows ORDER BY name, id"
+    ):
+        steps = json.loads(row["steps"])
+        needs_fix = json.loads(row["needs_fix_map"])
+        if len(steps) < min_steps:
+            continue
+        if any(step not in agent_outputs or not agent_outputs[step] for step in steps):
+            continue
+        catalog.append({
+            "id": row["id"],
+            "name": row["name"],
+            "steps": steps,
+            "context": row["context"],
+            "needs_fix": needs_fix,
+            "outputs": {step: agent_outputs[step][0] for step in steps},
+        })
+    if not catalog:
+        raise RuntimeError(f"No valid workflows with at least {min_steps} steps found")
+    return catalog
 
-    # ── ensure workspace exists ──
-    cur.execute(
-        "INSERT INTO workspaces (id, name, path) VALUES (?, ?, ?)",
-        (WORKSPACE_ID, WORKSPACE_NAME, WORKSPACE_PATH),
-    )
-    print(f"[+] Created workspace: {WORKSPACE_NAME} → {WORKSPACE_PATH}")
 
-    used_jh = set()
-    inserted = 0
+def clean_fake_flows(connection: sqlite3.Connection, workspace_id: str) -> int:
+    flow_ids = [
+        row["id"]
+        for row in connection.execute(
+            "SELECT id FROM flows WHERE workspace_id = ? AND id GLOB 'flow_fake_*'",
+            (workspace_id,),
+        )
+    ]
+    if flow_ids:
+        placeholders = ",".join("?" for _ in flow_ids)
+        connection.execute(
+            f"DELETE FROM flow_dependencies WHERE flow_id IN ({placeholders}) "
+            f"OR dependency_flow_id IN ({placeholders})",
+            (*flow_ids, *flow_ids),
+        )
+        for table in ("step_attempts", "orchestration_runs", "flow_steps", "event_outbox", "domain_events"):
+            connection.execute(f"DELETE FROM {table} WHERE flow_id IN ({placeholders})", flow_ids)
+        connection.execute(f"DELETE FROM flow_commands WHERE flow_id IN ({placeholders})", flow_ids)
+        connection.execute(f"DELETE FROM flows WHERE id IN ({placeholders})", flow_ids)
+    return len(flow_ids)
 
-    for i in range(n):
-        # ── pick random JH ticket ──
-        jh_num = random.randint(30000, 42000)
-        while jh_num in used_jh:
-            jh_num = random.randint(30000, 42000)
-        used_jh.add(jh_num)
-        jira_key = f"JH-{jh_num}"
 
-        # ── pick random workflow ──
-        wf = random.choice(WORKFLOW_TEMPLATES)
-        steps = wf["steps"]
+def seed_flows(
+    db_path: Path,
+    count: int,
+    workspace_selector: str,
+    seed: int,
+    min_steps: int,
+    max_steps: int,
+    jira_min: int,
+    jira_max: int,
+    blocked_count: int,
+    stopped_count: int,
+) -> tuple[str, list[str]]:
+    if count < 0 or count > 200:
+        raise ValueError("count must be between 0 and 200")
+    if not db_path.is_file():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+    if min_steps < 1 or max_steps < min_steps:
+        raise ValueError("step range is invalid")
+    if jira_min < 1 or jira_max < jira_min or jira_max - jira_min + 1 < count:
+        raise ValueError("Jira range is invalid or too small for the requested count")
+    if blocked_count < 0 or stopped_count < 0:
+        raise ValueError("blocked and stopped counts must be non-negative")
+    if blocked_count + stopped_count > count:
+        raise ValueError("blocked and stopped counts cannot exceed the total count")
 
-        # ── timeline: flow completed between 1~30 days ago ──
-        days_ago = random.randint(1, 30)
-        flow_created_offset = -(days_ago * 86400) - random.randint(3600, 7200)
-        flow_started_offset = flow_created_offset + random.randint(5, 30)
-        flow_finished_offset = flow_started_offset + random.randint(600, 3600 * len(steps))
-
-        created_at  = now_iso(flow_created_offset)
-        started_at  = now_iso(flow_started_offset)
-        finished_at = now_iso(flow_finished_offset)
-        updated_at  = finished_at
-
-        # ── build step_order_json ──
-        step_order_json = json.dumps(steps)
-
-        # ── flow id ──
-        flow_id = f"flow_{rand_id()}_{i}"
-
-        custom_prompt = random.choice(FAKE_TASKS)
-
-        # ── insert flow ──
-        cur.execute("""
-            INSERT INTO flows (
-                id, workspace_id, workflow_id, jira_key, custom_prompt,
-                step_order_json, status, current_step,
-                generation, revision, use_worktree,
-                worktree_path, worktree_branch,
-                blocked_summary, error_summary,
-                created_at, started_at, finished_at, updated_at
-            ) VALUES (
-                ?, ?, ?, ?, ?,
-                ?, ?, ?,
-                ?, ?, ?,
-                ?, ?,
-                ?, ?,
-                ?, ?, ?, ?
-            )
-        """, (
-            flow_id, WORKSPACE_ID, wf["id"], jira_key, custom_prompt,
-            step_order_json, "completed", steps[-1],
-            1, 0, 0,
-            None, None,
-            None, None,
-            created_at, started_at, finished_at, updated_at,
-        ))
-
-        # ── insert flow_steps (all done) ──
-        step_start = flow_started_offset
-        step_duration = (flow_finished_offset - flow_started_offset) // len(steps)
-
-        for pos, step_name in enumerate(steps):
-            s_started  = now_iso(step_start)
-            s_finished = now_iso(step_start + step_duration)
-            s_updated  = s_finished
-            step_start += step_duration + random.randint(0, 60)
-
-            # output path for this step
-            output_path = f"output/{step_name}.md"
-
-            cur.execute("""
-                INSERT INTO flow_steps (
-                    flow_id, step, position, status, cycle,
-                    technical_retry_count, needs_fix_count,
-                    output_path, started_at, finished_at, updated_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?,
-                    ?, ?,
-                    ?, ?, ?, ?
+    rng = random.Random(seed)
+    connection = sqlite3.connect(db_path, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    try:
+        workspace_id = resolve_workspace_id(connection, workspace_selector)
+        catalog = load_catalog(connection, min_steps, max_steps)
+        with connection:
+            removed = clean_fake_flows(connection, workspace_id)
+            existing_jira = {
+                row["jira_key"]
+                for row in connection.execute(
+                    "SELECT jira_key FROM flows WHERE jira_key IS NOT NULL"
                 )
-            """, (
-                flow_id, step_name, pos, "done", 1,
-                0, 0,
-                output_path, s_started, s_finished, s_updated,
-            ))
-
-        # ── insert flow_command (start → completed) ──
-        cmd_id = f"cmd_{new_uuid()}"
-        idempotency_key = f"start_{flow_id}_gen1"
-        cur.execute("""
-            INSERT INTO flow_commands (
-                id, flow_id, type, payload_json, idempotency_key,
-                status, claimed_by, claimed_at, error_json,
-                created_at, updated_at, finished_at
-            ) VALUES (
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, ?,
-                ?, ?, ?
+            }
+            available_jira = [
+                number for number in range(jira_min, jira_max + 1)
+                if f"JH-{number}" not in existing_jira
+            ]
+            if len(available_jira) < count:
+                raise ValueError("Not enough unused Jira keys in the requested range")
+            jira_numbers = rng.sample(available_jira, count)
+            flow_statuses = (
+                ["blocked"] * blocked_count
+                + ["stopped"] * stopped_count
+                + ["completed"] * (count - blocked_count - stopped_count)
             )
-        """, (
-            cmd_id, flow_id, "start",
-            json.dumps({"flow_id": flow_id, "generation": 1}),
-            idempotency_key,
-            "completed", "orchestrator-1", started_at, None,
-            created_at, finished_at, finished_at,
-        ))
+            rng.shuffle(flow_statuses)
 
-        # ── insert orchestration_run ──
-        run_id = f"run_{new_uuid()}"
-        inngest_run_id = f"inngest_{new_uuid().replace('-', '')[:16]}"
-        cur.execute("""
-            INSERT INTO orchestration_runs (
-                id, flow_id, generation, command_id, inngest_run_id,
-                status, created_at, started_at, finished_at, updated_at
-            ) VALUES (
-                ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?
-            )
-        """, (
-            run_id, flow_id, 1, cmd_id, inngest_run_id,
-            "completed", created_at, started_at, finished_at, finished_at,
-        ))
-
-        # ── insert step_attempts ──
-        attempt_start = flow_started_offset
-        attempt_duration = (flow_finished_offset - flow_started_offset) // len(steps)
-
-        for step_name in steps:
-            attempt_id = f"att_{new_uuid()}"
-            session_run_id = f"sess_{new_uuid()}"
-            a_started  = now_iso(attempt_start)
-            a_finished = now_iso(attempt_start + attempt_duration)
-            attempt_start += attempt_duration + random.randint(0, 60)
-
-            cur.execute("""
-                INSERT INTO step_attempts (
-                    id, flow_id, step, cycle, technical_attempt,
-                    inngest_run_id, inngest_attempt,
-                    session_run_id, runner_id, pid, process_group_id,
-                    exit_code, status, error_json,
-                    created_at, started_at, finished_at, updated_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?,
-                    ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?,
-                    ?, ?, ?, ?
+            now = datetime.now(timezone.utc)
+            flow_ids: list[str] = []
+            workspace_token = uuid.uuid5(uuid.NAMESPACE_URL, workspace_id).hex[:8]
+            for index in range(count):
+                workflow = rng.choice(catalog)
+                all_steps = workflow["steps"]
+                step_count = rng.randint(min_steps, min(max_steps, len(all_steps)))
+                steps = all_steps[:step_count]
+                flow_id = f"flow_fake_{seed}_{workspace_token}_{index + 1:03d}"
+                command_id = stable_uuid(seed, flow_id, "command")
+                coordinator_run_id = f"fake-coordinator-{stable_uuid(seed, flow_id, 'run')}"
+                jira_key = f"JH-{jira_numbers[index]}"
+                prompt = FAKE_TASKS[index % len(FAKE_TASKS)]
+                created_at = now - timedelta(days=index + 1, hours=2)
+                started_at = created_at + timedelta(seconds=15)
+                step_duration = timedelta(minutes=rng.randint(4, 18))
+                flow_status = flow_statuses[index]
+                active_position = (
+                    None if flow_status == "completed" else rng.randrange(len(steps))
                 )
-            """, (
-                attempt_id, flow_id, step_name, 1, 0,
-                inngest_run_id, 0,
-                session_run_id, "orchestrator-1",
-                random.randint(10000, 60000),
-                random.randint(10000, 60000),
-                0, "completed", None,
-                a_started, a_started, a_finished, a_finished,
-            ))
+                state_time = started_at + step_duration * (
+                    len(steps) if active_position is None else active_position + 1
+                )
+                current_step = None if active_position is None else steps[active_position]
+                finished_at = None if flow_status == "blocked" else state_time
+                blocked_summary = (
+                    f"Synthetic blocker reported by {current_step}"
+                    if flow_status == "blocked"
+                    else None
+                )
 
-        # ── domain events ──
-        for evt_type, evt_offset in [
-            ("flow.started",   flow_started_offset),
-            ("flow.completed", flow_finished_offset),
-        ]:
-            cur.execute("""
-                INSERT INTO domain_events (
-                    workspace_id, flow_id, event_type, payload_json, created_at
-                ) VALUES (?, ?, ?, ?, ?)
-            """, (
-                WORKSPACE_ID, flow_id, evt_type,
-                json.dumps({"flow_id": flow_id, "jira_key": jira_key, "workflow": wf["name"]}),
-                now_iso(evt_offset),
-            ))
+                connection.execute(
+                    """
+                    INSERT INTO flows(
+                        id, workspace_id, workflow_id, jira_key, custom_prompt, workflow_context,
+                        step_order_json, status, current_step, generation, revision, use_worktree,
+                        worktree_path, worktree_branch, blocked_summary, error_summary,
+                        created_at, started_at, finished_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 0,
+                              NULL, NULL, ?, NULL, ?, ?, ?, ?)
+                    """,
+                    (
+                        flow_id, workspace_id, workflow["id"], jira_key, prompt, workflow["context"],
+                        json.dumps(steps), flow_status, current_step, len(steps) + 2,
+                        blocked_summary, iso(created_at), iso(started_at),
+                        iso(finished_at) if finished_at else None, iso(state_time),
+                    ),
+                )
 
-        inserted += 1
-        print(f"  ✅ {jira_key}  [{wf['name']}]  steps={len(steps)}  created={created_at[:10]}")
+                for position, step in enumerate(steps):
+                    step_started = started_at + step_duration * position
+                    step_finished = step_started + step_duration
+                    if flow_status == "completed" or position < active_position:
+                        step_status = "done"
+                    elif position == active_position:
+                        step_status = "blocked" if flow_status == "blocked" else "cancelled"
+                    else:
+                        step_status = "waiting"
+                    recorded_started = None if step_status == "waiting" else iso(step_started)
+                    recorded_finished = None if step_status == "waiting" else iso(step_finished)
+                    step_updated = recorded_finished or iso(state_time)
+                    configured_target = workflow["needs_fix"].get(step)
+                    on_needs_fix = (
+                        configured_target
+                        if configured_target == "block" or configured_target in steps
+                        else None
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO flow_steps(
+                            flow_id, step, position, status, cycle, technical_retry_count,
+                            needs_fix_count, on_needs_fix, output_path,
+                            started_at, finished_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 1, 0, 0, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            flow_id, step, position, step_status, on_needs_fix,
+                            workflow["outputs"][step], recorded_started, recorded_finished,
+                            step_updated,
+                        ),
+                    )
+                    if step_status == "waiting":
+                        continue
+                    attempt_id = stable_uuid(seed, flow_id, step, "attempt")
+                    session_run_id = stable_uuid(seed, flow_id, step, "session")
+                    child_run_id = f"fake-agent-{stable_uuid(seed, flow_id, step, 'inngest')}"
+                    attempt_status = "cancelled" if step_status == "cancelled" else "completed"
+                    exit_code = None if attempt_status == "cancelled" else 0
+                    connection.execute(
+                        """
+                        INSERT INTO step_attempts(
+                            id, flow_id, step, cycle, technical_attempt,
+                            inngest_run_id, inngest_attempt, session_run_id, runner_id,
+                            pid, process_group_id, exit_code, status, error_json,
+                            created_at, started_at, finished_at, updated_at
+                        ) VALUES (?, ?, ?, 1, 0, ?, 0, ?, 'fake-seeder',
+                                  NULL, NULL, ?, ?, NULL, ?, ?, ?, ?)
+                        """,
+                        (
+                            attempt_id, flow_id, step, child_run_id, session_run_id,
+                            exit_code, attempt_status,
+                            iso(step_started), iso(step_started), iso(step_finished), iso(step_finished),
+                        ),
+                    )
 
-    conn.commit()
-    conn.close()
-    print(f"\n✅ Inserted {inserted} fake completed flows into {DB_PATH}")
+                start_command_status = {
+                    "completed": "completed",
+                    "blocked": "running",
+                    "stopped": "cancelled",
+                }[flow_status]
+                start_finished_at = None if flow_status == "blocked" else iso(state_time)
+                connection.execute(
+                    """
+                    INSERT INTO flow_commands(
+                        id, flow_id, type, payload_json, idempotency_key, status,
+                        claimed_by, claimed_at, error_json, created_at, updated_at, finished_at
+                    ) VALUES (?, ?, 'start', ?, ?, ?, 'fake-seeder', ?, NULL, ?, ?, ?)
+                    """,
+                    (
+                        command_id, flow_id, json.dumps({"flowId": flow_id, "fake": True}),
+                        f"fake-seed:{seed}:{flow_id}", start_command_status, iso(started_at),
+                        iso(created_at), iso(state_time), start_finished_at,
+                    ),
+                )
+                orchestration_status = {
+                    "completed": "completed",
+                    "blocked": "waiting",
+                    "stopped": "cancelled",
+                }[flow_status]
+                connection.execute(
+                    """
+                    INSERT INTO orchestration_runs(
+                        id, flow_id, generation, command_id, inngest_run_id, status,
+                        created_at, started_at, finished_at, updated_at
+                    ) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        stable_uuid(seed, flow_id, "orchestration"), flow_id, command_id,
+                        coordinator_run_id, orchestration_status, iso(created_at), iso(started_at),
+                        start_finished_at, iso(state_time),
+                    ),
+                )
+                if flow_status == "stopped":
+                    stop_command_id = stable_uuid(seed, flow_id, "stop-command")
+                    connection.execute(
+                        """
+                        INSERT INTO flow_commands(
+                            id, flow_id, type, payload_json, idempotency_key, status,
+                            claimed_by, claimed_at, error_json, created_at, updated_at, finished_at
+                        ) VALUES (?, ?, 'stop', '{}', ?, 'completed', 'fake-seeder', ?, NULL, ?, ?, ?)
+                        """,
+                        (
+                            stop_command_id, flow_id, f"fake-stop:{seed}:{flow_id}",
+                            iso(state_time), iso(state_time), iso(state_time), iso(state_time),
+                        ),
+                    )
+                final_event_type = {
+                    "completed": "flow.completed",
+                    "blocked": "flow.blocked",
+                    "stopped": "flow.stopped",
+                }[flow_status]
+                for event_type, event_time in (
+                    ("flow.started", started_at),
+                    (final_event_type, state_time),
+                ):
+                    event_status = "running" if event_type == "flow.started" else flow_status
+                    connection.execute(
+                        """
+                        INSERT INTO domain_events(
+                            workspace_id, flow_id, event_type, payload_json, created_at
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            workspace_id, flow_id, event_type,
+                            json.dumps({"flowId": flow_id, "status": event_status, "fake": True}),
+                            iso(event_time),
+                        ),
+                    )
+                flow_ids.append(flow_id)
 
-    # Auto-create filesystem artifacts
-    artifacts_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "create_fake_artifacts.py")
-    if os.path.exists(artifacts_script):
-        print("\n📁 Creating filesystem artifacts...")
-        subprocess.run(["python3", artifacts_script], check=True)
+        print(f"Removed {removed} previous fake flows from {workspace_id}")
+        return workspace_id, flow_ids
+    finally:
+        connection.close()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("count", nargs="?", type=int, default=30)
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    parser.add_argument("--task-flows-dir", type=Path, default=DEFAULT_TASK_FLOWS_DIR)
+    parser.add_argument("--workspace", default=DEFAULT_WORKSPACE, help="Workspace ID or name")
+    parser.add_argument("--min-steps", type=int, default=3)
+    parser.add_argument("--max-steps", type=int, default=6)
+    parser.add_argument("--jira-min", type=int, default=30000)
+    parser.add_argument("--jira-max", type=int, default=45000)
+    parser.add_argument("--blocked-count", type=int, default=4)
+    parser.add_argument("--stopped-count", type=int, default=3)
+    parser.add_argument("--seed", type=int, default=20260825)
+    parser.add_argument("--no-artifacts", action="store_true")
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    import sys
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 15
-    print(f"🌱 Seeding {n} fake completed flows (JH-30000~42000)...\n")
-    seed(n)
+    arguments = parse_args()
+    workspace_id, seeded = seed_flows(
+        arguments.db.resolve(),
+        arguments.count,
+        arguments.workspace,
+        arguments.seed,
+        arguments.min_steps,
+        arguments.max_steps,
+        arguments.jira_min,
+        arguments.jira_max,
+        arguments.blocked_count,
+        arguments.stopped_count,
+    )
+    completed_count = len(seeded) - arguments.blocked_count - arguments.stopped_count
+    print(
+        f"Seeded {len(seeded)} fake flows into workspace {workspace_id} "
+        f"({completed_count} completed, {arguments.blocked_count} blocked, "
+        f"{arguments.stopped_count} stopped) in {arguments.db.resolve()}"
+    )
+    if not arguments.no_artifacts:
+        flow_count, output_count = create_artifacts(
+            arguments.db.resolve(),
+            arguments.task_flows_dir.resolve(),
+            workspace_id,
+            clean=True,
+            seed=arguments.seed,
+        )
+        print(
+            f"Created artifacts for {flow_count} fake flows "
+            f"({output_count} outputs) under {arguments.task_flows_dir.resolve()}"
+        )

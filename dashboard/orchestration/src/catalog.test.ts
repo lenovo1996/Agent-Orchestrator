@@ -17,6 +17,12 @@ describe('team catalog', () => {
     const catalog = loadTeamCatalog(repoRoot);
     expect(catalog.agents).toHaveLength(12);
     expect(catalog.workflows).toHaveLength(12);
+    expect(catalog.agents.every((agent) => agent.instructions.includes('active-context.md'))).toBe(true);
+    expect(catalog.agents.every((agent) => agent.instructions.includes('.agents/knowledges'))).toBe(true);
+    expect(catalog.agents.find((agent) => agent.id === 'implementer')?.instructions)
+      .toContain('## Durable knowledge update');
+    expect(catalog.agents.find((agent) => agent.id === 'qa_verifier')?.instructions)
+      .toContain('## Durable knowledge update');
 
     context = createTestService();
     createFlow(context.service);

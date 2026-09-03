@@ -1,6 +1,6 @@
 export type ParsedOutputStatus = 'DONE' | 'NEEDS_FIX' | 'BLOCKED' | 'FAILED' | 'UNKNOWN';
 
-const STATUS_MARKER = /##\s*Status\s*(?::\s*|\s+|\n)\s*(DONE|NEEDS[ _]FIX|FAILED|BLOCKED)\b/i;
+const STATUS_MARKER = /##\s*Status\s*(?::\s*|\s+|\n)\s*(?:(\*{1,2}|_{1,2}))?(DONE|NEEDS[ _]FIX|FAILED|BLOCKED)\1(?=\s|$)/i;
 
 function isReviewOutput(filePath: string): boolean {
   const normalized = filePath.replaceAll('\\', '/').toLowerCase();
@@ -36,7 +36,7 @@ function reviewNeedsFix(content: string): boolean {
 
 export function parseOutputStatus(content: string, filePath: string): ParsedOutputStatus {
   const explicit = STATUS_MARKER.exec(content);
-  if (explicit) return explicit[1].toUpperCase().replace(' ', '_') as ParsedOutputStatus;
+  if (explicit) return explicit[2].toUpperCase().replace(' ', '_') as ParsedOutputStatus;
   if (isReviewOutput(filePath) && reviewNeedsFix(content)) return 'NEEDS_FIX';
   return 'UNKNOWN';
 }

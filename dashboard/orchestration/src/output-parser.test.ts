@@ -17,4 +17,16 @@ describe('parseOutputStatus', () => {
     expect(parseOutputStatus('## Status\nBLOCKED', '/tmp/x.md')).toBe('BLOCKED');
     expect(parseOutputStatus('## Status: FAILED', '/tmp/x.md')).toBe('FAILED');
   });
+
+  it('accepts matching Markdown emphasis around an explicit status', () => {
+    expect(parseOutputStatus('## Status\n**DONE**', '/tmp/x.md')).toBe('DONE');
+    expect(parseOutputStatus('## Status: __NEEDS_FIX__', '/tmp/x.md')).toBe('NEEDS_FIX');
+    expect(parseOutputStatus('## Status\n*BLOCKED*', '/tmp/x.md')).toBe('BLOCKED');
+    expect(parseOutputStatus('## Status\n_FAILED_', '/tmp/x.md')).toBe('FAILED');
+  });
+
+  it('rejects mismatched Markdown emphasis and extended status words', () => {
+    expect(parseOutputStatus('## Status\n**DONE__', '/tmp/x.md')).toBe('UNKNOWN');
+    expect(parseOutputStatus('## Status\nDONEISH', '/tmp/x.md')).toBe('UNKNOWN');
+  });
 });

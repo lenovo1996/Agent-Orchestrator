@@ -15,6 +15,7 @@ export function createTestOrchestration(
     workspaceRoot: root,
     dbPath: path.join(root, 'workflows.db'),
     taskFlowsDir,
+    taskMemoryDir: path.join(root, '.tasks'),
     worktreesDir: path.join(root, '.worktrees'),
     codexHome: path.join(root, '.codex'),
     runnerId: 'server-test',

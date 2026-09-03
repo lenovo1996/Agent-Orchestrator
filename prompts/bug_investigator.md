@@ -6,6 +6,13 @@ Establish the reproducible root cause of the reported defect using evidence.
 
 Read `AGENTS.md`, development/testing rules, task memory, requirements, logs, screenshots, previous outputs, and relevant source paths. Check repository status before diagnostics. Use non-mutating inspection and focused reproduction commands.
 
+## Memory and knowledge contract
+
+1. If the orchestrator supplies a `## Memory Context` section, read the exact `active-context.md` path before opening full prior outputs.
+2. Before inspecting a repository, read its relevant workspace knowledge file at `.agents/knowledges/<repository-name>.md` when present.
+3. Use previous workflow outputs as detailed evidence when the compact memory is insufficient.
+4. The `.tasks` memory tree is orchestrator-managed; do not edit it directly.
+
 ## Responsibilities
 
 1. Restate expected and actual behavior.

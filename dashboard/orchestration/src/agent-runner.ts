@@ -62,27 +62,41 @@ export class AgentRunner {
     return this._appServerClient;
   }
 
-  private runMemory(command: 'init' | 'update' | 'generate', flowId: string, step?: string): void {
+  private runMemory(command: 'init' | 'update' | 'generate', flowId: string, step?: string): boolean {
     const script = path.join(this.service.config.repoRoot, 'scripts', 'utils', 'memory-tree.js');
-    if (!fs.existsSync(script)) return;
+    if (!fs.existsSync(script)) {
+      console.warn(`[memory] Script not found, skipped ${command}: ${script}`);
+      return false;
+    }
     const args = [script, command, flowId, ...(step ? [step] : [])];
-    spawnSync(process.execPath, args, {
+    const result = spawnSync(process.execPath, args, {
       cwd: this.service.config.repoRoot,
       env: {
         ...process.env,
         DEVTEAM_DB_PATH: this.service.config.dbPath,
         DEVTEAM_TASK_FLOWS_DIR: this.service.config.taskFlowsDir,
+        DEVTEAM_TASK_MEMORY_DIR: this.service.config.taskMemoryDir,
       },
-      stdio: 'ignore',
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 10_000,
     });
+    if (result.error || result.status !== 0) {
+      const detail = result.error?.message
+        || result.stderr?.trim()
+        || result.stdout?.trim()
+        || `exit status ${result.status ?? 'unknown'}`;
+      console.warn(`[memory] ${command} failed for ${flowId}${step ? `/${step}` : ''}: ${tail(detail, 2_000)}`);
+      return false;
+    }
+    return true;
   }
 
   private prepareMemory(flowId: string, step: string): void {
     const flow = this.service.getFlow(flowId);
     const taskId = flow.jiraKey && /^[A-Za-z0-9._-]+$/.test(flow.jiraKey) ? flow.jiraKey : flow.flowId;
-    const tree = path.join(this.service.config.repoRoot, '.tasks', taskId, 'flows', flow.flowId, 'tree.json');
-    if (!fs.existsSync(tree)) this.runMemory('init', flowId);
+    const tree = path.join(this.service.config.taskMemoryDir, taskId, 'flows', flow.flowId, 'tree.json');
+    if (!fs.existsSync(tree) && !this.runMemory('init', flowId)) return;
     this.runMemory('generate', flowId, step);
   }
 
@@ -203,8 +217,7 @@ export class AgentRunner {
     if (flow.customPrompt) parts.push('', '## Custom Requirement', '', flow.customPrompt);
     const taskId = flow.jiraKey && /^[A-Za-z0-9._-]+$/.test(flow.jiraKey) ? flow.jiraKey : flow.flowId;
     const memoryContext = path.join(
-      this.service.config.repoRoot,
-      '.tasks',
+      this.service.config.taskMemoryDir,
       taskId,
       'active-context.md',
     );
@@ -215,7 +228,22 @@ export class AgentRunner {
       parts.push('', '## Previous Outputs', '', ...previousOutputs.map((file) => `- ${file}`));
     }
     const output = this.service.outputFile(flowId, step);
-    parts.push('', '## Your Output', '', `Write your output to: ${output}`, '', 'Follow the instructions exactly.');
+    parts.push(
+      '',
+      '## Your Output',
+      '',
+      `Write your output to: ${output}`,
+      '',
+      'Start the file with this exact machine-readable status block (without a code fence):',
+      '',
+      '## Status',
+      'DONE',
+      '',
+      'Replace DONE with NEEDS_FIX, BLOCKED, or FAILED when appropriate.',
+      'Keep the status as plain text; do not wrap it in Markdown emphasis or inline code.',
+      '',
+      'Follow the instructions exactly.',
+    );
     return parts.join('\n').replaceAll('{{REPO_ROOT}}', effectiveWorkspace)
       .replaceAll('{{TASK_ID}}', flow.jiraKey || flow.flowId)
       .replaceAll('{{TASK_NAME}}', flow.jiraKey || flow.flowId);
@@ -402,6 +430,7 @@ export class AgentRunner {
     const flow = this.service.getFlow(input.flowId);
     const agent = this.service.getAgent(input.step);
     const runtimeName = agent.runtime || 'appserver';
+    this.prepareMemory(input.flowId, input.step);
 
     // App-server runtime uses WebSocket instead of CLI process
     if (runtimeName === 'appserver') {
@@ -422,7 +451,6 @@ export class AgentRunner {
     fs.mkdirSync(path.join(workDirectory, 'logs'), { recursive: true });
     fs.mkdirSync(path.join(workDirectory, 'sessions', input.step), { recursive: true });
     const promptFile = path.join(promptDirectory, `${input.step}-cycle-${input.cycle}-attempt-${input.inngestAttempt}.txt`);
-    this.prepareMemory(input.flowId, input.step);
     const prompt = shouldResume && retryCommand
       ? retryCommand.followUpMessage || flow.customPrompt || 'Please continue from where you left off.'
       : this.buildPrompt(input.flowId, input.step);

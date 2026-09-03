@@ -20,6 +20,7 @@ export function createTestService(steps = ['implementer', 'verifier']): {
     workspaceRoot: root,
     dbPath: path.join(root, 'workflows.db'),
     taskFlowsDir: path.join(root, 'task-flows'),
+    taskMemoryDir: path.join(root, '.tasks'),
     worktreesDir: path.join(root, '.worktrees'),
     codexHome: path.join(root, 'codex-home'),
     runnerId: 'test-runner',

@@ -8,6 +8,7 @@ export interface OrchestrationConfig {
   workspaceRoot: string;
   dbPath: string;
   taskFlowsDir: string;
+  taskMemoryDir: string;
   worktreesDir: string;
   codexHome: string;
   runnerId: string;
@@ -68,6 +69,7 @@ export function validateRuntimeFilesystem(config: OrchestrationConfig): void {
 
   validateWritableDirectory(config.workspaceRoot, 'DEVTEAM_WORKSPACE_ROOT', false);
   validateWritableDirectory(config.taskFlowsDir, 'DEVTEAM_TASK_FLOWS_DIR', true);
+  validateWritableDirectory(config.taskMemoryDir, 'DEVTEAM_TASK_MEMORY_DIR', true);
   validateWritableDirectory(config.worktreesDir, 'DEVTEAM_WORKTREES_DIR', true);
 }
 
@@ -90,6 +92,9 @@ export function loadOrchestrationConfig(
     dbPath: path.resolve(overrides.dbPath || process.env.DEVTEAM_DB_PATH || path.join(repoRoot, 'workflows.db')),
     taskFlowsDir: path.resolve(
       overrides.taskFlowsDir || process.env.DEVTEAM_TASK_FLOWS_DIR || path.join(repoRoot, 'task-flows'),
+    ),
+    taskMemoryDir: path.resolve(
+      overrides.taskMemoryDir || process.env.DEVTEAM_TASK_MEMORY_DIR || path.join(repoRoot, '.tasks'),
     ),
     worktreesDir: path.resolve(
       overrides.worktreesDir || process.env.DEVTEAM_WORKTREES_DIR || path.join(repoRoot, '.worktrees'),

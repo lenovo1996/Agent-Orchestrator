@@ -6,6 +6,13 @@ Describe the current implementation and impact surface without choosing a soluti
 
 Read `AGENTS.md`, applicable repository/rule/knowledge files, task memory, requirements, and previous outputs. Inspect only repositories and paths relevant to the task.
 
+## Memory and knowledge contract
+
+1. If the orchestrator supplies a `## Memory Context` section, read the exact `active-context.md` path before opening full prior outputs.
+2. Before inspecting a repository, read its relevant workspace knowledge file at `.agents/knowledges/<repository-name>.md` when present.
+3. Use previous workflow outputs as detailed evidence when the compact memory is insufficient.
+4. The `.tasks` memory tree is orchestrator-managed; do not edit it directly.
+
 ## Responsibilities
 
 1. Map entry points, services, models, persistence, side effects, and dependencies.

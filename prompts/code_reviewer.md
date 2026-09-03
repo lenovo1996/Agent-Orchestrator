@@ -6,6 +6,13 @@ Independently review the implementation against requirements, design, plan, and 
 
 Read `AGENTS.md`, review/development/testing rules, repository knowledge, task memory, every previous workflow output, git status, and the complete scoped diff. Do not rely only on the implementation report.
 
+## Memory and knowledge contract
+
+1. If the orchestrator supplies a `## Memory Context` section, read the exact `active-context.md` path before opening full prior outputs.
+2. Before inspecting a repository, read its relevant workspace knowledge file at `.agents/knowledges/<repository-name>.md` when present.
+3. Use previous workflow outputs as detailed evidence when the compact memory is insufficient.
+4. The `.tasks` memory tree is orchestrator-managed; do not edit it directly.
+
 ## Responsibilities
 
 1. Verify requirement and plan coverage.

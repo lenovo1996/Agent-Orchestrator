@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useDashboardStore } from '../../store/use-dashboard-store';
 import type { CustomWorkflow } from '@devteam-dashboard/shared';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+function workflowOptionTitle(workflow: CustomWorkflow): string {
+  return `${workflow.name} (${workflow.steps.join(' → ')})`;
+}
 
 interface NewTaskDialogProps {
   open: boolean;
@@ -24,6 +28,11 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
   const [workflows, setWorkflows] = useState<CustomWorkflow[]>([]);
   const [improving, setImproving] = useState(false);
   const [improveError, setImproveError] = useState<string | null>(null);
+  const [workflowMenuOpen, setWorkflowMenuOpen] = useState(false);
+  const [activeWorkflowIndex, setActiveWorkflowIndex] = useState(0);
+  const workflowSelectRef = useRef<HTMLDivElement>(null);
+  const workflowTriggerRef = useRef<HTMLButtonElement>(null);
+  const selectedWorkflow = workflows.find((workflow) => workflow.id === workflowId);
 
   useEffect(() => {
     if (open) {
@@ -32,10 +41,76 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
         .then(data => {
           setWorkflows(data);
           setWorkflowId((current) => current || data[0]?.id || '');
+          setActiveWorkflowIndex(0);
         })
         .catch(() => console.error('Failed to load workflows'));
+    } else {
+      setWorkflowMenuOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!workflowMenuOpen) return;
+
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!workflowSelectRef.current?.contains(event.target as Node)) {
+        setWorkflowMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    return () => document.removeEventListener('pointerdown', closeOnOutsideClick);
+  }, [workflowMenuOpen]);
+
+  useEffect(() => {
+    if (!workflowMenuOpen) return;
+
+    document
+      .getElementById(`new-task-workflow-option-${activeWorkflowIndex}`)
+      ?.scrollIntoView?.({ block: 'nearest' });
+  }, [activeWorkflowIndex, workflowMenuOpen]);
+
+  const openWorkflowMenu = () => {
+    const selectedIndex = workflows.findIndex((workflow) => workflow.id === workflowId);
+    setActiveWorkflowIndex(Math.max(selectedIndex, 0));
+    setWorkflowMenuOpen(true);
+  };
+
+  const selectWorkflow = (workflow: CustomWorkflow) => {
+    setWorkflowId(workflow.id);
+    setWorkflowMenuOpen(false);
+    workflowTriggerRef.current?.focus();
+  };
+
+  const handleWorkflowKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Escape') {
+      setWorkflowMenuOpen(false);
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!workflowMenuOpen) {
+        openWorkflowMenu();
+        return;
+      }
+
+      const direction = event.key === 'ArrowDown' ? 1 : -1;
+      setActiveWorkflowIndex((current) => (
+        (current + direction + workflows.length) % workflows.length
+      ));
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (!workflowMenuOpen) {
+        openWorkflowMenu();
+      } else if (workflows[activeWorkflowIndex]) {
+        selectWorkflow(workflows[activeWorkflowIndex]);
+      }
+    }
+  };
 
   const handleImprovePrompt = async () => {
     if (!customPrompt.trim()) return;
@@ -140,26 +215,82 @@ export function NewTaskDialog({ open, onClose, onSuccess }: NewTaskDialogProps) 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {/* Workflow Selection */}
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">
+          <div className="min-w-0 space-y-2">
+            <label id="new-task-workflow-label" htmlFor="new-task-workflow" className="block text-sm font-medium text-foreground">
               Workflow
             </label>
-            <select
-              value={workflowId}
-              onChange={(e) => setWorkflowId(e.target.value)}
-              className={cn(
-                'w-full px-3 py-2 rounded-lg text-sm',
-                'bg-muted/50 border border-border',
-                'text-foreground',
-                'focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500',
-                'transition-colors'
+            <div ref={workflowSelectRef} className="relative min-w-0 max-w-full">
+              <button
+                ref={workflowTriggerRef}
+                id="new-task-workflow"
+                type="button"
+                role="combobox"
+                aria-haspopup="listbox"
+                aria-expanded={workflowMenuOpen}
+                aria-controls="new-task-workflow-options"
+                aria-activedescendant={workflowMenuOpen ? `new-task-workflow-option-${activeWorkflowIndex}` : undefined}
+                disabled={workflows.length === 0}
+                title={selectedWorkflow ? workflowOptionTitle(selectedWorkflow) : undefined}
+                onClick={() => workflowMenuOpen ? setWorkflowMenuOpen(false) : openWorkflowMenu()}
+                onKeyDown={handleWorkflowKeyDown}
+                className={cn(
+                  'flex w-full min-w-0 max-w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm',
+                  'bg-muted/50 border border-border text-foreground',
+                  'focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500',
+                  'transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+                )}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{selectedWorkflow?.name || 'Select a workflow'}</span>
+                  {selectedWorkflow && (
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                      {selectedWorkflow.steps.join(' → ')}
+                    </span>
+                  )}
+                </span>
+                <svg
+                  aria-hidden="true"
+                  className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', workflowMenuOpen && 'rotate-180')}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+
+              {workflowMenuOpen && (
+                <div
+                  id="new-task-workflow-options"
+                  role="listbox"
+                  aria-labelledby="new-task-workflow-label"
+                  className="absolute inset-x-0 z-20 mt-1 max-h-64 w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-border bg-card p-1 shadow-xl"
+                >
+                  {workflows.map((workflow, index) => (
+                    <button
+                      key={workflow.id}
+                      id={`new-task-workflow-option-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={workflow.id === workflowId}
+                      title={workflowOptionTitle(workflow)}
+                      onMouseEnter={() => setActiveWorkflowIndex(index)}
+                      onClick={() => selectWorkflow(workflow)}
+                      className={cn(
+                        'block w-full min-w-0 rounded-md px-3 py-2 text-left transition-colors',
+                        index === activeWorkflowIndex ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60',
+                      )}
+                    >
+                      <span className="block break-words text-sm font-medium">{workflow.name}</span>
+                      <span className="mt-1 block break-words text-xs leading-5 text-muted-foreground">
+                        {workflow.steps.join(' → ')}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               )}
-            >
-              <option value="" disabled>Select a workflow</option>
-              {workflows.map(wf => (
-                <option key={wf.id} value={wf.id}>{wf.name} ({wf.steps.join(' → ')})</option>
-              ))}
-            </select>
+            </div>
             <p className="text-xs text-muted-foreground">
               The selected definition is snapshotted when the flow is queued
             </p>
