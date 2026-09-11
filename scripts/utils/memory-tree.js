@@ -466,6 +466,7 @@ function generateActiveContext(flowId, targetStep) {
     console.error(`❌ Unknown step: ${targetStep}`);
     return null;
   }
+  const workflow = loadWorkflow(flowId);
 
   // Build context from all prior completed nodes in THIS flow
   let md = `# Task Context: ${tree.task_id} (auto-generated)\n\n`;
@@ -516,6 +517,33 @@ function generateActiveContext(flowId, targetStep) {
     }
   }
 
+  // A rewind targets an earlier step, so its quality-gate feedback is not part
+  // of the normal "prior steps" context. Surface active downstream NEEDS_FIX
+  // nodes explicitly so the fixing agent knows why it was sent back.
+  const requiredFixNodes = [];
+  for (let i = stepIndex + 1; i < stepsToUse.length; i++) {
+    const node = tree.nodes[stepsToUse[i]];
+    if (node && node.status === 'NEEDS_FIX') requiredFixNodes.push(node);
+  }
+  if (requiredFixNodes.length > 0) {
+    md += `## Required Fixes from Quality Gates\n\n`;
+    md += `This step was rewound to address the following quality-gate feedback:\n\n`;
+    for (const node of requiredFixNodes) {
+      md += `### ${node.role || node.step}\n\n`;
+      if (node.summary) md += `${node.summary}\n\n`;
+      if (node.key_facts && node.key_facts.length > 0) {
+        md += `**Required findings/actions:**\n`;
+        node.key_facts.forEach(fact => { md += `- ${fact}\n`; });
+        md += `\n`;
+      }
+      const outputPath = workflow.stepStates[node.step]?.outputPath
+        || workflow.agents?.[node.step]?.outputs?.[0];
+      if (outputPath) {
+        md += `Full feedback: ${path.join(resolveWorkDir(flowId), outputPath)}\n\n`;
+      }
+    }
+  }
+
   // Collect prior steps info from CURRENT flow
   const priorNodes = [];
   for (let i = 0; i < stepIndex; i++) {
@@ -547,7 +575,6 @@ function generateActiveContext(flowId, targetStep) {
 
   // Current step info
   md += `## Current Step: ${targetStep}\n\n`;
-  const workflow = loadWorkflow(flowId);
   const member = workflow.agents?.[targetStep] || TEAM_CONFIG.members[targetStep] || {
     role: targetStep,
     objective: '',

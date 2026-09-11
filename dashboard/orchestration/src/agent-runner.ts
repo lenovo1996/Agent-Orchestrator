@@ -35,6 +35,13 @@ function tail(value: string, max = 20_000): string {
   return value.length <= max ? value : value.slice(-max);
 }
 
+function promptExcerpt(value: string, max = 20_000): string {
+  const normalized = value.trim();
+  if (normalized.length <= max) return normalized;
+  const half = Math.floor(max / 2);
+  return `${normalized.slice(0, half)}\n\n[... feedback truncated; read the source file for full details ...]\n\n${normalized.slice(-half)}`;
+}
+
 function canonicalPath(value: string): string {
   try {
     return fs.realpathSync.native(value);
@@ -105,7 +112,7 @@ export class AgentRunner {
   }
 
   private ensureWorkspaceTrusted(workspacePath: string): void {
-    const codexHome = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
+    const codexHome = this.service.config.codexHome || path.join(os.homedir(), '.codex');
     const configPath = path.join(codexHome, 'config.toml');
     if (!fs.existsSync(configPath)) return;
 
@@ -192,6 +199,19 @@ export class AgentRunner {
     const workDirectory = this.service.artifactDirectory(flow);
     const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
     const currentIndex = flow.stepOrder.indexOf(step);
+    const needsFixFeedback: Array<{ step: string; file: string; content: string }> = [];
+    for (const candidate of flow.stepDetails) {
+      if (candidate.position <= currentIndex || candidate.needsFixCount < 1 || !candidate.outputPath) continue;
+      const file = path.join(workDirectory, candidate.outputPath);
+      try {
+        const content = fs.readFileSync(file, 'utf8');
+        if (parseOutputStatus(content, file) === 'NEEDS_FIX') {
+          needsFixFeedback.push({ step: candidate.step, file, content });
+        }
+      } catch {
+        // A missing feedback artifact is handled by the gate attempt itself.
+      }
+    }
     const previousOutputs = flow.stepDetails
       .filter((candidate) => candidate.position < currentIndex && candidate.outputPath)
       .map((candidate) => path.join(workDirectory, candidate.outputPath as string))
@@ -223,6 +243,26 @@ export class AgentRunner {
     );
     if (fs.existsSync(memoryContext)) {
       parts.push('', '## Memory Context', '', `Read the active memory context at: ${memoryContext}`);
+    }
+    if (needsFixFeedback.length) {
+      parts.push(
+        '',
+        '## Required Fixes from Quality Gates',
+        '',
+        'This step was rewound because the quality gate reports below returned NEEDS_FIX. Address every finding before marking this step DONE.',
+      );
+      for (const feedback of needsFixFeedback) {
+        parts.push(
+          '',
+          `### ${feedback.step}`,
+          '',
+          `Full feedback: ${feedback.file}`,
+          '',
+          '<needs_fix_feedback>',
+          promptExcerpt(feedback.content),
+          '</needs_fix_feedback>',
+        );
+      }
     }
     if (previousOutputs.length) {
       parts.push('', '## Previous Outputs', '', ...previousOutputs.map((file) => `- ${file}`));
@@ -615,6 +655,7 @@ export class AgentRunner {
       );
     }
 
+    let subscribedThreadId: string | null = null;
     try {
       let threadInfo: { threadId: string; sessionId: string; model: string; cwd: string };
 
@@ -660,6 +701,7 @@ export class AgentRunner {
           sandbox: 'danger-full-access',
         });
       }
+      subscribedThreadId = threadInfo.threadId;
 
       if (canonicalPath(threadInfo.cwd) !== canonicalPath(effectiveWorkspace)) {
         throw new PermanentAgentError(
@@ -793,6 +835,16 @@ export class AgentRunner {
       if (error instanceof PermanentAgentError) throw error;
       if (error instanceof RetriableAgentError) throw error;
       throw new RetriableAgentError(message, stage);
+    } finally {
+      if (subscribedThreadId) {
+        try {
+          await client.unsubscribeThread(subscribedThreadId);
+        } catch (error) {
+          console.warn(
+            `[appserver] Failed to unsubscribe completed thread ${subscribedThreadId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
     }
   }
 

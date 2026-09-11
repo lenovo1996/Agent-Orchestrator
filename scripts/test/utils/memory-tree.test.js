@@ -113,6 +113,35 @@ Users need a tenant-safe export.
     assert.match(activeContext, /Company scope is mandatory/);
     assert.match(activeContext, /D1\. Reuse the existing authorization boundary/);
     assert.match(activeContext, /## Current Step: solution_architect/);
+
+    fs.writeFileSync(path.join(workDir, 'output', 'architecture.md'), `## Status
+NEEDS_FIX
+
+## Verdict
+
+The tenant boundary is not enforced by the proposed design.
+
+## Required Actions
+
+- Add an authorization guard before loading export records.
+`);
+    for (const args of [
+      ['update', flowId, 'solution_architect'],
+      ['generate', flowId, 'requirements_analyst'],
+    ]) {
+      const result = spawnSync(process.execPath, [script, ...args], { env, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+    }
+
+    const rewindContext = fs.readFileSync(
+      path.join(memoryRoot, taskId, 'active-context.md'),
+      'utf8',
+    );
+    assert.match(rewindContext, /## Required Fixes from Quality Gates/);
+    assert.match(rewindContext, /### Solution Architect/);
+    assert.match(rewindContext, /tenant boundary is not enforced/);
+    assert.match(rewindContext, /Add an authorization guard before loading export records/);
+    assert.ok(rewindContext.includes(`Full feedback: ${path.join(workDir, 'output', 'architecture.md')}`));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

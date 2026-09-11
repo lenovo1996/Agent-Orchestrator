@@ -44,6 +44,8 @@ export interface TurnInfo {
   status: string;
 }
 
+export type ThreadUnsubscribeStatus = 'unsubscribed' | 'notSubscribed' | 'notLoaded';
+
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed' | 'none';
 
 export type AppServerSandboxMode = 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -320,6 +322,13 @@ export class AppServerClient extends EventEmitter {
 
   async archiveThread(threadId: string): Promise<void> {
     await this.request('thread/archive', { threadId });
+  }
+
+  async unsubscribeThread(threadId: string): Promise<ThreadUnsubscribeStatus> {
+    const result = await this.request('thread/unsubscribe', { threadId }) as {
+      status: ThreadUnsubscribeStatus;
+    };
+    return result.status;
   }
 
   // ─── Low-level JSON-RPC ─────────────────────────────────────────────────

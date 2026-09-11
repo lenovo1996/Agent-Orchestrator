@@ -28,7 +28,8 @@ foreground detached process group is launched. The local timeout defaults to six
 hours, followed by SIGTERM, a ten-second grace period, and SIGKILL.
 
 An explicit `## Status` marker in output is authoritative. `NEEDS_FIX` rewinds the
-fix target and downstream steps with a new cycle, with a limit of five. `BLOCKED`
+fix target and downstream steps with a new cycle, carries the quality-gate report
+into the fix target's prompt and active memory, and has a limit of five. `BLOCKED`
 waits durably for resume for 30 days, then expires. Resume of an expired flow starts
 a new coordinator generation from its SQLite checkpoint. Merge conflicts use the
 same durable blocked wait but do not rerun completed agents.
@@ -36,6 +37,8 @@ same durable blocked wait but do not rerun completed agents.
 Cancellation combines an Inngest cancel event with local process-group termination,
 because a running foreground attempt must be preempted on the host. Worker startup
 reconciles attempts by PID and finalized session metadata before any retry is allowed.
+App-server attempts unsubscribe the worker connection from their thread after every
+terminal outcome; the persisted thread remains available for a later resume.
 
 ## External interfaces
 

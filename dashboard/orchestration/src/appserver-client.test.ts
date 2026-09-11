@@ -58,6 +58,8 @@ describe('AppServerClient', () => {
           }
           : request.method === 'turn/start'
             ? { turn: { id: 'turn-1', status: 'inProgress' } }
+            : request.method === 'thread/unsubscribe'
+              ? { status: 'unsubscribed' }
             : {};
         socket.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
       });
@@ -154,6 +156,9 @@ describe('AppServerClient', () => {
       }));
       await interrupt;
       expect(interruptAcknowledged).toBe(true);
+      await expect(client.unsubscribeThread('thread-1')).resolves.toBe('unsubscribed');
+      expect(requests.find((request) => request.method === 'thread/unsubscribe')?.params)
+        .toEqual({ threadId: 'thread-1' });
     } finally {
       client.close();
       for (const socket of server.clients) socket.terminate();

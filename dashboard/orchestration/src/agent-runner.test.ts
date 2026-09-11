@@ -34,6 +34,7 @@ class FakeAppServerClient extends EventEmitter {
   readonly interruptTurn = vi.fn(async (threadId: string, turnId: string) => {
     this.emit('turn:completed', threadId, turnId, 'interrupted');
   });
+  readonly unsubscribeThread = vi.fn(async () => 'unsubscribed' as const);
 }
 
 let context: ReturnType<typeof createTestService>;
@@ -159,6 +160,7 @@ describe('AgentRunner', () => {
       'Keep the status as plain text; do not wrap it in Markdown emphasis or inline code.',
     ].join('\n'));
     expect(client.interruptTurn).toHaveBeenCalledWith('thread-1', 'turn-1');
+    expect(client.unsubscribeThread).toHaveBeenCalledWith('thread-1');
     expect(context.service.listAttempts(input.flowId)[0]).toMatchObject({ status: 'cancelled' });
     const attempt = context.service.listAttempts(input.flowId)[0];
     expect(JSON.parse(fs.readFileSync(path.join(
@@ -172,6 +174,26 @@ describe('AgentRunner', () => {
 
     await runner.supervisor.terminateFlow(input.flowId);
     expect(client.interruptTurn).toHaveBeenCalledOnce();
+  });
+
+  it('unsubscribes a new app-server thread after a successful turn', async () => {
+    context.database.run("UPDATE agents SET runtime = 'appserver' WHERE id = 'implementer'");
+    const client = new FakeAppServerClient();
+    (runner as unknown as { _appServerClient: AppServerClient | null })._appServerClient = client as unknown as AppServerClient;
+    runner.supervisor.setAppServerClient(client as unknown as AppServerClient);
+    const input = invocation();
+
+    const execution = runner.execute(input);
+    await vi.waitFor(() => expect(client.startTurn).toHaveBeenCalledOnce());
+    client.emit('item:completed', 'thread-1', 'turn-1', {
+      type: 'agentMessage',
+      text: '## Status\nDONE\n\nImplementation completed.\n',
+    });
+    client.emit('turn:completed', 'thread-1', 'turn-1', 'completed');
+
+    await expect(execution).resolves.toMatchObject({ status: 'DONE' });
+    expect(client.unsubscribeThread).toHaveBeenCalledOnce();
+    expect(client.unsubscribeThread).toHaveBeenCalledWith('thread-1');
   });
 
   it('fails safely before starting a turn when app-server returns another workspace cwd', async () => {
@@ -189,6 +211,7 @@ describe('AgentRunner', () => {
 
     await expect(runner.execute(input)).rejects.toMatchObject({ stage: 'configuration' });
     expect(client.startTurn).not.toHaveBeenCalled();
+    expect(client.unsubscribeThread).toHaveBeenCalledWith('thread-wrong-workspace');
     expect(context.service.listAttempts(input.flowId)[0]).toMatchObject({
       status: 'failed',
       error: { stage: 'configuration', retriable: false },
@@ -212,6 +235,58 @@ describe('AgentRunner', () => {
     ]);
     expect(fs.readFileSync(path.join(context.root, 'memory-calls.log'), 'utf8')).toContain(`generate ${input.flowId} implementer`);
     expect(fs.readFileSync(path.join(context.root, 'memory-calls.log'), 'utf8')).toContain(`update ${input.flowId} implementer`);
+  });
+
+  it('carries downstream NEEDS_FIX feedback into the rewound step prompt', async () => {
+    context.database.run(`
+      INSERT INTO agents(id, role, objective, model, thinking, tools, outputs, runtime, instructions)
+      VALUES ('verifier', 'Verifier', 'Verify the change', NULL, NULL, '[]', ?, 'fake', 'Verify implementation')
+    `, JSON.stringify(['output/verifier.md']));
+    context.database.run(`
+      UPDATE workflows SET steps = ?, needs_fix_map = ? WHERE id = 'workflow-1'
+    `, JSON.stringify(['implementer', 'verifier']), JSON.stringify({ verifier: 'implementer' }));
+
+    const command = createFlow(context.service);
+    context.service.claimCoordinator(command.commandId, command.flowId, 'run-needs-fix', 'test-runner');
+    context.service.queueStep(command.flowId, 'implementer');
+    const implementerOutput = context.service.outputFile(command.flowId, 'implementer');
+    fs.mkdirSync(path.dirname(implementerOutput), { recursive: true });
+    fs.writeFileSync(implementerOutput, '## Status\nDONE\n\nInitial implementation\n');
+    context.service.projectAgentResult(command.flowId, 'implementer', {
+      status: 'DONE', attemptId: 'implementer-cycle-1',
+    });
+
+    context.service.queueStep(command.flowId, 'verifier');
+    const verifierOutput = context.service.outputFile(command.flowId, 'verifier');
+    const feedback = `## Status
+NEEDS_FIX
+
+## Required Actions
+
+- Preserve the tenant authorization check before exporting records.
+`;
+    fs.writeFileSync(verifierOutput, feedback);
+    context.service.projectAgentResult(command.flowId, 'verifier', {
+      status: 'NEEDS_FIX', attemptId: 'verifier-cycle-1',
+    });
+
+    const queued = context.service.queueStep(command.flowId, 'implementer');
+    const capturedPrompt = path.join(context.root, 'needs-fix-prompt.txt');
+    process.env.DEVTEAM_CAPTURE_PROMPT = capturedPrompt;
+    await runner.execute({
+      flowId: command.flowId,
+      step: 'implementer',
+      cycle: queued.cycle,
+      inngestRunId: 'child-needs-fix',
+      inngestAttempt: 0,
+      runnerId: 'test-runner',
+    });
+
+    const prompt = fs.readFileSync(capturedPrompt, 'utf8');
+    expect(prompt).toContain('## Required Fixes from Quality Gates');
+    expect(prompt).toContain('### verifier');
+    expect(prompt).toContain(`Full feedback: ${verifierOutput}`);
+    expect(prompt).toContain('Preserve the tenant authorization check before exporting records.');
   });
 
   it('uses a chat follow-up only for the resumed attempt and preserves the flow prompt', async () => {
@@ -342,6 +417,7 @@ describe('AgentRunner', () => {
 
     await expect(execution).resolves.toEqual({ status: 'DONE', attemptId: 'attempt-appserver-chat' });
     expect(fs.readFileSync(outputFile, 'utf8')).toBe(originalOutput);
+    expect(client.unsubscribeThread).toHaveBeenCalledWith('thread-existing');
     const memoryCalls = fs.readFileSync(path.join(context.root, 'memory-calls.log'), 'utf8');
     expect(memoryCalls).toContain(`generate ${command.flowId} implementer`);
     expect(memoryCalls).toContain(`update ${command.flowId} implementer`);
