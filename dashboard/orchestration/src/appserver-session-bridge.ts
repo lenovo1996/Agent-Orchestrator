@@ -115,6 +115,7 @@ export class AppServerSessionBridge extends EventEmitter {
             exitCode: null,
             errorSummary: null,
           };
+          if (existing.usage) this.usage = { ...existing.usage };
         }
       } catch { /* no existing metadata, use default */ }
     }
@@ -138,8 +139,6 @@ export class AppServerSessionBridge extends EventEmitter {
     this.client.on('reasoning:summaryDelta', this.onReasoningSummaryDelta);
     this.client.on('tokenUsage:updated', this.onTokenUsageUpdated);
     this.client.on('commandExec:outputDelta', this.onCommandExecDelta);
-    this.client.on('process:outputDelta', this.onProcessDelta);
-    this.client.on('process:exited', this.onProcessExited);
     this.client.on('error', this.onError);
 
     this.writeMetadata();
@@ -156,8 +155,6 @@ export class AppServerSessionBridge extends EventEmitter {
     this.client.removeListener('reasoning:summaryDelta', this.onReasoningSummaryDelta);
     this.client.removeListener('tokenUsage:updated', this.onTokenUsageUpdated);
     this.client.removeListener('commandExec:outputDelta', this.onCommandExecDelta);
-    this.client.removeListener('process:outputDelta', this.onProcessDelta);
-    this.client.removeListener('process:exited', this.onProcessExited);
     this.client.removeListener('error', this.onError);
 
     this.logStream?.end();
@@ -292,19 +289,6 @@ export class AppServerSessionBridge extends EventEmitter {
   private onCommandExecDelta = (threadId: string, turnId: string, _itemId: string, delta: string): void => {
     if (!this.ownsTurn(threadId, turnId)) return;
     this.appendLog(delta);
-  };
-
-  private onProcessDelta = (threadId: string, _processId: string, stream: string, deltaBase64: string): void => {
-    if (!this.ownsThread(threadId)) return;
-    try {
-      const decoded = Buffer.from(deltaBase64, 'base64').toString('utf8');
-      this.appendLog(decoded);
-    } catch { /* ignore decode errors */ }
-  };
-
-  private onProcessExited = (threadId: string, _processId: string, exitCode: number): void => {
-    if (!this.ownsThread(threadId)) return;
-    this.appendLog(`\ntokens used\n${this.usage.outputTokens || 0}\n`);
   };
 
   private onError = (threadId: string | null, message: string): void => {

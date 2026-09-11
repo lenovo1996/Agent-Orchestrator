@@ -3,16 +3,18 @@ import { WebSocket } from 'ws';
 
 // ─── Protocol types (minimal, matching codex app-server JSON-RPC) ────────────
 
+type JsonRpcId = string | number;
+
 interface JsonRpcRequest {
   jsonrpc: '2.0';
-  id: number;
+  id: JsonRpcId;
   method: string;
   params?: Record<string, unknown>;
 }
 
 interface JsonRpcResponse {
   jsonrpc: '2.0';
-  id: number;
+  id: JsonRpcId;
   result?: unknown;
   error?: { code: number; message: string; data?: unknown };
 }
@@ -37,11 +39,33 @@ export interface ThreadInfo {
   sessionId: string;
   model: string;
   cwd: string;
+  status?: AppServerThreadStatus;
+  turns?: AppServerTurnSnapshot[];
 }
 
 export interface TurnInfo {
   turnId: string;
   status: string;
+}
+
+export type AppServerTurnStatus = 'completed' | 'interrupted' | 'failed' | 'inProgress';
+
+export type AppServerThreadStatus =
+  | { type: 'notLoaded' | 'idle' | 'systemError' }
+  | { type: 'active'; activeFlags: string[] };
+
+export interface AppServerTurnSnapshot {
+  id: string;
+  status: AppServerTurnStatus;
+  items: Array<Record<string, unknown>>;
+}
+
+export interface AppServerThreadSnapshot {
+  id: string;
+  sessionId: string;
+  cwd: string;
+  status: AppServerThreadStatus;
+  turns: AppServerTurnSnapshot[];
 }
 
 export type ThreadUnsubscribeStatus = 'unsubscribed' | 'notSubscribed' | 'notLoaded';
@@ -91,8 +115,6 @@ export interface AppServerEvents {
   ) => void;
   'tokenUsage:updated': (threadId: string, turnId: string, usage: AppServerThreadTokenUsage) => void;
   'commandExec:outputDelta': (threadId: string, turnId: string, itemId: string, delta: string) => void;
-  'process:outputDelta': (threadId: string, processId: string, stream: string, delta: string) => void;
-  'process:exited': (threadId: string, processId: string, exitCode: number) => void;
   'error': (threadId: string | null, message: string) => void;
   'connected': () => void;
   'disconnected': () => void;
@@ -103,7 +125,11 @@ export interface AppServerEvents {
 export class AppServerClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private nextId = 1;
-  private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private pending = new Map<number, {
+    resolve: (v: unknown) => void;
+    reject: (e: Error) => void;
+    timeout: ReturnType<typeof setTimeout>;
+  }>();
   private config: Required<AppServerConfig>;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
@@ -152,6 +178,7 @@ export class AppServerClient extends EventEmitter {
           clientInfo: { name: 'devteam-dashboard', title: 'DevTeam Dashboard', version: '0.1.0' },
           capabilities: { experimentalApi: true, requestAttestation: false },
         }).then(() => {
+          this.notify('initialized', {});
           this._connected = true;
           this.emit('connected');
           resolveConnection();
@@ -211,6 +238,7 @@ export class AppServerClient extends EventEmitter {
     sandbox?: AppServerSandboxMode;
     baseInstructions?: string;
     personality?: string;
+    ephemeral?: boolean;
   }): Promise<ThreadInfo> {
     const result = await this.request('thread/start', {
       cwd: params.cwd,
@@ -220,14 +248,19 @@ export class AppServerClient extends EventEmitter {
       sandbox: params.sandbox ?? 'danger-full-access',
       baseInstructions: params.baseInstructions,
       personality: params.personality ?? 'pragmatic',
-      ephemeral: false,
-    }) as { thread: { id: string; sessionId: string; cwd: string }; model: string };
+      ephemeral: params.ephemeral ?? false,
+    }) as {
+      thread: AppServerThreadSnapshot;
+      model: string;
+    };
 
     return {
       threadId: result.thread.id,
       sessionId: result.thread.sessionId,
       model: result.model,
       cwd: result.thread.cwd,
+      status: result.thread.status,
+      turns: result.thread.turns,
     };
   }
 
@@ -243,14 +276,26 @@ export class AppServerClient extends EventEmitter {
       runtimeWorkspaceRoots: params?.runtimeWorkspaceRoots,
       model: params?.model,
       sandbox: params?.sandbox,
-    }) as { thread: { id: string; sessionId: string; cwd: string }; model: string };
+    }) as {
+      thread: AppServerThreadSnapshot;
+      model: string;
+    };
 
     return {
       threadId: result.thread.id,
       sessionId: result.thread.sessionId,
       model: result.model,
       cwd: result.thread.cwd,
+      status: result.thread.status,
+      turns: result.thread.turns,
     };
+  }
+
+  async readThread(threadId: string, includeTurns = true): Promise<AppServerThreadSnapshot> {
+    const result = await this.request('thread/read', { threadId, includeTurns }) as {
+      thread: AppServerThreadSnapshot;
+    };
+    return result.thread;
   }
 
   async startTurn(threadId: string, input: string, params?: {
@@ -317,7 +362,7 @@ export class AppServerClient extends EventEmitter {
   }
 
   async injectItems(threadId: string, items: unknown[]): Promise<void> {
-    await this.request('thread/injectItems', { threadId, items });
+    await this.request('thread/inject_items', { threadId, items });
   }
 
   async archiveThread(threadId: string): Promise<void> {
@@ -340,37 +385,50 @@ export class AppServerClient extends EventEmitter {
         return;
       }
       const id = this.nextId++;
-      this.pending.set(id, { resolve, reject });
-
-      const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
-      this.ws.send(JSON.stringify(msg), (err) => {
-        if (err) {
-          this.pending.delete(id);
-          reject(err);
-        }
-      });
-
-      // Timeout after 120s
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`Request ${method} timed out`));
         }
       }, 120_000);
+      timeout.unref();
+      this.pending.set(id, { resolve, reject, timeout });
+
+      const msg: JsonRpcRequest = { jsonrpc: '2.0', id, method, params };
+      this.ws.send(JSON.stringify(msg), (err) => {
+        if (err) {
+          this.pending.delete(id);
+          clearTimeout(timeout);
+          reject(err);
+        }
+      });
     });
   }
 
-  private sendResponse(id: number, result: unknown): void {
+  private sendResponse(id: JsonRpcId, result: unknown): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const msg: JsonRpcResponse = { jsonrpc: '2.0', id, result };
     this.ws.send(JSON.stringify(msg));
   }
 
+  private sendErrorResponse(id: JsonRpcId, code: number, message: string): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const response: JsonRpcResponse = { jsonrpc: '2.0', id, error: { code, message } };
+    this.ws.send(JSON.stringify(response));
+  }
+
+  private notify(method: string, params?: Record<string, unknown>): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const notification: JsonRpcNotification = { jsonrpc: '2.0', method, params };
+    this.ws.send(JSON.stringify(notification));
+  }
+
   private handleMessage(msg: JsonRpcMessage): void {
     // Response to our request
-    if ('id' in msg && this.pending.has(msg.id)) {
-      const { resolve, reject } = this.pending.get(msg.id)!;
+    if ('id' in msg && typeof msg.id === 'number' && this.pending.has(msg.id)) {
+      const { resolve, reject, timeout } = this.pending.get(msg.id)!;
       this.pending.delete(msg.id);
+      clearTimeout(timeout);
       if (msg.error) {
         reject(new Error(msg.error.message));
       } else {
@@ -420,6 +478,7 @@ export class AppServerClient extends EventEmitter {
         if (threadId && turnId) this.emit('item:completed', threadId, turnId, params.item as Record<string, unknown>);
         break;
       }
+      case 'item/agentMessage/delta':
       case 'agentMessage/delta': {
         if (threadId && turnId) {
           this.emit('agentMessage:delta', threadId, turnId, params.itemId as string, params.delta as string);
@@ -445,23 +504,11 @@ export class AppServerClient extends EventEmitter {
         }
         break;
       }
+      case 'item/commandExecution/outputDelta':
       case 'commandExecution/outputDelta':
       case 'commandExec/outputDelta': {
         if (threadId && turnId) {
           this.emit('commandExec:outputDelta', threadId, turnId, params.itemId as string, params.delta as string);
-        }
-        break;
-      }
-      case 'process/outputDelta': {
-        if (threadId) {
-          this.emit('process:outputDelta', threadId, params.processHandle as string,
-            params.stream as string, params.deltaBase64 as string);
-        }
-        break;
-      }
-      case 'process/exited': {
-        if (threadId) {
-          this.emit('process:exited', threadId, params.processHandle as string, params.exitCode as number);
         }
         break;
       }
@@ -477,28 +524,36 @@ export class AppServerClient extends EventEmitter {
     const params = (msg.params || {}) as Record<string, unknown>;
 
     // Auto-approve command executions if configured
-    if (this.config.autoApprove && msg.method === 'item/commandExecution/requestApproval') {
-      this.sendResponse(msg.id, 'acceptForSession');
+    if (msg.method === 'item/commandExecution/requestApproval') {
+      this.sendResponse(msg.id, { decision: this.config.autoApprove ? 'acceptForSession' : 'decline' });
       return;
     }
-    if (this.config.autoApprove && msg.method === 'item/fileChange/requestApproval') {
-      this.sendResponse(msg.id, 'acceptForSession');
+    if (msg.method === 'item/fileChange/requestApproval') {
+      this.sendResponse(msg.id, { decision: this.config.autoApprove ? 'acceptForSession' : 'decline' });
       return;
     }
-    if (this.config.autoApprove && msg.method === 'item/permissions/requestApproval') {
+    if (msg.method === 'item/permissions/requestApproval') {
+      const requested = params.permissions as {
+        network?: unknown;
+        fileSystem?: unknown;
+      } | undefined;
+      const permissions: Record<string, unknown> = {};
+      if (this.config.autoApprove && requested?.network) permissions.network = requested.network;
+      if (this.config.autoApprove && requested?.fileSystem) permissions.fileSystem = requested.fileSystem;
       this.sendResponse(msg.id, {
-        permissions: { level: 'dangerFullAccess' },
-        scope: 'session',
+        permissions,
+        scope: this.config.autoApprove ? 'session' : 'turn',
       });
       return;
     }
 
     // Reject unknown server requests
-    this.sendResponse(msg.id, { error: 'Not supported' });
+    this.sendErrorResponse(msg.id, -32601, `Unsupported server request: ${msg.method}`);
   }
 
   private rejectAllPending(reason: string): void {
-    for (const [, { reject }] of this.pending) {
+    for (const [, { reject, timeout }] of this.pending) {
+      clearTimeout(timeout);
       reject(new Error(reason));
     }
     this.pending.clear();

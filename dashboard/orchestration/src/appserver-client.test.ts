@@ -44,16 +44,30 @@ describe('AppServerClient', () => {
       server.once('error', reject);
     });
     const address = server.address() as AddressInfo;
-    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const requests: Array<{ id?: number; method: string; params: Record<string, unknown> }> = [];
+    const responses: Array<{ id: number; result?: unknown; error?: unknown }> = [];
     server.on('connection', (socket) => {
       socket.on('message', (raw) => {
-        const request = JSON.parse(raw.toString()) as {
-          jsonrpc: '2.0'; id: number; method: string; params: Record<string, unknown>;
+        const message = JSON.parse(raw.toString()) as {
+          jsonrpc: '2.0'; id?: number; method?: string; params?: Record<string, unknown>;
+          result?: unknown; error?: unknown;
+        };
+        if (!message.method) {
+          responses.push(message as { id: number; result?: unknown; error?: unknown });
+          return;
+        }
+        const request = {
+          id: message.id,
+          method: message.method,
+          params: message.params || {},
         };
         requests.push(request);
+        if (request.id === undefined) return;
         const result = request.method === 'thread/start'
           ? {
-            thread: { id: 'thread-1', sessionId: 'session-1', cwd: '/workspace' },
+            thread: {
+              id: 'thread-1', sessionId: 'session-1', cwd: '/workspace', status: { type: 'idle' }, turns: [],
+            },
             model: 'gpt-5.6-sol',
           }
           : request.method === 'turn/start'
@@ -71,11 +85,16 @@ describe('AppServerClient', () => {
     });
     const onSummary = vi.fn();
     const onUsage = vi.fn();
+    const onMessageDelta = vi.fn();
     client.on('reasoning:summaryDelta', onSummary);
     client.on('tokenUsage:updated', onUsage);
+    client.on('agentMessage:delta', onMessageDelta);
 
     try {
       await client.connect();
+      await vi.waitFor(() => {
+        expect(requests.slice(0, 2).map((request) => request.method)).toEqual(['initialize', 'initialized']);
+      });
       const runtimeWorkspaceRoots = ['/workspace', '/devteam/task-flows/workspace-1/flow-1'];
       await client.createThread({
         cwd: '/workspace',
@@ -98,6 +117,7 @@ describe('AppServerClient', () => {
         effort: 'high',
         summary: 'detailed',
       });
+      await client.injectItems('thread-1', [{ type: 'text', text: 'extra context' }]);
       expect(requests.find((request) => request.method === 'thread/start')?.params).toMatchObject({
         cwd: '/workspace',
         runtimeWorkspaceRoots,
@@ -112,8 +132,17 @@ describe('AppServerClient', () => {
         effort: 'high',
         summary: 'detailed',
       });
+      expect(requests.find((request) => request.method === 'thread/inject_items')?.params)
+        .toEqual({ threadId: 'thread-1', items: [{ type: 'text', text: 'extra context' }] });
 
       const socket = [...server.clients][0];
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'item/agentMessage/delta',
+        params: {
+          threadId: 'thread-1', turnId: 'turn-1', itemId: 'message-1', delta: 'Result',
+        },
+      }));
       socket.send(JSON.stringify({
         jsonrpc: '2.0',
         method: 'item/reasoning/summaryTextDelta',
@@ -139,6 +168,36 @@ describe('AppServerClient', () => {
       await vi.waitFor(() => {
         expect(onSummary).toHaveBeenCalledWith('thread-1', 'turn-1', 'reason-1', 0, 'Checking');
         expect(onUsage).toHaveBeenCalledWith('thread-1', 'turn-1', tokenUsage);
+        expect(onMessageDelta).toHaveBeenCalledWith('thread-1', 'turn-1', 'message-1', 'Result');
+      });
+
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0', id: 700, method: 'item/commandExecution/requestApproval', params: {},
+      }));
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0', id: 701, method: 'item/fileChange/requestApproval', params: {},
+      }));
+      const requestedPermissions = {
+        network: { enabled: true },
+        fileSystem: { read: null, write: ['/workspace'] },
+      };
+      socket.send(JSON.stringify({
+        jsonrpc: '2.0',
+        id: 702,
+        method: 'item/permissions/requestApproval',
+        params: { permissions: requestedPermissions },
+      }));
+      await vi.waitFor(() => expect(responses).toHaveLength(3));
+      expect(responses).toContainEqual({
+        jsonrpc: '2.0', id: 700, result: { decision: 'acceptForSession' },
+      });
+      expect(responses).toContainEqual({
+        jsonrpc: '2.0', id: 701, result: { decision: 'acceptForSession' },
+      });
+      expect(responses).toContainEqual({
+        jsonrpc: '2.0',
+        id: 702,
+        result: { permissions: requestedPermissions, scope: 'session' },
       });
 
       let interruptAcknowledged = false;

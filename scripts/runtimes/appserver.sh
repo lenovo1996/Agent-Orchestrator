@@ -15,7 +15,7 @@ RUNTIME_SCRIPT="$SCRIPT_DIR/appserver-runtime.js"
 
 {
   echo "Runtime: appserver"
-  echo "URL: ${CODEX_APP_SERVER_URL:-default (unix socket)}"
+  echo "URL: ${CODEX_APP_SERVER_URL:-ws://127.0.0.1:${CODEX_APP_SERVER_PORT:-9876}}"
 } | tee -a "$LOG_FILE"
 
 cd "$CWD"

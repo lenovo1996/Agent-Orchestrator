@@ -31,6 +31,13 @@ class FakeAppServerClient extends EventEmitter {
     this.emit('turn:started', threadId, 'turn-1');
     return { turnId: 'turn-1', status: 'inProgress' };
   });
+  readonly readThread = vi.fn(async (threadId: string) => ({
+    id: threadId,
+    sessionId: 'session-1',
+    cwd: '/workspace',
+    status: { type: 'active' as const, activeFlags: [] },
+    turns: [],
+  }));
   readonly interruptTurn = vi.fn(async (threadId: string, turnId: string) => {
     this.emit('turn:completed', threadId, turnId, 'interrupted');
   });
@@ -431,6 +438,75 @@ NEEDS_FIX
     const recovered = await runner.execute({ ...input, inngestRunId: 'retried-child-run', inngestAttempt: 1 });
     expect(recovered).toEqual(first);
     expect(context.service.listAttempts(input.flowId)).toHaveLength(1);
+  });
+
+  it('reattaches a running app-server turn after worker recovery without starting a duplicate', async () => {
+    context.database.run("UPDATE agents SET runtime = 'appserver' WHERE id = 'implementer'");
+    const client = new FakeAppServerClient();
+    client.resumeThread.mockImplementation(async (threadId: string, params) => ({
+      threadId,
+      sessionId: 'session-recovered',
+      model: 'test-model',
+      cwd: params?.cwd || '/workspace',
+      status: { type: 'active' as const, activeFlags: [] },
+      turns: [{ id: 'turn-recovered', status: 'inProgress' as const, items: [] }],
+    }));
+    (runner as unknown as { _appServerClient: AppServerClient | null })._appServerClient = client as unknown as AppServerClient;
+    runner.supervisor.setAppServerClient(client as unknown as AppServerClient);
+    const input = invocation('original-child-run', 0);
+    const attempt = context.service.createAttempt({
+      id: 'attempt-recovered',
+      flowId: input.flowId,
+      step: input.step,
+      cycle: input.cycle,
+      technicalAttempt: 0,
+      inngestRunId: input.inngestRunId,
+      inngestAttempt: input.inngestAttempt,
+      sessionRunId: 'session-recovered',
+      runnerId: input.runnerId,
+    });
+    context.service.markAttemptRunning(attempt.id, 0, 0);
+    const sessionDirectory = path.join(
+      context.service.artifactDirectory(input.flowId),
+      'sessions',
+      input.step,
+    );
+    fs.mkdirSync(sessionDirectory, { recursive: true });
+    fs.writeFileSync(path.join(sessionDirectory, `${attempt.sessionRunId}.json`), JSON.stringify({
+      schemaVersion: 2,
+      runId: attempt.sessionRunId,
+      attemptId: attempt.id,
+      inngestRunId: attempt.inngestRunId,
+      inngestAttempt: attempt.inngestAttempt,
+      flowId: input.flowId,
+      step: input.step,
+      threadId: 'thread-recovered',
+      turnId: 'turn-recovered',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      usage: null,
+      errorSummary: null,
+    }));
+
+    const recovery = runner.execute({
+      ...input,
+      inngestRunId: 'retried-child-run',
+      inngestAttempt: 1,
+    });
+    await vi.waitFor(() => expect(client.resumeThread).toHaveBeenCalledOnce());
+    client.emit('item:completed', 'thread-recovered', 'turn-recovered', {
+      type: 'agentMessage',
+      text: '## Status\nDONE\n\nRecovered output\n',
+    });
+    client.emit('turn:completed', 'thread-recovered', 'turn-recovered', 'completed');
+
+    await expect(recovery).resolves.toEqual({ status: 'DONE', attemptId: attempt.id });
+    expect(client.startTurn).not.toHaveBeenCalled();
+    expect(client.unsubscribeThread).toHaveBeenCalledWith('thread-recovered');
+    expect(context.service.listAttempts(input.flowId)).toHaveLength(1);
+    expect(context.service.attempt(attempt.id).status).toBe('completed');
   });
 
   it('accepts structured BLOCKED even when the process exits non-zero', async () => {

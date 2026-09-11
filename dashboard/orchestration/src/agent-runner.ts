@@ -12,6 +12,8 @@ import {
   AppServerClient,
   type AppServerConfig,
   type AppServerSandboxPolicy,
+  type AppServerTurnSnapshot,
+  type AppServerTurnStatus,
 } from './appserver-client.js';
 import { AppServerSessionBridge } from './appserver-session-bridge.js';
 
@@ -53,6 +55,7 @@ function canonicalPath(value: string): string {
 export class AgentRunner {
   readonly supervisor: ProcessSupervisor;
   private _appServerClient: AppServerClient | null = null;
+  private recoveringAttempts = new Map<string, Promise<AgentStepResult>>();
 
   constructor(private readonly service: OrchestrationService) {
     this.supervisor = new ProcessSupervisor(service);
@@ -67,6 +70,22 @@ export class AgentRunner {
       this._appServerClient = new AppServerClient(config);
     }
     return this._appServerClient;
+  }
+
+  private async waitForAppServerConnection(client: AppServerClient): Promise<void> {
+    if (client.connected) return;
+    await new Promise<void>((resolve, reject) => {
+      const onConnected = (): void => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        client.removeListener('connected', onConnected);
+        reject(new RetriableAgentError('AppServer connection timeout', 'process'));
+      }, 30_000);
+      timeout.unref();
+      client.once('connected', onConnected);
+    });
   }
 
   private runMemory(command: 'init' | 'update' | 'generate', flowId: string, step?: string): boolean {
@@ -347,6 +366,13 @@ export class AgentRunner {
   }
 
   private async projectExisting(attempt: StepAttemptRecord): Promise<AgentStepResult> {
+    const agent = this.service.getAgent(attempt.step);
+    if ((agent.runtime || 'appserver') === 'appserver'
+      && attempt.status === 'running'
+      && !attempt.processGroupId
+      && !attempt.pid) {
+      return this.recoverAppServerAttempt(attempt);
+    }
     if (attempt.status === 'running' && (attempt.processGroupId || attempt.pid)) {
       const exited = attempt.processGroupId
         ? await this.supervisor.waitForGroup(attempt.processGroupId, this.service.config.agentTimeoutMs)
@@ -379,6 +405,186 @@ export class AgentRunner {
       }
       throw error;
     }
+  }
+
+  private recoverAppServerAttempt(attempt: StepAttemptRecord): Promise<AgentStepResult> {
+    const existing = this.recoveringAttempts.get(attempt.id);
+    if (existing) return existing;
+    const recovery = this.reattachAppServerAttempt(attempt).finally(() => {
+      this.recoveringAttempts.delete(attempt.id);
+    });
+    this.recoveringAttempts.set(attempt.id, recovery);
+    return recovery;
+  }
+
+  private async reattachAppServerAttempt(attempt: StepAttemptRecord): Promise<AgentStepResult> {
+    const client = this._appServerClient;
+    if (!client) {
+      throw new PermanentAgentError('AppServerClient not initialized. Call initAppServerClient() first.', 'configuration');
+    }
+    const durableTurn = this.service.attemptTurn(attempt.id);
+    if (!durableTurn) {
+      throw new RetriableAgentError('Running app-server attempt has no durable thread/turn metadata', 'session_metadata');
+    }
+
+    await this.waitForAppServerConnection(client);
+    const flow = this.service.getFlow(attempt.flowId);
+    const agent = this.service.getAgent(attempt.step);
+    const effectiveWorkspace = flow.worktreePath || flow.workspacePath;
+    const workDirectory = this.service.artifactDirectory(flow);
+    const runtimeWorkspaceRoots = [...new Set([
+      path.resolve(effectiveWorkspace),
+      path.resolve(workDirectory),
+    ])];
+    const logFile = path.join(workDirectory, 'logs', `${attempt.step}.log`);
+    const bridge = new AppServerSessionBridge(client, {
+      workDir: workDirectory,
+      flowId: attempt.flowId,
+      step: attempt.step,
+      attemptId: attempt.id,
+      inngestRunId: attempt.inngestRunId,
+      inngestAttempt: attempt.inngestAttempt,
+      sessionRunId: attempt.sessionRunId,
+      logFile,
+    });
+    bridge.start(false);
+    bridge.bindThread(durableTurn.threadId);
+    bridge.bindTurn(durableTurn.turnId);
+    bridge.appendLog(`[recovery] Reattaching to ${durableTurn.threadId}/${durableTurn.turnId}\n`);
+    this.supervisor.registerActiveThread(
+      attempt.flowId,
+      attempt.step,
+      attempt.id,
+      durableTurn.threadId,
+      durableTurn.turnId,
+    );
+
+    let subscribed = false;
+    let turnStillActive = true;
+    let resolveCompletion!: (outcome: { status?: AppServerTurnStatus; error?: Error }) => void;
+    let settled = false;
+    const startedAt = Date.parse(attempt.startedAt || attempt.createdAt);
+    const elapsed = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : 0;
+    const remainingTimeout = Math.max(1, this.service.config.agentTimeoutMs - elapsed);
+    const completion = new Promise<{ status?: AppServerTurnStatus; error?: Error }>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const finishWaiting = (outcome: { status?: AppServerTurnStatus; error?: Error }): void => {
+      if (settled) return;
+      settled = true;
+      if (outcome.status) turnStillActive = outcome.status === 'inProgress';
+      clearTimeout(timeout);
+      client.removeListener('turn:completed', onCompleted);
+      client.removeListener('error', onError);
+      resolveCompletion(outcome);
+    };
+    const onCompleted = (threadId: string, turnId: string, status: string): void => {
+      if (threadId !== durableTurn.threadId || turnId !== durableTurn.turnId) return;
+      finishWaiting({ status: status as AppServerTurnStatus });
+    };
+    const onError = (threadId: string | null, message: string): void => {
+      if (threadId === durableTurn.threadId || threadId === null) {
+        finishWaiting({ error: new RetriableAgentError(message, 'process') });
+      }
+    };
+    const timeout = setTimeout(() => {
+      finishWaiting({
+        error: new RetriableAgentError('Recovered app-server turn exceeded local timeout', 'timeout'),
+      });
+    }, remainingTimeout);
+    timeout.unref();
+    client.on('turn:completed', onCompleted);
+    client.on('error', onError);
+
+    try {
+      const resumed = await client.resumeThread(durableTurn.threadId, {
+        cwd: effectiveWorkspace,
+        runtimeWorkspaceRoots,
+        model: agent.model || undefined,
+        sandbox: 'danger-full-access',
+      });
+      subscribed = true;
+      if (canonicalPath(resumed.cwd) !== canonicalPath(effectiveWorkspace)) {
+        throw new PermanentAgentError(
+          `App-server thread cwd mismatch: expected ${effectiveWorkspace}, received ${resumed.cwd}`,
+          'configuration',
+        );
+      }
+      let recoveredTurn = resumed.turns?.find((turn) => turn.id === durableTurn.turnId);
+      if (!recoveredTurn) {
+        const snapshot = await client.readThread(durableTurn.threadId, true);
+        recoveredTurn = snapshot.turns.find((turn) => turn.id === durableTurn.turnId);
+      }
+      if (!recoveredTurn) {
+        throw new RetriableAgentError(
+          `Turn ${durableTurn.turnId} was not found while recovering thread ${durableTurn.threadId}`,
+          'session_metadata',
+        );
+      }
+      if (recoveredTurn.status !== 'inProgress') finishWaiting({ status: recoveredTurn.status });
+
+      const outcome = await completion;
+      if (outcome.error) throw outcome.error;
+      const status = outcome.status || 'failed';
+      turnStillActive = status === 'inProgress';
+      if (status === 'interrupted') {
+        bridge.cancel();
+        this.service.finishAttempt(attempt.id, 'cancelled', null);
+        throw new PermanentAgentError('Agent turn was interrupted', 'cancelled');
+      }
+      if (status === 'inProgress') {
+        throw new RetriableAgentError('Recovered turn did not reach a terminal state', 'process');
+      }
+
+      const exitCode = status === 'completed' ? 0 : 1;
+      bridge.complete(exitCode);
+      const outputFile = this.service.outputFile(attempt.flowId, attempt.step);
+      const agentMessage = this.lastAgentMessage(recoveredTurn) || bridge.finalAgentMessage;
+      let outputMtime = 0;
+      try { outputMtime = fs.statSync(outputFile).mtimeMs; } catch { /* no output yet */ }
+      if (agentMessage && outputMtime <= startedAt) {
+        fs.mkdirSync(path.dirname(outputFile), { recursive: true });
+        fs.writeFileSync(outputFile, `${agentMessage}\n`, { mode: 0o600 });
+      }
+      const result = this.readResult(attempt.flowId, attempt.step, attempt, startedAt);
+      if (exitCode !== 0 && result.status !== 'BLOCKED') {
+        throw new RetriableAgentError(`Recovered agent turn finished with status ${status}`, 'process');
+      }
+      this.updateMemory(attempt.flowId, attempt.step);
+      this.service.finishAttempt(attempt.id, 'completed', exitCode);
+      return result;
+    } catch (error) {
+      if (turnStillActive) {
+        await client.interruptTurn(durableTurn.threadId, durableTurn.turnId).catch(() => undefined);
+      }
+      if (!(error instanceof PermanentAgentError && error.stage === 'cancelled')) {
+        const message = error instanceof Error ? error.message : String(error);
+        const stage = error instanceof PermanentAgentError || error instanceof RetriableAgentError
+          ? error.stage
+          : 'worker_crash';
+        this.service.finishAttempt(attempt.id, 'failed', attempt.exitCode, {
+          stage,
+          message: message.slice(0, 500),
+          retriable: !(error instanceof PermanentAgentError),
+        });
+      }
+      if (!bridge.isFinalized) bridge.fail(error instanceof Error ? error.message : String(error));
+      throw error;
+    } finally {
+      finishWaiting({ error: new Error('Recovery stopped') });
+      this.supervisor.unregisterActiveThread(attempt.flowId, attempt.step);
+      if (subscribed) {
+        await client.unsubscribeThread(durableTurn.threadId).catch(() => undefined);
+      }
+    }
+  }
+
+  private lastAgentMessage(turn: AppServerTurnSnapshot): string {
+    for (let index = turn.items.length - 1; index >= 0; index--) {
+      const item = turn.items[index];
+      if (item.type === 'agentMessage' && typeof item.text === 'string') return item.text;
+    }
+    return '';
   }
 
   async execute(input: {
@@ -618,12 +824,7 @@ export class AgentRunner {
     }
 
     // Wait for connection if not connected yet
-    if (!client.connected) {
-      await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new RetriableAgentError('AppServer connection timeout', 'process')), 30_000);
-        client.once('connected', () => { clearTimeout(timeout); resolve(); });
-      });
-    }
+    await this.waitForAppServerConnection(client);
 
     // Create session bridge for metadata + log files
     const logFile = path.join(workDirectory, 'logs', `${input.step}.log`);
@@ -850,6 +1051,14 @@ export class AgentRunner {
 
   async reconcileRunningAttempts(): Promise<void> {
     for (const attempt of this.service.runningAttempts()) {
+      const agent = this.service.getAgent(attempt.step);
+      if ((agent.runtime || 'appserver') === 'appserver' && !attempt.processGroupId && !attempt.pid) {
+        void this.projectExisting(attempt).catch(() => {
+          // The shared recovery promise projects the terminal result or records
+          // a retriable failure without starting a duplicate turn.
+        });
+        continue;
+      }
       if (this.supervisor.isGroupAlive(attempt.processGroupId) || this.supervisor.isAlive(attempt.pid)) {
         void this.projectExisting(attempt).catch(() => {
           // Inngest owns the technical retry; startup reconciliation only

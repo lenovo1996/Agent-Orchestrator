@@ -56,7 +56,7 @@ app.use('/api', workflowsRouter(orchestration.database));
 app.use('/api', agentsRouter(orchestration.database));
 app.use('/api', workspacesRouter(orchestration.database));
 app.use('/api', sessionsRouter(config, sessionService));
-app.use('/api', improvePromptRouter());
+app.use('/api', improvePromptRouter(appServerClient, config.repoRoot));
 app.use('/api', agentInteractionRouter(orchestration.service, orchestration.runner));
 
 // 4. Create HTTP server, then Socket.IO server on top

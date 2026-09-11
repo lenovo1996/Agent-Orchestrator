@@ -8,15 +8,15 @@ Trong `team.json`:
 
 ```json
 {
-  "defaultRuntime": "codex",
+  "defaultRuntime": "appserver",
   "members": {
     "clarifier": {
       "runtime": "claude",
       "model": "claude-sonnet-4-20250514"
     },
     "implementer": {
-      "runtime": "codex",
-      "model": "gpt-5.5",
+      "runtime": "appserver",
+      "model": "gpt-5.6-sol",
       "thinking": "high"
     },
     "reviewer": {
@@ -30,7 +30,8 @@ Trong `team.json`:
 
 | Runtime | CLI | Token Format | Notes |
 |---------|-----|--------------|-------|
-| `codex` | OpenAI Codex CLI | Structured attempt metadata | Default. `codex exec --json`, native rollout remains in `CODEX_HOME` |
+| `appserver` | Codex App Server WebSocket | Structured attempt metadata | Default. AgentRunner owns create/resume/steer/interrupt/recovery; the shell adapter is for manual compatibility |
+| `codex` | OpenAI Codex CLI | Structured attempt metadata | Legacy fallback using `codex exec --json`; native rollout remains in `CODEX_HOME` |
 | `claude` | Claude Code CLI | JSON `{"usage":{"input_tokens":N,"output_tokens":N}}` | Uses `-p` print mode |
 | `kiro` | Kiro CLI | `Token usage: <number>` | Headless mode |
 | `opencode` | OpenCode CLI (via Anthropic proxy) | Auto-detect | Uses anthropic-proxy.js → 9router |
@@ -73,4 +74,4 @@ Không cần cấu hình gì thêm — parser sẽ nhận dạng format bất k�
 
 - `codex-agent-wrapper.sh` vẫn hoạt động (legacy)
 - `agent-wrapper.sh` là entry point mới, dispatch đến `runtimes/`
-- Nếu không set `runtime`, default là `codex`
+- Nếu không set `runtime`, default là `appserver`

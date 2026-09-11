@@ -28,7 +28,7 @@ function getAgentRuntime(service: OrchestrationService, step: string): string {
     const agent = service.getAgent(step);
     return agent.runtime || 'appserver';
   } catch {
-    return 'codex';
+    return 'appserver';
   }
 }
 
@@ -199,7 +199,7 @@ export function agentInteractionRouter(
       const metadataPath = path.join(
         artifactDir, 'sessions', step, `${attempt.sessionRunId}.json`,
       );
-      let metadata: { threadId?: string };
+      let metadata: { threadId?: string; turnId?: string };
       try {
         metadata = JSON.parse(fs.readFileSync(metadataPath, 'utf8'));
       } catch {
@@ -216,9 +216,15 @@ export function agentInteractionRouter(
 
       if (runtime === 'appserver') {
         const client = runner.appServerClient;
-        if (client?.connected) {
-          await client.archiveThread(metadata.threadId);
+        if (!client?.connected) {
+          res.status(503).json({ error: 'App-server not connected' });
+          return;
         }
+        if (!metadata.turnId) {
+          res.status(409).json({ error: 'Turn not yet started' });
+          return;
+        }
+        await client.interruptTurn(metadata.threadId, metadata.turnId);
       }
       // For codex runtime, stopping the flow will kill the process group
       res.json({ success: true });

@@ -7,12 +7,12 @@ import type { AgentRunner } from '@devteam-dashboard/orchestration';
 import { createTestOrchestration, insertTestAttempt } from '../test-helpers.js';
 import { agentInteractionRouter } from './agent-interaction.js';
 
-async function request(app: express.Express, body: unknown) {
+async function request(app: express.Express, body: unknown, action = 'send-message') {
   const server = app.listen(0);
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/flows/flow_001/steps/implementer/send-message`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/flows/flow_001/steps/implementer/${action}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -139,5 +139,33 @@ describe('agent interaction REST API', () => {
       'turn-running',
       'Adjust while working',
     );
+  });
+
+  it('interrupts the active app-server turn without archiving its thread', async () => {
+    const runId = 'interrupt-session';
+    insertTestAttempt(orchestration.database, {
+      attemptId: `attempt-${runId}`,
+      flowId: 'flow_001',
+      runId,
+      startedAt: '2026-08-17T00:00:00.000Z',
+      status: 'running',
+    });
+    metadata(runId, 'running', 'turn-interrupt');
+    orchestration.database.run("UPDATE agents SET runtime = 'appserver' WHERE id = 'implementer'");
+    const interruptTurn = vi.fn(async () => undefined);
+    const archiveThread = vi.fn(async () => undefined);
+    const app = express();
+    app.use(express.json());
+    app.use('/api', agentInteractionRouter(
+      orchestration.service,
+      { appServerClient: { connected: true, interruptTurn, archiveThread } } as unknown as AgentRunner,
+    ));
+
+    const response = await request(app, {}, 'interrupt');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true });
+    expect(interruptTurn).toHaveBeenCalledWith(`thread-${runId}`, 'turn-interrupt');
+    expect(archiveThread).not.toHaveBeenCalled();
   });
 });

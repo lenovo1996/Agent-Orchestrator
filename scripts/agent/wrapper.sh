@@ -2,12 +2,12 @@
 # agent-wrapper.sh — Universal agent wrapper (dispatches to runtime-specific scripts)
 #
 # Replaces codex-agent-wrapper.sh with a pluggable runtime system.
-# Backward-compatible: defaults to "codex" runtime if not specified.
+# Backward-compatible shell entry point; defaults to the app-server adapter.
 #
 # Usage: agent-wrapper.sh <flow-id> <step> <work-dir> <prompt-file> [worktree-path]
 #
 # Env vars (set by the Inngest foreground runner):
-#   AGENT_RUNTIME      - runtime name: codex|claude|kiro|opencode|generic (default: codex)
+#   AGENT_RUNTIME      - runtime name: appserver|codex|claude|kiro|opencode|generic (default: appserver)
 #   AGENT_MODEL        - model to use
 #   AGENT_REASONING    - reasoning effort
 #   AGENT_COMMAND      - custom command (generic runtime only)
@@ -28,7 +28,7 @@ WORKTREE_PATH="${5:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REAL_REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-RUNTIME="${AGENT_RUNTIME:-codex}"
+RUNTIME="${AGENT_RUNTIME:-appserver}"
 RUNTIME_SCRIPT="$SCRIPT_DIR/../runtimes/${RUNTIME}.sh"
 
 # Validate worktree path if provided

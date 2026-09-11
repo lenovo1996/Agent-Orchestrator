@@ -10,7 +10,7 @@
  * Usage: node appserver-runtime.js <prompt-file> <log-file> <work-dir> <cwd> <flow-id> <step>
  *
  * Environment variables:
- *   CODEX_APP_SERVER_URL  - WebSocket URL (default: ws://unix:~/.codex/app-server-control/app-server-control.sock)
+ *   CODEX_APP_SERVER_URL  - WebSocket URL (default: ws://127.0.0.1:9876)
  *   AGENT_MODEL           - Model override
  *   AGENT_REASONING       - Reasoning effort
  *   DEVTEAM_SESSION_RUN_ID
@@ -39,12 +39,7 @@ const prompt = fs.readFileSync(promptFile, 'utf8');
 function resolveAppServerUrl() {
   const envUrl = process.env.CODEX_APP_SERVER_URL;
   if (envUrl) return envUrl;
-
-  const sockPath = path.join(
-    process.env.CODEX_HOME || path.join(require('node:os').homedir(), '.codex'),
-    'app-server-control', 'app-server-control.sock',
-  );
-  return `ws+unix://${sockPath}`;
+  return `ws://127.0.0.1:${process.env.CODEX_APP_SERVER_PORT || '9876'}`;
 }
 
 // ─── Minimal JSON-RPC over WebSocket ─────────────────────────────────────────
@@ -62,6 +57,18 @@ try {
 if (!WebSocket) {
   console.error('No WebSocket implementation available. Install ws: npm i ws');
   process.exit(1);
+}
+
+function onSocket(socket, event, handler) {
+  if (typeof socket.on === 'function') {
+    socket.on(event, handler);
+    return;
+  }
+  socket.addEventListener(event, (value) => {
+    if (event === 'message') handler(value.data);
+    else if (event === 'error') handler(value.error || new Error('WebSocket error'));
+    else handler(value);
+  });
 }
 
 class JsonRpcClient extends EventEmitter {
@@ -85,14 +92,14 @@ class JsonRpcClient extends EventEmitter {
       }
       this.ws = ws;
 
-      ws.on('open', () => resolve());
-      ws.on('error', (err) => reject(err));
-      ws.on('message', (data) => {
+      onSocket(ws, 'open', () => resolve());
+      onSocket(ws, 'error', (err) => reject(err));
+      onSocket(ws, 'message', (data) => {
         let msg;
-        try { msg = JSON.parse(data.toString()); } catch { return; }
+        try { msg = JSON.parse(typeof data === 'string' ? data : Buffer.from(data).toString()); } catch { return; }
         this._handle(msg);
       });
-      ws.on('close', () => {
+      onSocket(ws, 'close', () => {
         for (const [, { reject: r }] of this.pending) r(new Error('closed'));
         this.pending.clear();
         this.emit('close');
@@ -117,6 +124,12 @@ class JsonRpcClient extends EventEmitter {
   respond(id, result) {
     if (this.ws?.readyState === 1) {
       this.ws.send(JSON.stringify({ jsonrpc: '2.0', id, result }));
+    }
+  }
+
+  notify(method, params = {}) {
+    if (this.ws?.readyState === 1) {
+      this.ws.send(JSON.stringify({ jsonrpc: '2.0', method, params }));
     }
   }
 
@@ -170,6 +183,7 @@ const metadata = {
   flowId,
   step,
   threadId: null,
+  turnId: null,
   status: 'starting',
   startedAt: new Date().toISOString(),
   finishedAt: null,
@@ -198,19 +212,48 @@ appendLog(`Session: ${sessionRunId}\n`);
 let exitCode = 1;
 let currentThreadId = null;
 let currentTurnId = null;
+let completedTurnStatus = null;
+let interrupted = false;
+let tokenUsage = {
+  inputTokens: 0,
+  cachedInputTokens: 0,
+  outputTokens: 0,
+  reasoningOutputTokens: 0,
+};
+let activeClient = null;
+let stopWaiting = null;
+
+async function interruptActiveTurn() {
+  interrupted = true;
+  exitCode = 143;
+  if (activeClient && currentThreadId && currentTurnId) {
+    await activeClient.request('turn/interrupt', {
+      threadId: currentThreadId,
+      turnId: currentTurnId,
+    }).catch(() => undefined);
+  }
+  stopWaiting?.();
+}
+
+process.once('SIGTERM', () => { void interruptActiveTurn(); });
+process.once('SIGINT', () => { void interruptActiveTurn(); });
 
 async function main() {
   const client = new JsonRpcClient(SC_URL);
 
   // Handle approval requests (auto-approve)
-  client.on('request', (id, method, _params) => {
+  client.on('request', (id, method, params) => {
     if (method === 'item/commandExecution/requestApproval' ||
         method === 'item/fileChange/requestApproval' ||
         method === 'item/permissions/requestApproval') {
       if (method === 'item/permissions/requestApproval') {
-        client.respond(id, { permissions: { level: 'dangerFullAccess' }, scope: 'session' });
+        const requested = params.permissions || {};
+        const permissions = {};
+        if (requested.network) permissions.network = requested.network;
+        if (requested.fileSystem) permissions.fileSystem = requested.fileSystem;
+        client.respond(id, { permissions, scope: 'session' });
       } else {
-        client.respond(id, 'acceptForSession');
+        client.respond(id, { decision: 'acceptForSession' });
       }
     } else {
       client.respond(id, { error: 'Not supported' });
@@ -230,10 +273,18 @@ async function main() {
       }
       case 'turn/started': {
         currentTurnId = params.turn?.id;
+        metadata.turnId = currentTurnId;
+        atomicWrite(metadataPath, metadata);
         appendLog(`\n--- Turn ${currentTurnId} started ---\n`);
         break;
       }
       case 'turn/completed': {
+        if (!currentTurnId && params.turn?.id) currentTurnId = params.turn.id;
+        if (params.turn?.id === currentTurnId) {
+          completedTurnStatus = params.turn.status || 'failed';
+          exitCode = completedTurnStatus === 'completed' ? 0 : 1;
+          stopWaiting?.();
+        }
         appendLog(`\n--- Turn completed ---\n`);
         break;
       }
@@ -251,22 +302,34 @@ async function main() {
         }
         break;
       }
+      case 'item/agentMessage/delta':
       case 'agentMessage/delta': {
         appendLog(params.delta || '');
         break;
       }
-      case 'commandExecution/outputDelta':
-      case 'commandExec/outputDelta': {
+      case 'item/reasoning/summaryTextDelta': {
         appendLog(params.delta || '');
         break;
       }
-      case 'process/outputDelta': {
-        try {
-          appendLog(Buffer.from(params.deltaBase64 || '', 'base64').toString('utf8'));
-        } catch { /* ignore */ }
+      case 'thread/tokenUsage/updated': {
+        if (params.threadId !== currentThreadId || params.turnId !== currentTurnId) break;
+        const total = params.tokenUsage?.total;
+        if (total) {
+          tokenUsage = {
+            inputTokens: Number(total.inputTokens || 0),
+            cachedInputTokens: Number(total.cachedInputTokens || 0),
+            outputTokens: Number(total.outputTokens || 0),
+            reasoningOutputTokens: Number(total.reasoningOutputTokens || 0),
+          };
+          metadata.usage = { ...tokenUsage };
+          atomicWrite(metadataPath, metadata);
+        }
         break;
       }
-      case 'process/exited': {
+      case 'item/commandExecution/outputDelta':
+      case 'commandExecution/outputDelta':
+      case 'commandExec/outputDelta': {
+        appendLog(params.delta || '');
         break;
       }
       case 'error': {
@@ -275,6 +338,10 @@ async function main() {
         metadata.status = 'failed';
         atomicWrite(metadataPath, metadata);
         appendLog(`[ERROR] ${msg}\n`);
+        if (params.turnId === currentTurnId) {
+          exitCode = 1;
+          stopWaiting?.();
+        }
         break;
       }
     }
@@ -286,12 +353,14 @@ async function main() {
 
   // Connect
   await client.connect();
+  activeClient = client;
 
   // Initialize
   await client.request('initialize', {
     clientInfo: { name: 'devteam-runtime', title: 'DevTeam Runtime', version: '0.1.0' },
     capabilities: { experimentalApi: true, requestAttestation: false },
   });
+  client.notify('initialized');
 
   // Create thread
   const runtimeWorkspaceRoots = [...new Set([path.resolve(cwd), path.resolve(workDir)])];
@@ -318,45 +387,50 @@ async function main() {
     runtimeWorkspaceRoots,
     sandboxPolicy: { type: 'dangerFullAccess' },
     model: process.env.AGENT_MODEL || undefined,
+    effort: process.env.AGENT_REASONING || undefined,
+    summary: process.env.AGENT_REASONING === 'none' ? 'none' : 'detailed',
   });
 
   currentTurnId = turnResult.turn.id;
+  metadata.turnId = currentTurnId;
+  atomicWrite(metadataPath, metadata);
 
   // Wait for turn completion
   await new Promise((resolve) => {
-    const onNotif = (method, params) => {
-      if (method === 'turn/completed' && params.turn?.id === currentTurnId) {
-        client.removeListener('notification', onNotif);
-        exitCode = 0;
-        resolve();
-      }
-      if (method === 'error' && params.turnId === currentTurnId) {
-        client.removeListener('notification', onNotif);
-        exitCode = 1;
-        resolve();
-      }
+    let timer;
+    stopWaiting = () => {
+      if (timer) clearTimeout(timer);
+      resolve();
     };
-    client.on('notification', onNotif);
-
-    // Timeout
-    setTimeout(() => {
-      client.removeListener('notification', onNotif);
+    if (completedTurnStatus) {
+      stopWaiting();
+      return;
+    }
+    timer = setTimeout(() => {
       appendLog('[ERROR] Turn timed out after 6 hours\n');
       exitCode = 1;
-      resolve();
+      void client.request('turn/interrupt', {
+        threadId: currentThreadId,
+        turnId: currentTurnId,
+      }).catch(() => undefined).finally(() => stopWaiting?.());
     }, 6 * 60 * 60 * 1000);
+    timer.unref();
   });
 
+  stopWaiting = null;
+  await client.request('thread/unsubscribe', { threadId: currentThreadId }).catch(() => undefined);
+  activeClient = null;
   client.close();
 }
 
 main().then(() => {
   // Write final token count
-  appendLog(`tokens used\n0\n`);
+  appendLog(`tokens used\n${tokenUsage.outputTokens}\n`);
 
-  metadata.status = exitCode === 0 ? 'completed' : 'failed';
+  metadata.status = interrupted ? 'cancelled' : exitCode === 0 ? 'completed' : 'failed';
   metadata.exitCode = exitCode;
   metadata.finishedAt = new Date().toISOString();
+  metadata.usage = { ...tokenUsage };
   if (metadata.status === 'failed' && !metadata.errorSummary) {
     metadata.errorSummary = { stage: 'process', message: `Exit code ${exitCode}` };
   }
